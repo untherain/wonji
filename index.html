@@ -4,7 +4,6 @@
 <title>원지 창고</title>
 <meta name="apple-mobile-web-app-title" content="원지 창고">
 <meta name="robots" content="noindex">
-
 <meta charset="utf-8">
 <script>
 (function () {
@@ -160,7 +159,10 @@
   #syncBtn { position:absolute; right:max(12px, calc((100% - 640px) / 2 + 12px)); top:12px; background:#2E3339; border:1px solid #555B63; color:#fff; border-radius:10px; font:inherit; font-size:14px; font-weight:700; height:38px; padding:0 12px; }
   #syncBtn small { color:#A9AFB6; font-weight:500; margin-left:4px; }
   #ptr { height:0; overflow:hidden; text-align:center; font-size:13px; font-weight:700; color:var(--sub); transition:height .15s; }
-  #newVer { display:none; margin-top:8px; background:var(--y); color:var(--ink); border-radius:10px; padding:10px 12px; font-weight:900; text-decoration:none; text-align:center; }
+  #newVer { display:none; }   /* 새 버전 열기용 숨은 링크 (버튼은 #syncBtn 하나) */
+  /* 새 버전 있음: 버튼 오른쪽 위 노란 점(↑) + 노란 테두리 */
+  #syncBtn.upd { border-color:var(--y); }
+  #syncBtn .nvdot { position:absolute; top:-7px; right:-7px; width:20px; height:20px; border-radius:50%; background:var(--y); color:var(--ink); font-style:normal; font-size:13px; font-weight:900; line-height:20px; text-align:center; box-shadow:0 0 0 2px var(--ink); }
   .rt { width:100%; border-collapse:collapse; font-size:13px; }
   .rt th, .rt td { border-bottom:1px solid #E6E8EB; padding:5px 4px; text-align:right; white-space:nowrap; }
   .rt th:first-child, .rt td:first-child, .rt .l { text-align:left; }
@@ -312,6 +314,9 @@
   .shfoot .fr .btn { flex:1; min-width:0; height:50px; }
   .shfoot .stepper { gap:6px; } .shfoot .stepper button { width:44px; height:50px; font-size:22px; } .shfoot .stepper span { font-size:24px; min-width:34px; }
   .shfoot .okline { margin:0 0 6px; } .shfoot .warnbox { margin:0 0 8px; }
+  /* 기존 요소 위 작은 표시 (따로 줄 · 띠를 쓰지 않음) */
+  .stw { position:relative; flex:none; } .mxb { position:absolute; top:-9px; right:-6px; background:var(--ok); color:#fff; font-style:normal; font-size:11px; font-weight:900; padding:1px 6px; border-radius:9px; white-space:nowrap; pointer-events:none; }
+  header h1 { display:inline-block; vertical-align:middle; } #testBar { vertical-align:middle; margin-left:8px; background:#E8590C; color:#fff; font-size:12px; font-weight:900; padding:3px 9px; border-radius:10px; cursor:pointer; }
   .okline { color:var(--ok); font-weight:700; font-size:13px; margin-top:8px; }
   details.more { margin:10px 0; font-size:14px; } details.more summary { color:var(--sub); font-weight:700; padding:6px 0; }
   #toast { align-items:center; gap:10px; }
@@ -324,9 +329,9 @@
 <body>
 <header>
   <h1 id="title">재고 조회</h1>
-  <button id="syncBtn" onclick="refreshStock(true)" aria-label="재고 새로 고침">↻ 새로고침<small id="syncAt">-</small></button>
-  <a id="newVer" target="_top" href="#">새 버전 있음 — 누르면 적용</a>
-  <div id="testBar" data-lp="test" style="display:none; margin-top:6px; background:#E8590C; color:#fff; font-size:13px; font-weight:900; padding:4px 10px; border-radius:6px">테스트 모드 — 입력 건에 [테스트] 표시</div>
+  <button id="syncBtn" onclick="syncTap()" aria-label="재고 새로 고침">↻ 새로고침<small id="syncAt">-</small></button>
+  <a id="newVer" target="_top" href="#" aria-hidden="true"></a>
+  <span id="testBar" data-lp="test" onclick="lpAct('test')" role="button" aria-label="테스트 모드 끄기" style="display:none">테스트</span>
   <div id="hdrExtra"></div>
 </header>
 
@@ -572,10 +577,20 @@ function refreshStock(force) {
   });
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshStock(false); });
-/* 새 버전 배포 감지 → 머리말에 [적용] (누르면 앱 전체 다시 열기) */
+/* 새 버전 배포 감지 → [↻ 새로고침] 버튼 모서리에 업데이트 표시(노란 점 ↑): 누르면 앱 전체 다시 열기 (재고도 함께 최신)
+   버튼 하나로 처리 — 따로 띠를 띄우지 않음 · 버튼 글자 · 시각은 그대로 */
+var NEWVER = false;
 function checkVer(v) {
-  if (!v || !S.ver || v === S.ver) return;
-  var a = $('newVer'); a.href = S.appUrl || '#'; a.style.display = 'block';
+  if (!v || !S.ver || v === S.ver || NEWVER) return;
+  NEWVER = true;
+  $('newVer').href = S.appUrl || '#';
+  var b = $('syncBtn'), d = document.createElement('i');
+  d.className = 'nvdot'; d.textContent = '↑'; d.setAttribute('aria-hidden', 'true');
+  b.classList.add('upd'); b.appendChild(d); b.setAttribute('aria-label', '새 버전 적용');
+}
+function syncTap() {
+  if (NEWVER) return $('newVer').click();   // 구글 화면에선 바깥 창 전체를 새 주소로 (target=_top 링크)
+  refreshStock(true);
 }
 /* 1분마다 자동 새로 고침 (작업창 · 이동 중에는 건너뜀) */
 setInterval(function () { if (document.visibilityState === 'visible' && !SH && !MV) refreshStock(false); }, 60000);
@@ -590,7 +605,7 @@ setInterval(function () { if (document.visibilityState === 'visible' && !SH && !
     P.textContent = dy > 90 ? '↻ 놓으면 새로고침' : '↓ 당겨서 새로고침';
   }, { passive: true });
   document.addEventListener('touchend', function () {
-    if (y0 !== null && dy > 90) refreshStock(true);
+    if (y0 !== null && dy > 90) syncTap();   // 당겨서 새로고침 = 버튼과 같음 (새 버전이면 적용)
     y0 = null; dy = 0; P.style.height = '0';
   });
 })();
@@ -819,7 +834,7 @@ function show(t) {
   ['find', 'map', 'in', 'mng', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
   $('title').textContent = TITLES[t];
-  $('testBar').style.display = isTest() ? 'block' : 'none';
+  $('testBar').style.display = isTest() ? 'inline-block' : 'none';
   $('hdrExtra').innerHTML = '';
   SH = null; MV = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
   ({ find: renderFind, map: renderMap, in: renderIn, mng: renderMng, log: renderLog, set: renderSet })[t]();
@@ -1467,7 +1482,7 @@ function sheetIn() {
       (nx ? '<button class="btn2 dk" onclick="goNextRow()">다음 줄 ' + esc(keyOf(nx)) + ' →</button>' : '<button class="btn2" disabled style="opacity:.45">구역 끝</button>') + '</div>';
   }
   h += photoBar('shPhoto', phNote('라벨을 찍으면 평량 · 지폭 · 제지사 자동 입력')) + pickerHtml(true);
-  var f = '';
+  var f = '', maxB = '';
   if (ready) {
     var free = freeFor(code, sp.gsm, sp.width, sp.grade || '');
     var sameHere = rowInfo(code).items.some(function (s) { return s.gsm == sp.gsm && s.width == sp.width; });
@@ -1476,7 +1491,7 @@ function sheetIn() {
       var sug = suggestFor(sp, SH.qty, code);
       f += '<div class="warnbox"><b>공간 부족 — 최대 ' + free + '롤</b>' + (sug ? '<div class="row" style="margin-top:6px"><span>추천: <b>' + esc(locLabel(sug)) + '</b> (' +
         freeFor(sug, sp.gsm, sp.width, sp.grade || '') + '롤 가능)</span><button class="btn2" style="height:38px; flex:none" onclick="SH.code=\'' + sug + '\';M.wh=whOf(\'' + sug + '\').id;renderMap();renderSheet()">' + keyOf(sug) + '로</button></div>' : '<div>빈 줄 없음</div>') + '</div>';
-    } else f += '<div class="okline">적재 가능 ' + free + '롤' + (sameHere ? ' · 같은 규격 있음' : '') + '</div>';
+    } else maxB = '<i class="mxb">최대 ' + free + '</i>';   // 적재 가능 롤 수 = 롤 수 버튼 모서리 표시 (따로 줄 안 씀)
   }
   h += '<details class="more" id="sh-more"' + (SH.more ? ' open' : '') + ' ontoggle="SH.more=this.open"><summary>더보기: 지종 · 잔량 반납</summary>' +
     lbl('지종', '') + gradeGrid(sp.grade || '') +
@@ -1486,7 +1501,7 @@ function sheetIn() {
       '<button class="chip etc" onclick="destAdd(function (v) { SH.from = v; renderSheet(); })">+ 입력</button></div>' : '') +
     '</details>';
   var label = SH.rem ? '잔량 반납 저장' : '입고 저장';
-  return h + '<div class="shfoot">' + f + '<div class="fr" id="sh-qtyrow">' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '롤 수') +
+  return h + '<div class="shfoot">' + f + '<div class="fr" id="sh-qtyrow"><div class="stw">' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '롤 수') + (maxB || '') + '</div>' +
     '<button class="btn" id="sh-save"' + (!ready || bad || (SH.rem && !SH.from) ? ' style="opacity:.45" disabled' : '') + ' onclick="doIn()">' + label + '</button></div></div>';
 }
 function doIn() {
@@ -3084,7 +3099,7 @@ function addWorkerUI() {
 function isTest() { try { return localStorage.getItem('testMode') === 'Y'; } catch (e) { return false; } }
 function toggleTest(on) {
   try { localStorage.setItem('testMode', on ? 'Y' : ''); } catch (e) {}
-  $('testBar').style.display = on ? 'block' : 'none';
+  $('testBar').style.display = on ? 'inline-block' : 'none';
   toast(on ? '테스트 모드 켜짐' : '테스트 모드 해제됨');
 }
 function cancelTestsUI() {
