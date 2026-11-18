@@ -209,6 +209,10 @@
   /* 지도 작업창 */
   #dim { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:6; display:none; }
   .sheet { z-index:7; bottom:0; max-height:calc(100vh - 56px); max-height:calc(100dvh - 56px); padding-bottom:calc(14px + env(safe-area-inset-bottom)); }
+  /* 작업창이 열려 있으면 뒤 화면(지도)은 스크롤 잠금: 작업창 끝까지 굴려도 휠 · 손가락 움직임이 뒤로 넘어가지 않음 */
+  html { scrollbar-gutter:stable; }
+  body.shopen { overflow:hidden; }
+  .sheet { overscroll-behavior:contain; }
   .sheet .it { padding:10px 0; border-bottom:1px solid #E6E8EB; }
   .sheet .it.open { background:#FFF8E1; margin:0 -16px; padding:10px 16px; }
   .sheet .sp { font-size:18px; }
@@ -1000,6 +1004,8 @@ function openRow(code, mode) {
 }
 function showDetail(code) { openRow(code); }
 function closeSheet() { document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none'; }
+/* 어두운 배경 위의 휠 · 손가락 끌기는 무시 (아이폰 사파리는 overflow:hidden만으로 안 막힘) */
+['wheel', 'touchmove'].forEach(function (ev) { $('dim').addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
 function shMode(m) {
   SH.mode = m;
   if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: lsGet('lastMaker'), grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
