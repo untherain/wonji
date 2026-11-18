@@ -130,6 +130,10 @@
   .cell { min-height:46px; border-radius:8px; border:1px solid var(--line); background:#fff; padding:4px 8px; margin-bottom:5px; width:100%; text-align:left; font:inherit; color:var(--ink); display:block; }
   .cell.off { background:#E6E8EB; color:#6B7178; }
   .cell.hit { background:var(--y); border:2px solid var(--ink); }
+  .cell.tdy { border:2px solid var(--ok); } .cell .tck { color:var(--ok); }
+  .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
+  .prog span { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .prog b { color:#7ED89B; }
+  .prog button { flex:none; height:34px; padding:0 12px; border-radius:8px; border:0; background:var(--y); color:var(--ink); font:inherit; font-size:14px; font-weight:900; }
   .cell .t { display:flex; justify-content:space-between; font-size:14px; font-weight:900; }
   .cell .s { font-size:11px; color:#3E444B; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .cell .sl { display:flex; justify-content:space-between; gap:4px; font-size:12px; font-weight:700; color:#3E444B; white-space:nowrap; line-height:1.35; }
@@ -505,6 +509,7 @@ function lotText(s) {
 }
 /* 저장 결과 · 새로 고침 결과 재고 반영 */
 function setStock(stock, at) {
+  if (stock && !Array.isArray(stock) && stock.today) S.today = stock.today;   // 오늘 입고 진행 (저장 · 되돌리기 결과)
   if (stock && !Array.isArray(stock) && stock.stock) stock = stock.stock;   // 저장 결과 { stock, nos }
   S.stock = stock; S.loadedAt = Date.now(); S.at = at || hhmm();
   var el = $('syncAt'); if (el) el.textContent = S.at;
@@ -517,6 +522,7 @@ function refreshStock(force) {
   S.loadedAt = Date.now();
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
   call('getStock', tok()).then(function (r) {
+    if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver);
     if (force) toast('재고 새로 고침 완료');
     if (TAB === 'find' && !(FM === 'plan' && document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderFind();
@@ -856,7 +862,8 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
-  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : searchBar());
+  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : searchBar() + progLine());
+  var TD = (S.today && S.today.locs) || {};
   seg($('m-whseg'), S.whs.map(function (x) {
     var n = S.stock.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
     return [x.id, esc(x.name) + ' <small>' + n + '롤</small>'];
@@ -888,8 +895,9 @@ function renderMap() {
         else { var fr = off ? 0 : freeFor(code, MV.item.gsm, MV.item.width, MV.item.grade); mvc = fr >= MV.qty ? ' can' : ' cant'; fit = '<div class="fit">' + (fr >= MV.qty ? '들어감 ' + fr + '롤' : '공간 부족') + '</div>'; }
         hit = false;
       }
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + mvc + '" onclick="cellTap(\'' + code + '\')">' +
-        '<div class="t"><span>' + key + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
+      var tdy = !MV && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + '" onclick="cellTap(\'' + code + '\')">' +
+        '<div class="t"><span>' + key + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? (n ? '사용 중지 · 재고 ' + n + '롤 있음' : '사용 중지') : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
@@ -939,6 +947,36 @@ function searchBar() {
   return '<div class="srch" role="button" onclick="openFilter()"><b>' + (F.gsm || '전체') + ' × ' + (F.width || '전체') + '</b><span class="cnt">' +
     Object.keys(locs).length + '곳 · ' + hits.reduce(function (a, s) { return a + s.qty; }, 0) + '롤</span><button class="clr" aria-label="검색 해제" onclick="clearFilter(event)">✕</button></div>';
 }
+/* 오늘 입고 진행 한 줄: 몇 줄 · 몇 롤 · 마지막 입고 → [이어서] = 그 줄 입고창을 같은 규격으로 */
+function progLine() {
+  var t = S.today; if (!t || !t.rolls || !t.last) return '';
+  var L = t.last, n = Object.keys(t.locs).length;
+  return '<div class="prog"><span><b>✓ 오늘 ' + n + '줄 · ' + t.rolls + '롤</b> · 마지막 ' + esc(keyOf(L.loc)) + ' ' + esc(fmtItem(L, L.qty)) + ' · ' + esc(L.at) + '</span>' +
+    '<button onclick="contIn()">이어서</button></div>';
+}
+function contIn() {
+  var L = S.today && S.today.last; if (!L) return;
+  var w = whOf(L.loc); if (w) { M.wh = w.id; renderMap(); }
+  openRow(L.loc, 'in');
+  SH.sp = { gsm: L.gsm, width: L.width, maker: L.maker || '', grade: L.grade || '' };
+  SH.rem = !!L.rem; SH.cont = true;
+  renderSheet();
+}
+/* 같은 구역의 다음 번호 줄 (사용 중지 줄은 건너뜀, 끝이면 없음) */
+function nextRow(code) {
+  var w = whOf(code), p = String(code).split('-'); if (!w) return null;
+  var z = w.zones.filter(function (x) { return x.code === p[1]; })[0]; if (!z) return null;
+  for (var i = Number(p[2]) + 1; i <= z.rows; i++) {
+    var c = w.id + '-' + z.code + '-' + pad(i);
+    if (!rowInfo(c).cfg.off) return c;
+  }
+  return null;
+}
+function goNextRow() {
+  var n = nextRow(SH.code); if (!n) return;
+  SH.code = n; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = '';
+  renderMap(); renderSheet(); $('detail').scrollTop = 0;
+}
 function moveBand() {
   var s = MV.item;
   return '<div class="band"><div class="row"><b>이동 · ' + esc(keyOf(MV.from)) + ' · ' + esc(fmtItem(s)) + '</b><button class="btn2" style="height:34px; flex:none" onclick="cancelMove()">취소</button></div>' +
@@ -965,8 +1003,12 @@ function closeSheet() { document.body.classList.remove('shopen'); SH = null; $('
 function shMode(m) {
   SH.mode = m;
   if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: lsGet('lastMaker'), grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
-  if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; }
+  if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
   if (m === 'cnt') SH.cnt = { v: {}, extra: [] };
+  renderSheet(); $('detail').scrollTop = 0;
+}
+function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비움 (제지사는 그대로)
+  SH.sp = { gsm: null, width: null, maker: SH.sp.maker || '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = '';
   renderSheet(); $('detail').scrollTop = 0;
 }
 function shBack() { SH.mode = SH.mode === 'add' ? 'cnt' : ''; SH.it = null; renderSheet(); }
@@ -1330,8 +1372,13 @@ function sheetIn() {
   var sum = [P(sp.maker || '', '제지사', 'sp-mk', 'maker', false), sp.maker ? ' ' : '', P(sp.gsm, '평량', 'sp-gsm', 'gsm'), P(sp.width, '지폭', 'sp-width', 'width', true, '×'),
     P(sp.grade, '지종', 'sh-more', 'grade', false, ' · ')];
   if (SH.rem) sum.push(P(SH.from ? '반납 ' + SH.from : '', '반납 호기', 'sh-more', null, true, ' · '));
-  var h = shHead(esc(keyOf(code)) + ' ' + (SH.rem ? '반납' : '입고'), '', true, sLine(sum)) +
-    photoBar('shPhoto', phNote('라벨을 찍으면 평량 · 지폭 · 제지사 자동 입력')) + pickerHtml(true);
+  var h = shHead(esc(keyOf(code)) + ' ' + (SH.rem ? '반납' : '입고'), '', true, sLine(sum));
+  if (SH.cont) {   // 연속 입고: 저장 뒤에도 규격 유지 → 같은 줄 다른 규격 / 다음 줄
+    var nx = nextRow(code);
+    h += '<div class="grid2" style="margin:8px 0 4px"><button class="btn2" onclick="newSpec()">다른 규격</button>' +
+      (nx ? '<button class="btn2 dk" onclick="goNextRow()">다음 줄 ' + esc(keyOf(nx)) + ' →</button>' : '<button class="btn2" disabled style="opacity:.45">구역 끝</button>') + '</div>';
+  }
+  h += photoBar('shPhoto', phNote('라벨을 찍으면 평량 · 지폭 · 제지사 자동 입력')) + pickerHtml(true);
   var f = '';
   if (ready) {
     var free = freeFor(code, sp.gsm, sp.width, sp.grade || '');
@@ -1361,7 +1408,8 @@ function doIn() {
   var p = { loc: code, gsm: sp.gsm, width: sp.width, qty: SH.qty, grade: sp.grade || '', maker: sp.maker || '', worker: worker(), memo: SH.memo || '', test: isTest(), rem: !!SH.rem, from: SH.rem ? SH.from : '' };
   call('intake', p).then(function (r) {
     setStock(r); useSpec(p); if (p.maker) lsSet('lastMaker', p.maker);
-    if (SH && SH.code === code) SH.mode = '';
+    // 연속 입고: 입고창 유지 · 규격 그대로 · 롤 수만 1로 (다음 롤 · 다음 줄을 바로 이어서)
+    if (SH && SH.code === code && SH.mode === 'in') { SH.cont = true; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
     renderMap(); if (SH) renderSheet();
     undoToast((p.rem ? '잔량 반납 ' : '입고 ') + keyOf(code) + ' · ' + fmtItem(p, p.qty), r.nos);
   });
