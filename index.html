@@ -2294,7 +2294,7 @@ var LINES = ['1호기', '2호기', '3호기', '기타'];
 var FM = (function () { try { return localStorage.getItem('findMode') || 'spec'; } catch (e) { return 'spec'; } })();
 function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, seq: 1, msg: '' }; }
 var PL = (function () { try { return JSON.parse(localStorage.getItem('plan') || 'null') || newPL(); } catch (e) { return newPL(); } })();
-var PQ = { line: '1호기', gsm: null, width: null, maker: '', qty: 1, name: '' };
+var PQ = { line: '1호기', gsm: null, width: null, maker: '', grade: '', qty: 1 };
 function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} }
 function setFM(m) { FM = m; try { localStorage.setItem('findMode', m); } catch (e) {} renderFind(); }
 
@@ -2374,9 +2374,7 @@ function renderPlan() {
   // 빠른 입력
   h += '<div class="card" style="margin-top:10px"><b>빠른 입력</b>' +
     '<div class="grid4" id="pq-line" style="margin-top:6px"></div>' +
-    pickerBody(PQ, true, 'renderPlan()') +
-    '<input class="mini" id="pq-name" list="pq-names" style="margin-top:8px" placeholder="원지명 (예: 단면무광(왕자))" value="' + esc(PQ.name) + '" oninput="PQ.name=this.value" onchange="renderPlan()">' +
-    '<datalist id="pq-names">' + nameOptions() + '</datalist>' +
+    pickerBody(PQ, true, 'renderPlan()', true) +
     '<div class="row" style="margin-top:8px">' + stepper(PQ.qty, 'PQ.qty=Math.max(1,PQ.qty-1); renderPlan()', 'PQ.qty++; renderPlan()', '수량') +
     '<button class="btn" id="pq-add" style="width:auto; padding:0 22px; height:52px" onclick="addPQ()">추가</button></div></div>';
   // 계획 품목 (근거 없는 품목이 있으면 한 번에 삭제 버튼)
@@ -2402,13 +2400,7 @@ function renderPlan() {
   chips($('pq-line'), LINES, PQ.line, function (v) { PQ.line = v; renderPlan(); });
   PKT = { sp: PQ, render: renderPlan };
   hdrSum('find', sLine([P(PQ.line, '호기', 'pq-line'), ' · ', P(PQ.maker || '', '제지사', 'sp-mk', null, false), PQ.maker ? ' ' : '', P(PQ.gsm, '평량', 'sp-gsm'), P(PQ.width, '지폭', 'sp-width', null, true, '×'),
-    P(PQ.qty + '롤', '수량', 'pq-add', null, true, ' · '), P(PQ.name || '', '원지명', 'pq-name', null, false, ' · ')], '빠른 입력'));
-}
-function nameOptions() {
-  var seen = {}, out = [];
-  PL.items.map(function (it) { return it.name; }).concat((S.quick['제지사'] || []).map(function (m) { return m + '제지'; }))
-    .forEach(function (n) { if (n && !seen[n]) { seen[n] = 1; out.push('<option value="' + esc(n) + '">'); } });
-  return out.join('');
+    P(PQ.qty + '롤', '수량', 'pq-add', null, true, ' · '), P(PQ.grade || '', '지종', 'sp-gr', null, false, ' · ')], '빠른 입력'));
 }
 function planRow(it) {
   var i = PL.items.indexOf(it), ok = it.gsm && it.width && (it.all || it.qty), mk = planMk(it);
@@ -2496,9 +2488,10 @@ function delPI(i) {
 function addPQ() {
   if (!PQ.gsm || !PQ.width) { toast('평량 · 지폭 선택 필요', true); return; }
   var max = PL.items.filter(function (it) { return it.line === PQ.line; }).reduce(function (m, it) { return Math.max(m, it.planNo); }, 0);
-  var nm = PQ.name.trim();
-  if (PQ.maker && !parseName(nm).maker) nm = nm + '(' + PQ.maker + ')';   // 원지명(제지사) 형식 — 피킹 때 제지사 맞춤
-  PL.items.push(fillMk({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: nm, gsm: PQ.gsm, width: PQ.width, qty: PQ.qty, all: false, note: '' }));
+  // 제지사 · 지종은 버튼으로 고른 값 그대로 (원지명 글자 입력 없음)
+  var mk = PQ.maker || '', gr = PQ.grade || '';
+  PL.items.push({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: gr + (mk ? '(' + mk + ')' : ''), grade: gr, maker: mk,
+    gsm: PQ.gsm, width: PQ.width, qty: PQ.qty, all: false, note: '' });
   savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; renderPlan();
 }
 function clearPlan() {
