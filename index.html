@@ -1058,7 +1058,7 @@ function rowItems(code) {
     .sort(function (a, b) { return b.qty - a.qty || a.date.localeCompare(b.date); });
 }
 function itemP(s) { return { gsm: s.gsm, width: s.width, grade: s.grade || '', rem: !!s.rem, maker: s.maker || '', byMaker: true, worker: worker(), test: isTest() }; }
-function mkName(m, i) { return m ? esc(m) : i != null ? '<button class="sg miss" style="font-size:14px" onclick="pickMaker(' + i + ')">제지사 미확인 ▸</button>' : '<span style="color:#9A1C1C">제지사 미확인</span>'; }
+function mkName(m, i, fn) { return m ? esc(m) : i != null ? '<button class="sg miss" style="font-size:14px" onclick="' + (fn || 'pickMaker') + '(' + i + ')">제지사 미확인 ▸</button>' : '<span style="color:#9A1C1C">제지사 미확인</span>'; }
 function openRow(code, mode) {
   SH = { code: code, mode: '', it: null, qty: 1 };
   if (mode) shMode(mode); else renderSheet();
@@ -1531,12 +1531,32 @@ function sheetCount() {
   var h = shHead(esc(keyOf(SH.code)) + ' 실사', ds.length ? '' : '실제 롤 수로 맞춘 뒤 저장', true, ds.length ? sLine(ds, '차이 ' + ds.length + '건') : '');
   h += list.length ? list.map(function (s, i) {
     var a = c.v[itemKey(s)], d = a - s.qty; if (d) diff++;
-    return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('')) + remTag(s) +
+    return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
       '<br><span class="muted">전산 ' + s.qty + '롤</span></span>' +
       stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량') + '</div></div>';
   }).join('') : '<div class="muted" style="padding:12px 0">재고 없음</div>';
   return h + '<button class="btn2" style="width:100%; margin:10px 0" onclick="shMode(\'add\')">+ 미등록 규격</button>' +
     '<div class="shfoot"><button class="btn" onclick="saveCnt()"' + (diff ? '' : ' disabled style="opacity:.45"') + '>' + (diff ? '실사 저장' : '차이 없음') + '</button></div>';
+}
+/* 실사 중 제지사 미확인 품목에 제지사 지정 — 입력해 둔 실사 수량은 새 품목(제지사 포함)으로 옮김
+   같은 위치에 같은 규격 · 같은 제지사 재고가 이미 있으면 한 품목으로 합쳐지므로 실사 수량도 더함 */
+function pickMakerCnt(i) {
+  var s = SH.clist[i], code = SH.code;
+  ask({ title: '제지사 지정', msg: plain(locLabel(code)) + ' · ' + fmtItem(s, s.qty), chips: S.quick['제지사'] || [] }, function (m) {
+    if (!m) return;
+    var c = SH.cnt, oldK = itemKey(s), counted = c.v[oldK], newK = itemKey(Object.assign({}, s, { maker: m }));
+    var move = function () {
+      if (!SH || SH.code !== code || SH.cnt !== c) return;
+      var other = c.v[newK];
+      delete c.v[oldK];
+      c.v[newK] = counted + (other != null ? other : 0);
+      renderMap(); renderSheet();
+    };
+    // 전산에 없는 품목(실사 중 "+ 미등록 규격"으로 추가) → 이 화면에서만 바꿈
+    if (!rowItems(code).some(function (x) { return sameItem(x, s); })) { s.maker = m; move(); toast('제지사 지정: ' + m); return; }
+    if (!requireWorker()) return;
+    call('setMaker', Object.assign(itemP(s), { loc: code, maker: m })).then(function (st) { setStock(st); move(); toast('제지사 지정 완료: ' + m); });
+  });
 }
 function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); renderSheet(); }
 function sheetAdd() {
