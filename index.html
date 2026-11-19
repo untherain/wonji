@@ -1182,10 +1182,10 @@ function pickByPhoto(cam) {
     }).sort(function (a, b) { return lines.indexOf(a.line) - lines.indexOf(b.line) || b.planNo - a.planNo; });
     var mk = r.maker ? canonMaker(r.maker) : '', spec = fmtItem({ maker: mk, gsm: r.gsm, width: r.width });
     if (!cands.length) { pkSay(spec + ' — 계획에 없음 (또는 이미 체크)', true); return; }
-    var ok = cands.filter(function (it) { var pm = parseName(it.name).maker; return !mk || !pm || pm === mk; })[0];
+    var ok = cands.filter(function (it) { var pm = planMk(it).maker; return !mk || !pm || pm === mk; })[0];
     if (!ok) {
       var it0 = cands[0];
-      pkSay(spec + ' — 제지사 다름 (' + it0.line + ' 계획 #' + it0.planNo + ' = ' + parseName(it0.name).maker + ')', true);
+      pkSay(spec + ' — 제지사 다름 (' + it0.line + ' 계획 #' + it0.planNo + ' = ' + planMk(it0).maker + ')', true);
       return;
     }
     PL.picked[ok.id] = true; savePL();
@@ -2318,6 +2318,19 @@ function parseName(name) {
   return { grade: name, maker: '' };
 }
 function normG(x) { return String(x || '').replace(/[\s()]/g, '').toUpperCase(); }
+/* 계획 품목의 지종 · 제지사: 제지사 선택칸 값 우선, 예전 품목(선택칸 없음)은 원지명 글자에서 */
+function planMk(it) {
+  if (it && 'maker' in it) return { grade: it.grade || '', maker: it.maker || '' };
+  return parseName(it && it.name);
+}
+/* 인식 · 입력된 원지명 → 지종 · 제지사 칸 채우기 */
+function fillMk(it) {
+  var p = parseName(it.name);
+  // 등록된 제지사(별칭 포함)일 때만 자동 선택 — "스타벅스 FSC12oz(크리스" 의 "크리스" 같은 건 제지사 아님
+  var known = (S.quick['제지사'] || []).concat((S.quick['제지사별칭'] || []).map(function (a) { return a.split('|')[0].trim(); }));
+  if (p.maker && known.indexOf(p.maker) < 0) p = { grade: String(it.name || '').trim(), maker: '' };
+  it.grade = p.grade; it.maker = p.maker; return it;
+}
 
 /* 재고 배분: 1호기 → 2호기 → 3호기, 계획 번호 순으로 선입선출 배정 */
 function allocPlan() {
@@ -2325,7 +2338,7 @@ function allocPlan() {
   PL.items.filter(function (it) { return it.line !== '기타' && !PL.done[it.id] && it.gsm && it.width; })
     .sort(function (a, b) { return LINES.indexOf(a.line) - LINES.indexOf(b.line) || a.planNo - b.planNo; })
     .forEach(function (it) {
-      var nm = parseName(it.name), need = it.all ? Infinity : (Number(it.qty) || 0);
+      var nm = planMk(it), need = it.all ? Infinity : (Number(it.qty) || 0);
       var cands = S.stock.filter(function (s) { return s.gsm == it.gsm && s.width == it.width; }).map(function (s) {
         var sm = canonMaker(s.maker), sameG = nm.grade && normG(s.grade) === normG(nm.grade), tier;
         if (!nm.maker) tier = sameG ? 1 : 2;
@@ -2394,7 +2407,7 @@ function nameOptions() {
   return out.join('');
 }
 function planRow(it) {
-  var i = PL.items.indexOf(it), ok = it.gsm && it.width && (it.all || it.qty);
+  var i = PL.items.indexOf(it), ok = it.gsm && it.width && (it.all || it.qty), mk = planMk(it);
   var lineOpts = LINES.map(function (l) { return '<option' + (l === it.line ? ' selected' : '') + '>' + l + '</option>'; }).join('');
   var L = LINES.indexOf(it.line);
   return '<div style="padding:8px 10px; border-top:1px solid #E6E8EB">' +
@@ -2405,9 +2418,9 @@ function planRow(it) {
     '<input class="mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900; text-align:center" value="' + (it.gsm && it.width ? it.gsm + '×' + it.width : '') + '" placeholder="230×1220" aria-label="규격" onchange="setSpec(' + i + ',this.value)">' +
     '<input class="mini" inputmode="numeric" style="width:50px; flex:none; padding:0 2px; text-align:center" value="' + (it.all ? '전량' : (it.qty == null ? '' : it.qty)) + '" placeholder="수량" aria-label="수량" onchange="setQty(' + i + ',this.value)">' +
     '</div>' +
-    // 2줄: 원지명(넓게) · 삭제,  3줄: 비고
-    '<div class="row" style="gap:4px; margin-top:4px">' +
-    '<input class="mini" style="flex:1" value="' + esc(it.name) + '" placeholder="원지명" aria-label="원지명" onchange="setPI(' + i + ',\'name\',this.value)">' +
+    // 2줄: 제지사 선택(넓게) · 지종 · 삭제,  3줄: 비고
+    '<div class="row" style="gap:4px; margin-top:4px">' + mkSelect(it, i) +
+    (mk.grade ? '<span class="muted" style="max-width:38%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px" title="' + esc(mk.grade) + '">' + esc(mk.grade) + '</span>' : '') +
     '<button class="xbtn" onclick="delPI(' + i + ')" aria-label="삭제">×</button></div>' +
     '<input class="mini" style="margin-top:4px; height:34px; font-size:14px" value="' + esc(it.note || '') + '" placeholder="비고" aria-label="비고" onchange="setPI(' + i + ',\'note\',this.value)">' +
     '<div class="row" style="margin-top:2px">' +
@@ -2437,13 +2450,40 @@ function setQty(i, v) {
   else toast('수량: 1 이상 숫자 또는 "전량"', true);
   savePL(); renderPlan();
 }
-function delPI(i) { PL.items.splice(i, 1); savePL(); renderPlan(); }
+/* 제지사 선택칸: 기준정보 제지사 목록 (인식된 제지사가 목록에 없으면 그것도 넣음) · 비어 있으면 빨간 테두리 */
+function mkSelect(it, i) {
+  var cur = planMk(it).maker, list = (S.quick['제지사'] || []).slice();
+  if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+  return '<select class="mini" style="flex:1; min-width:0' + (cur ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="제지사" onchange="setMk(' + i + ',this.value)">' +
+    '<option value=""' + (cur ? '' : ' selected') + '>제지사 선택</option>' +
+    list.map(function (m) { return '<option' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>';
+}
+function setMk(i, v) {
+  var it = PL.items[i];
+  if (!('maker' in it)) fillMk(it);
+  it.maker = v; savePL(); renderPlan();
+}
+/* 삭제: 아래에 품목이 더 있으면 "이 품목만 / 여기부터 아래 전부" (인식 뒤 끝에 붙은 인쇄기 · 스리터 품목 한 번에) */
+function delPI(i) {
+  var it = PL.items[i], ord = planOrder(), k = ord.indexOf(it), n = ord.length - k;
+  var go = function (rm) {
+    rm.forEach(function (x) { delete PL.picked[x.id]; delete PL.done[x.id]; });
+    PL.items = PL.items.filter(function (x) { return rm.indexOf(x) < 0; });
+    savePL(); renderPlan(); if (rm.length > 1) toast(rm.length + '건 삭제');
+  };
+  if (n <= 1) return go([it]);
+  ask({ title: '계획 품목 삭제', msg: it.line + ' #' + it.planNo + ' · ' + (it.gsm && it.width ? it.gsm + '×' + it.width : '규격 없음'),
+    chips: ['이 품목만', '여기부터 아래 ' + n + '건'] }, function (v) {
+    if (!v) return;
+    go(v === '이 품목만' ? [it] : ord.slice(k));
+  });
+}
 function addPQ() {
   if (!PQ.gsm || !PQ.width) { toast('평량 · 지폭 선택 필요', true); return; }
   var max = PL.items.filter(function (it) { return it.line === PQ.line; }).reduce(function (m, it) { return Math.max(m, it.planNo); }, 0);
   var nm = PQ.name.trim();
   if (PQ.maker && !parseName(nm).maker) nm = nm + '(' + PQ.maker + ')';   // 원지명(제지사) 형식 — 피킹 때 제지사 맞춤
-  PL.items.push({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: nm, gsm: PQ.gsm, width: PQ.width, qty: PQ.qty, all: false, note: '' });
+  PL.items.push(fillMk({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: nm, gsm: PQ.gsm, width: PQ.width, qty: PQ.qty, all: false, note: '' }));
   savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; renderPlan();
 }
 function clearPlan() {
@@ -2464,7 +2504,7 @@ function planPhoto(cam) {
         var ord = planOrder(), last = add && ord.length ? ord[ord.length - 1] : null;
         if (!add) { PL.items = []; PL.picked = {}; PL.done = {}; }
         var line = last ? last.line : '1호기', no = last ? last.planNo : 0;
-        r.items.forEach(function (it) { PL.items.push(Object.assign({}, it, { id: 'p' + (PL.seq++), line: line, planNo: ++no })); });
+        r.items.forEach(function (it) { PL.items.push(fillMk(Object.assign({}, it, { id: 'p' + (PL.seq++), line: line, planNo: ++no }))); });
         var miss = r.items.filter(function (it) { return !(it.all || it.qty); }).length;
         PL.msg = '✓ ' + r.items.length + '건 ' + (add ? '추가' : '인식') + (miss ? ' · 수량 확인 ' + miss + '건' : '') + ' — 2호기 · 3호기 시작 품목의 호기 선택';
         PL.msgBad = false;
@@ -2516,7 +2556,7 @@ function pickRow(it, seq, a) {
     '<div class="muted" style="font-size:10px">계획 ' + it.planNo + '</div></div>' +
     '<div style="flex:1; min-width:0"><div class="row"><b style="font-size:16px">' + esc(it.gsm + '×' + it.width) +
     '</b><b style="white-space:nowrap; flex:none">' + (it.all ? '전량' : it.qty + '롤') + '</b></div>' +
-    (it.name ? '<div class="muted">' + esc(it.name) + '</div>' : '') +
+    (function () { var p = planMk(it), t = [p.maker || '제지사 미지정', p.grade].filter(String).join(' · '); return '<div class="muted">' + esc(t) + '</div>'; })() +
     noteHtml(it.note);
   if (done) h += '<div class="muted">출고 확정 완료</div>';
   else if (a) {
