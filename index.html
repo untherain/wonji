@@ -881,18 +881,14 @@ function actOn(mode, s) {
 /* ===== 적재 계산: 줄 = 칸 여러 개, 칸 하나에 한 규격, 지폭별 최대 적재 단수 (줄 개별 설정 반영) ===== */
 function whOf(code) { var id = String(code || '').split('-')[0]; return S.whs.filter(function (x) { return String(x.id) === id; })[0]; }
 function rawKey(code) { var p = String(code || '').split('-'); return p[1] + '-' + p[2]; }
-/* 화면 표시용 구역: ① 직접 붙인 이름("좌","중앙")이면 그대로 → ② 기본 이름(비었거나 "A구역"=코드)이면
-   2구역 창고는 배치 위치로 자동 좌/우, 그 외는 코드(A) */
+/* 화면 표시용 구역: 기본은 표준 코드(A-01) · 설정에서 구역에 별칭(좌 등)을 넣으면 그 별칭 사용(좌-01).
+   별칭 없음 = 이름이 비었거나 "A구역"처럼 코드와 같은 기본값 → 코드(A) */
 function zoneShort(wid, zc) {
   var w = (S.whs || []).filter(function (x) { return String(x.id) === String(wid); })[0];
-  if (!w) return zc;
-  var idx = -1, z = null;
-  for (var i = 0; i < w.zones.length; i++) if (w.zones[i].code === zc) { idx = i; z = w.zones[i]; break; }
+  var z = w && w.zones.filter(function (x) { return x.code === zc; })[0];
   if (!z) return zc;
-  var nm = String(z.name || '').replace(/\s+/g, '').replace(/구역$/, '');
-  if (nm && nm !== z.code) return nm;                 // 사용자가 따로 붙인 이름
-  if (w.zones.length === 2) return idx === 0 ? '좌' : '우';   // 기본 이름 + 2구역 → 좌/우 자동
-  return z.code;
+  var nm = String(z.name || '').trim(), bare = nm.replace(/\s+/g, '').replace(/구역$/, '');
+  return (bare && bare.toUpperCase() !== String(z.code).toUpperCase()) ? nm : z.code;   // 별칭 있으면 별칭, 없으면 코드
 }
 function keyOf(code) { var p = String(code || '').split('-'); return p.length === 3 ? zoneShort(p[0], p[1]) + '-' + p[2] : p[1] + '-' + p[2]; }
 function cfgOf(w, key) { return (w && w.rows[key]) || {}; }
@@ -989,8 +985,8 @@ function renderMap() {
   for (var k = 0; k < w.zones.length; k += 2) {   // 구역 두 개씩: 왼쪽 | 통로 | 오른쪽
     var z1 = w.zones[k], z2 = w.zones[k + 1];
     var zlp = ' data-lp="wh:' + w.id + '"';   // 구역 머리말 길게 누르기 = 창고 설정 (구역 이름 · 줄 수 · 좌우 · 상하)
-    html += '<div class="zhead"><span' + zlp + '>' + esc(z1.name) + ' <span class="muted">' + z1.rows + '줄</span></span><span></span><span' + (z2 ? zlp : '') + '>' +
-      (z2 ? esc(z2.name) + ' <span class="muted">' + z2.rows + '줄</span>' : '') + '</span></div>' +
+    html += '<div class="zhead"><span' + zlp + '>' + esc(zoneShort(w.id, z1.code)) + ' <span class="muted">' + z1.rows + '줄</span></span><span></span><span' + (z2 ? zlp : '') + '>' +
+      (z2 ? esc(zoneShort(w.id, z2.code)) + ' <span class="muted">' + z2.rows + '줄</span>' : '') + '</span></div>' +
       '<div class="map">' + pairRows(z1, z2) + '</div>';
   }
   $('m-body').innerHTML = html;
@@ -2709,7 +2705,7 @@ function renderWh() {
     var zones = w.zones.map(function (z, j) {
       return '<div class="row" style="gap:4px; margin-bottom:4px">' +
         inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:46px; flex:none; padding:0 4px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
-        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; padding:0 6px" aria-label="구역 이름"') +
+        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; padding:0 6px" placeholder="별칭 (예: 좌 · 비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
         inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:52px; flex:none; padding:0 4px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>' +
         // 구역 2개 = 통로 왼쪽 · 오른쪽 한 쌍 → 위치 현황 좌우 바꾸기
@@ -2740,7 +2736,7 @@ function renderWh() {
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
-      '<div class="sub"><h3>구역 (코드 · 이름 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">2개 구역씩 통로 좌우 배치</div>' + zones +
+      '<div class="sub"><h3>구역 (코드 · 별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치는 <b>코드-01</b>(예: A-01)로 표시 · 별칭을 넣으면 <b>별칭-01</b>(예: 좌-01) · 2개 구역씩 통로 좌우 배치</div>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span class="muted" style="font-size:12px">위치 현황 <span style="white-space:nowrap">위 <b>' + (w.rev ? '끝 번호' : '01') + '</b></span> · <span style="white-space:nowrap">아래 <b>' + (w.rev ? '01' : '끝 번호') + '</b></span></span>' +
       '<button class="btn2" style="height:34px; padding:0 10px; font-size:13px" onclick="flipRows(' + i + ')">⇅ 상하 바꾸기</button></div>' +
       '<button class="btn2" style="height:38px" onclick="addZone(' + i + ')">+ 구역 추가</button></div>' +
@@ -2771,7 +2767,7 @@ function whPrev(i) {
 function addWh() {
   var max = W.reduce(function (m, w) { return Math.max(m, +w.id || 0); }, 0);
   W.push({ id: max + 1, name: (max + 1) + '창고', slots: 7, rule: [{ max: 1000, lv: 6 }, { max: '', lv: 4 }],
-    zones: [{ code: 'A', name: 'A구역', rows: 24 }, { code: 'B', name: 'B구역', rows: 24 }], rows: {} });
+    zones: [{ code: 'A', name: '', rows: 24 }, { code: 'B', name: '', rows: 24 }], rows: {} });
   WI = W.length - 1;
   renderWh();
 }
@@ -2782,7 +2778,7 @@ function delWh(i) {
 function addZone(i) {
   var used = W[i].zones.map(function (z) { return String(z.code).toUpperCase(); });
   var code = 'ABCDEFGHJKLMNPQRSTUVWXYZ'.split('').filter(function (c) { return used.indexOf(c) < 0; })[0] || 'Z';
-  W[i].zones.push({ code: code, name: code + '구역', rows: 10 });
+  W[i].zones.push({ code: code, name: '', rows: 10 });
   renderWh();
 }
 /* 줄 번호 상하 바꾸기 (위치 현황 표시 순서만 · 위치 코드 · 재고는 그대로) → [창고 설정 저장] 필요 */
