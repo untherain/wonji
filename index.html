@@ -325,14 +325,13 @@
   .band .stepper button { width:42px; height:42px; font-size:22px; } .band .stepper span { font-size:22px; min-width:36px; }
   .cell.can { border:2px solid var(--ok); } .cell.cant { background:#E6E8EB; color:#9AA0A6; } .cell.from { background:var(--y); border:2px solid var(--ink); }
   .cell .fit { font-size:12px; font-weight:900; color:var(--ok); } .cell.cant .fit { color:#9A1C1C; }
-  /* 운용 정지 모드 */
-  .cell.selock { opacity:.4; }
-  .cell.setog { border:2px dashed #9AA0A6; }
-  .cell.setog.sechg { border:2px solid var(--ink); background:var(--y); color:var(--ink); opacity:1; }
-  .band.stband { background:#EDEFF2; color:var(--ink); border:2px solid var(--ink); }
-  .erow { margin-top:8px; display:flex; }
-  .editbtn { height:34px; padding:0 14px; border-radius:8px; border:1px solid #B9BEC5; background:#fff; color:#3E444B; font:inherit; font-weight:700; font-size:13px; }
-  .editbtn:active { background:#EDEFF2; }
+  /* 줄 사용·미사용 편집 */
+  .cell.selock { opacity:.35; }
+  .cell.setog { border:2px dashed var(--ink); }   /* 사용=흰 바탕, 미사용=.cell.off 회색 바탕 (둘 다 점선) */
+  .zedit { flex:none; height:26px; min-width:30px; padding:0 8px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:13px; font-weight:700; }
+  .zedit.on { border-color:var(--ink); background:var(--ink); color:#fff; }
+  .zhead .zh.editing { outline:2px solid var(--ink); outline-offset:2px; border-radius:6px; }
+  .ehint { margin-top:8px; padding:7px 10px; border-radius:8px; background:#EDEFF2; border:1px solid var(--ink); font-size:12.5px; color:var(--ink); }
   .warnbox { background:#FDECEC; border:1px solid #9A1C1C; border-radius:10px; padding:10px 12px; margin-top:10px; color:#9A1C1C; }
   .warnbox span { color:var(--ink); }
   .shfoot { position:sticky; bottom:calc(-14px - env(safe-area-inset-bottom)); background:#fff; margin:8px -16px calc(-14px - env(safe-area-inset-bottom)); padding:8px 16px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); box-shadow:0 -4px 10px rgba(0,0,0,.06); }
@@ -941,7 +940,8 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
-  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : searchBar() + progLine() + editBar());
+  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() :
+    searchBar() + progLine() + (ST ? '<div class="ehint">편집 중 — 빈 줄을 눌러 <b>사용 ↔ 미사용</b>, 구역 <b>✓ 완료</b>로 저장</div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -989,7 +989,12 @@ function renderMap() {
         hit = false;
       }
       var sec = '';
-      if (ST) { sec = stTog(code) ? (' setog' + (code in ST.chg ? ' sechg' : '')) : ' selock'; hit = false; }   // 토글 가능 강조 · 그 외 흐리게
+      if (ST) {   // 편집 중: 활성 구역의 토글 가능 줄은 점선 표시(사용=흰/미사용=회색), 그 외는 흐리게
+        if (stTog(code)) sec = ' setog';
+        else if (ST.active[zoneKeyOf(code)]) sec = '';   // 활성 구역이지만 재고 있는 줄 등 → 그대로
+        else sec = ' selock';
+        hit = false;
+      }
       var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
       h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + sec + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
@@ -1034,8 +1039,8 @@ function zoneStat(w, z) {
 }
 /* 운용 정지 모드: 반영된(대기 포함) 상태 · 토글 가능 여부 */
 function stState(code) { if (ST && (code in ST.chg)) return ST.chg[code]; var c = rowInfo(code).cfg; return c.st || (c.off ? '미사용' : ''); }
-function stTog(code) {   // 재고 없음 · 원래 사용/미사용(통로·비사용 제외)만 토글
-  if (!ST) return false;
+function stTog(code) {   // 활성 구역 · 재고 없음 · 원래 사용/미사용(통로·비사용 제외)만 토글
+  if (!ST || !ST.active[zoneKeyOf(code)]) return false;
   var ri = rowInfo(code), orig = ri.cfg.st || (ri.cfg.off ? '미사용' : '');
   return ri.rolls === 0 && (orig === '' || orig === '미사용');
 }
@@ -1050,43 +1055,44 @@ function bandsOf(w) {
 function zHead(w, z) {
   if (!z) return '<span></span>';   // 빈 자리 (그리드 칸 유지)
   var st = zoneStat(w, z), label = esc(zoneShort(w.id, z.code));
-  // 편집 중엔 구역마다 "전체" 토글(빈 줄 일괄 미사용/운용). 평소엔 버튼 없음.
-  var allIdle = st.idle.length > 0 && !st.empty.length;
-  var btn = ST ? '<button class="zoff' + (st.idle.length ? ' on' : '') + '" onclick="zoneBulk(\'' + w.id + '\',\'' + z.code + '\',event)">전체 ' + (allIdle ? '사용' : '미사용') + '</button>' : '';
+  // 구역마다 ✎ 아이콘: 누르면 그 구역만 편집 활성(빈 줄 탭 = 사용↔미사용) · 다시 누르면 저장
+  var key = w.id + '|' + z.code, on = !!(ST && ST.active[key]), n = on ? zonePairs(w.id, z.code).length : 0;
+  var btn = MV ? '' : '<button class="zedit' + (on ? ' on' : '') + '" onclick="toggleZone(\'' + w.id + '\',\'' + z.code + '\',event)" aria-label="줄 사용 편집">' + (on ? '✓ 완료' + (n ? ' ' + n : '') : '✎') + '</button>';
   var meta = st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
-  return '<div class="zh"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
+  return '<div class="zh' + (on ? ' editing' : '') + '"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
     ' <span class="muted">' + meta + '</span></span>' + btn + '</div>';
 }
-/* 지도 상단 편집 바: 끄면 토글 버튼, 켜면 안내 + 완료(변경 수) */
-function editBar() {
-  if (MV) return '';
-  if (!ST) return '<div class="erow"><button class="editbtn" onclick="editStart()">⚙ 줄 사용 · 미사용 편집</button></div>';
-  return '<div class="band stband"><div class="row"><b>편집 중</b> <span style="font-size:12.5px; opacity:.85">— 빈 줄을 눌러 사용 ↔ 미사용</span>' +
-    '<button class="btn" style="margin-left:auto; flex:none; height:38px; padding:0 16px; background:var(--ink); color:#fff" onclick="editDone()">완료' + (stPairs().length ? ' (' + stPairs().length + ')' : '') + '</button></div></div>';
-}
-function editStart() { if (MV) return; ST = { chg: {} }; renderMap(); }
-function editDone() {
-  var pairs = stPairs();
-  if (!pairs.length) { ST = null; renderMap(); return; }
-  needPin(function (pin) {
-    call('setRowStates', pairs, pin).then(function (whs) { S.whs = whs; ST = null; renderMap(); if (SH) renderSheet(); toast(pairs.length + '줄 변경됨'); }, function () {});
-  });
-}
-function stPairs() {   // 원래 상태와 달라진 줄만
-  if (!ST) return [];
-  return Object.keys(ST.chg).filter(function (c) { var ri = rowInfo(c), o = ri.cfg.st || (ri.cfg.off ? '미사용' : ''); return ST.chg[c] !== o; }).map(function (c) { return [c, ST.chg[c]]; });
-}
-/* 편집 중 구역 "전체" 버튼: 그 구역 빈 줄을 한꺼번에 미사용/사용 (로컬 반영, 완료 때 저장) */
-function zoneBulk(whId, zc, ev) {
+function zoneKeyOf(code) { var p = String(code).split('-'); return p[0] + '|' + p[1]; }
+/* 구역 ✎ 토글: 꺼져 있으면 그 구역 편집 켜기 · 켜져 있으면 변경분 저장하고 끄기 */
+function toggleZone(whId, zc, ev) {
   if (ev) ev.stopPropagation();
-  if (!ST) return;
-  var w = S.whs.filter(function (x) { return x.id == whId; })[0]; if (!w) return;
-  var z = w.zones.filter(function (x) { return x.code === zc; })[0]; if (!z) return;
-  var tog = [], idle = 0;
-  for (var i = 1; i <= z.rows; i++) { var code = w.id + '-' + z.code + '-' + pad(i); if (stTog(code)) { tog.push(code); if (stState(code) === '미사용') idle++; } }
-  var makeIdle = !(tog.length > 0 && idle === tog.length);   // 모두 미사용이면 → 전체 사용
-  tog.forEach(function (code) { ST.chg[code] = makeIdle ? '미사용' : ''; });
-  renderMap();
+  if (MV) return;
+  if (!ST) ST = { active: {}, chg: {} };
+  var key = whId + '|' + zc;
+  if (ST.active[key]) zoneSave(whId, zc, key);        // 편집 끝 → 저장
+  else { ST.active[key] = true; renderMap(); }         // 편집 시작
+}
+function zonePairs(whId, zc) {   // 이 구역에서 원래와 달라진 줄만
+  if (!ST) return [];
+  var key = whId + '|' + zc;
+  return Object.keys(ST.chg).filter(function (c) {
+    if (zoneKeyOf(c) !== key) return false;
+    var ri = rowInfo(c), o = ri.cfg.st || (ri.cfg.off ? '미사용' : '');
+    return ST.chg[c] !== o;
+  }).map(function (c) { return [c, ST.chg[c]]; });
+}
+function zoneSave(whId, zc, key) {
+  var pairs = zonePairs(whId, zc);
+  var finish = function () {
+    delete ST.active[key];
+    Object.keys(ST.chg).forEach(function (c) { if (zoneKeyOf(c) === key) delete ST.chg[c]; });
+    if (!Object.keys(ST.active).length && !Object.keys(ST.chg).length) ST = null;
+    renderMap();
+  };
+  if (!pairs.length) { finish(); return; }
+  needPin(function (pin) {
+    call('setRowStates', pairs, pin).then(function (whs) { S.whs = whs; finish(); if (SH) renderSheet(); toast(pairs.length + '줄 변경됨'); }, function () {});
+  });
 }
 /* 줄 개별 설정: 칸 수 · 최대 적재 단수 · 보관 용도 · 사용 중지 */
 function rowEditor(code) {
