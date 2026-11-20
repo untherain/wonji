@@ -518,7 +518,7 @@
   </section>
 </main>
 
-<div id="dim" onclick="closeSheet()"></div>
+<div id="dim" onclick="dimTap()"></div>
 <div class="sheet" id="detail"></div>
 <div id="toast"></div>
 <div id="busy" aria-live="polite"><div class="track"><i></i></div><div class="pill"><span class="spin"></span>처리 중…</div></div>
@@ -733,9 +733,10 @@ function ask(o, cb) {
   ok.textContent = o.ok || '확인';
   ok.style.background = o.danger ? '#9A1C1C' : ''; ok.style.color = o.danger ? '#fff' : '';
   m.style.display = 'flex';
+  m.onclick = function (e) { if (e.target === m && o.dismiss !== false) close(null); };   // 바깥(배경) 클릭 → 취소 (특별한 경우만 dismiss:false)
   // 터치 처리 안에서 바로 포커스해야 모바일 키보드가 같이 뜸 (setTimeout을 거치면 iOS가 키보드를 막음)
   if (o.input !== false && !o.chips) { inp.focus(); if (inp.value) try { inp.select(); } catch (e) {} }
-  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = inp.onkeydown = null; cb(v); }
+  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = inp.onkeydown = m.onclick = null; cb(v); }
   ok.onclick = function () {
     if (o.choices) { var d = o.input === false ? '' : inp.value.trim(); return close(sel.value + (d ? ' — ' + d : '')); }
     close(o.input === false ? true : inp.value.trim());
@@ -1206,6 +1207,8 @@ function openRow(code, mode) {
   if (mode) shMode(mode); else renderSheet();
 }
 function showDetail(code) { openRow(code); }
+/* 배경 클릭으로 시트 닫기 — 입력 중(입고·실사·줄설정·창고설정·적재순서)만 실수 방지로 예외(✕/← 로 닫기) */
+function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh'].indexOf(SH.mode) >= 0)) return; closeSheet(); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
   var wasFilter = SH && SH.mode === 'filter';
   document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none';
