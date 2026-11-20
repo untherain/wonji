@@ -295,6 +295,7 @@
   .sline .st { font-size:13px; color:#C9CDD3; margin-right:6px; font-weight:700; }
   .sline .sp2 { white-space:pre-wrap; }
   .sg { border:0; background:none; font:inherit; color:inherit; padding:0 1px; }
+  .ed { border:1px solid #C9CDD3; background:#fff; color:#6B7178; border-radius:6px; width:30px; height:30px; flex:none; font-size:14px; }
   .sg.ocr { color:#9CC0FF; }
   .sg.miss { background:#7A2323; color:#fff; border-radius:6px; padding:0 7px; font-size:15px; }
   .shtop .sline { color:var(--ink); } .shtop .sline .st { color:var(--sub); }
@@ -1287,7 +1288,9 @@ function sheetRow() {
 function itemBlock(s, i, ri) {
   var lv = ri.w ? levels(ri.w, s.width, ri.key) : 0, open = SH.mode === 'out' && sameItem(SH.it, s);
   var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span><b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
-    (s.grade ? ' <span class="muted">' + esc(s.grade) + '</span>' : '') + '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단</span></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>';
+    (s.grade ? ' <span class="muted">' + esc(s.grade) + '</span>' : '') +
+    (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') +
+    '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단</span></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
     h += '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
@@ -1312,6 +1315,37 @@ function doOut(j) {
     if (SH && SH.code === code) { SH.mode = ''; SH.it = null; }
     renderMap(); if (SH) renderSheet();
     undoToast('출고 ' + keyOf(code) + ' · ' + fmtItem(s, q) + ' → ' + dest, r.nos);
+  });
+}
+/* 품목 오기입 수정 메뉴 (제지사·지종 바꾸기 · 이름 전체 바꾸기) — 줄 화면·실사 공통
+   done(oldItem, newItem): 실사 화면에서 입력한 실사 수량 키를 옮길 때 사용 */
+function itemFix(s, done) {
+  ask({ title: '품목 수정', msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty),
+    chips: ['제지사 바꾸기', '지종 바꾸기', '제지사 이름 전체 바꾸기'] }, function (c) {
+    if (c === '제지사 이름 전체 바꾸기') return qEdit('제지사', s.maker);
+    if (c === '제지사 바꾸기') return pickFix(s, '제지사', 'newMaker', 'maker', S.quick['제지사'] || [], done);
+    if (c === '지종 바꾸기') return pickFix(s, '지종', 'newGrade', 'grade', (S.quick['지종'] || []).concat(['(지종 없음)']), done);
+  });
+}
+function pickFix(s, label, field, key, chips, done) {
+  ask({ title: label + ' 바꾸기', msg: fmtItem(s, s.qty) + ' → 새 ' + label, chips: chips }, function (v) {
+    if (v == null) return;
+    if (v === '(지종 없음)') v = '';
+    if (v === (s[key] || '')) return;
+    if (!requireWorker()) return;
+    var p = Object.assign(itemP(s), { loc: s.loc || SH.code }); p[field] = v;
+    call('fixItem', p).then(function (st) {
+      var newS = Object.assign({}, s); newS[key] = v;
+      if (done) done(s, newS);
+      setStock(st); renderMap(); if (SH) renderSheet(); toast(label + ' 수정: ' + (v || '(없음)'));
+    });
+  });
+}
+function rowFix(i) { itemFix(SH.items[i]); }
+function cntFix(i) {
+  itemFix(SH.clist[i], function (oldS, newS) {   // 실사 중: 입력해 둔 실사 수량을 새 품목 키로 옮김
+    var c = SH.cnt, ok = itemKey(oldS), nk = itemKey(newS);
+    if (c.v[ok] != null) { c.v[nk] = c.v[ok] + (c.v[nk] != null ? c.v[nk] : 0); delete c.v[ok]; }
   });
 }
 function pickMaker(i) {
@@ -1610,6 +1644,7 @@ function sheetCount() {
   h += list.length ? list.map(function (s, i) {
     var a = c.v[itemKey(s)], d = a - s.qty; if (d) diff++;
     return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + specLp(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
+      (s.maker && s.date ? ' <button class="ed" onclick="cntFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') +
       '<br><span class="muted">전산 ' + s.qty + '롤</span></span>' +
       stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량') + '</div></div>';
   }).join('') : '<div class="muted" style="padding:12px 0">재고 없음</div>';
