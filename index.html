@@ -154,7 +154,7 @@
   .cell .sl.shit { background:var(--ink); color:#fff; font-weight:900; border-radius:5px; padding:1px 5px; margin:0 -3px; }
   .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
   .cell .sl.dim { opacity:.4; }
-  .distb { flex:none; font-size:10px; font-weight:900; color:#7A3E00; background:#FFE0B2; border-radius:4px; padding:0 4px; margin-right:4px; cursor:pointer; }
+  .distb { flex:none; color:#B35400; font-weight:900; text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; }   /* 분산 = 롤 수 주황 + 점선 밑줄 (폭 0) */
   .frag { font-size:10px; font-weight:900; background:#FBE9E7; color:#9A1C1C; border-radius:4px; padding:0 4px; margin-left:4px; white-space:nowrap; }
   .hintbox { background:#FFF3E0; border:1px solid #E8A33D; color:#7A4A00; border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:8px; }
   .hlnk { background:none; border:none; color:#163A7D; font:inherit; font-weight:900; text-decoration:underline; cursor:pointer; padding:0; }
@@ -1002,8 +1002,8 @@ function renderMap() {
       var anyHit = sk.some(function (k) { return byS[k].hit; });   // 걸린 규격이 있으면 나머지는 흐리게
       var specs = sk.map(function (k) {
         var x = byS[k];
-        var b = (!MV && !ST && (DISTCNT[x.sig] || 1) > 1) ? '<span class="distb" onclick="event.stopPropagation();distPop(\'' + encodeURIComponent(x.sig) + '\')" title="여러 위치에 분산">분산</span>' : '';
-        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + b + x.q + '롤</span></div>';
+        var q = (!MV && !ST && (DISTCNT[x.sig] || 1) > 1) ? '<span class="distb" onclick="event.stopPropagation();distPop(\'' + encodeURIComponent(x.sig) + '\')" title="여러 위치에 분산">' + x.q + '롤</span>' : x.q + '롤';
+        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + q + '</span></div>';
       }).join('');
       var pct = ri.slots ? Math.min(100, Math.round(ri.used / ri.slots * 100)) : 0;
       var tag = ri.cfg.use && ri.cfg.use !== '원지' ? '<span class="utag">' + esc(ri.cfg.use) + '</span>' : '';
