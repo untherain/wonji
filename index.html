@@ -150,6 +150,10 @@
   .cell .sl { display:flex; justify-content:space-between; gap:4px; font-size:12px; font-weight:700; color:#3E444B; white-space:nowrap; line-height:1.35; }
   .cell .sl span:first-child { overflow:hidden; text-overflow:ellipsis; }
   .cell .sl span:last-child { flex:none; font-weight:500; color:#6B7178; }
+  /* 검색: 걸린 규격만 또렷하게 (셀은 노랑, 그 안에서 맞는 규격 강조 · 나머지 흐리게) */
+  .cell .sl.shit { background:var(--ink); color:#fff; font-weight:900; border-radius:5px; padding:1px 5px; margin:0 -3px; }
+  .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
+  .cell .sl.dim { opacity:.4; }
   .bar { height:4px; border-radius:2px; background:#D5D8DC; overflow:hidden; margin-top:2px; }
   .bar i { display:block; height:100%; background:var(--ink); }
   .pill { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
@@ -982,13 +986,15 @@ function renderMap() {
       // 규격 목록: 롤 수 많은 순, 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
       var byS = {};
       items.forEach(function (s) {
+        var mh = hit && fMatch(s);   // 이 규격이 검색에 걸렸나 (셀이 hit일 때만 표시)
         makersOf(s).forEach(function (m) {
-          var k = m.maker + '|' + spec(s);
-          (byS[k] = byS[k] || { mk: m.maker, sp: spec(s), q: 0 }).q += m.qty;
+          var k = m.maker + '|' + spec(s), e = (byS[k] = byS[k] || { mk: m.maker, sp: spec(s), q: 0, hit: false });
+          e.q += m.qty; if (mh) e.hit = true;
         });
       });
       var sk = Object.keys(byS).sort(function (a, b) { return byS[b].q - byS[a].q; });
-      var specs = sk.map(function (k) { var x = byS[k]; return '<div class="sl"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + x.q + '롤</span></div>'; }).join('');
+      var anyHit = sk.some(function (k) { return byS[k].hit; });   // 걸린 규격이 있으면 나머지는 흐리게
+      var specs = sk.map(function (k) { var x = byS[k]; return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + x.q + '롤</span></div>'; }).join('');
       var pct = ri.slots ? Math.min(100, Math.round(ri.used / ri.slots * 100)) : 0;
       var tag = ri.cfg.use && ri.cfg.use !== '원지' ? '<span class="utag">' + esc(ri.cfg.use) + '</span>' : '';
       var mvc = '', fit = '';
@@ -1022,6 +1028,13 @@ function renderMap() {
       '<div class="map">' + pairRows(z1, z2) + '</div>';
   }
   $('m-body').innerHTML = html;
+  // 검색 결과가 있으면 첫 번째로 걸린 줄로 스크롤 (조건 바뀐 때만 · 작업 중엔 안 함)
+  if (fo && fh.length && fkey !== renderMap.scrolled && !SH) {
+    renderMap.scrolled = fkey;
+    var el = $('m-body').querySelector('.cell.hit');
+    if (el) try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  }
+  if (!fo) renderMap.scrolled = '';
 }
 /* 줄 개별 설정: 칸 수 · 최대 적재 단수 · 보관 용도 · 사용 중지 */
 function rowEditor(code) {
@@ -1107,7 +1120,10 @@ function openRow(code, mode) {
 }
 function showDetail(code) { openRow(code); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
-  document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none'; }
+  var wasFilter = SH && SH.mode === 'filter';
+  document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none';
+  if (wasFilter && TAB === 'map') renderMap();   // 검색창 닫으면("지도 보기") 걸린 줄로 스크롤
+}
 /* 어두운 배경 위의 휠 · 손가락 끌기는 무시 (아이폰 사파리는 overflow:hidden만으로 안 막힘) */
 ['wheel', 'touchmove'].forEach(function (ev) { $('dim').addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
 function shMode(m) {
