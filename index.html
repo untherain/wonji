@@ -881,11 +881,18 @@ function actOn(mode, s) {
 /* ===== 적재 계산: 줄 = 칸 여러 개, 칸 하나에 한 규격, 지폭별 최대 적재 단수 (줄 개별 설정 반영) ===== */
 function whOf(code) { var id = String(code || '').split('-')[0]; return S.whs.filter(function (x) { return String(x.id) === id; })[0]; }
 function rawKey(code) { var p = String(code || '').split('-'); return p[1] + '-' + p[2]; }
-/* 화면 표시용 위치: 구역 코드(A) 대신 창고 설정의 구역 이름 ("좌" → 좌-03, "A구역" → A-03) */
+/* 화면 표시용 구역: ① 직접 붙인 이름("좌","중앙")이면 그대로 → ② 기본 이름(비었거나 "A구역"=코드)이면
+   2구역 창고는 배치 위치로 자동 좌/우, 그 외는 코드(A) */
 function zoneShort(wid, zc) {
   var w = (S.whs || []).filter(function (x) { return String(x.id) === String(wid); })[0];
-  var z = w && w.zones.filter(function (x) { return x.code === zc; })[0];
-  return (z ? String(z.name || '').replace(/\s+/g, '').replace(/구역$/, '') : '') || zc;
+  if (!w) return zc;
+  var idx = -1, z = null;
+  for (var i = 0; i < w.zones.length; i++) if (w.zones[i].code === zc) { idx = i; z = w.zones[i]; break; }
+  if (!z) return zc;
+  var nm = String(z.name || '').replace(/\s+/g, '').replace(/구역$/, '');
+  if (nm && nm !== z.code) return nm;                 // 사용자가 따로 붙인 이름
+  if (w.zones.length === 2) return idx === 0 ? '좌' : '우';   // 기본 이름 + 2구역 → 좌/우 자동
+  return z.code;
 }
 function keyOf(code) { var p = String(code || '').split('-'); return p.length === 3 ? zoneShort(p[0], p[1]) + '-' + p[2] : p[1] + '-' + p[2]; }
 function cfgOf(w, key) { return (w && w.rows[key]) || {}; }
