@@ -1184,11 +1184,17 @@ var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} }
 function sigOf(s) { return [s.gsm, s.width, s.grade || '', s.maker || '', s.rem ? 'Y' : ''].join('|'); }
 /* 같은 원지 판정 서명 (제지사·평량·지폭·지종·잔량) — 분산 배지용 */
 function distSig(s, maker) { return [s.gsm, s.width, s.grade || '', maker != null ? maker : (s.maker || ''), s.rem ? 'Y' : ''].join('|'); }
-/* 분산 배지 누름 → 그 규격으로 검색을 열어 공통 결과 리스트(창고명 포함 · fLocList) 그대로 사용 */
+/* 분산 배지 누름 → 그 원지의 위치 리스트만 표시 (검색 결과 리스트 부품 fLocList 재사용, 검색 UI는 안 띄움) */
 function distPop(enc) {
   var p = decodeURIComponent(enc).split('|');   // 평량|지폭|지종|제지사|잔량
-  F.gsm = p[0] || null; F.width = p[1] || null; F.grade = p[2] || ''; F.maker = p[3] || ''; F.q = '';
-  openFilter();
+  SH = { code: null, mode: 'dist', dist: { gsm: p[0], width: p[1], grade: p[2] || '', maker: p[3] || '', rem: p[4] === 'Y' } };
+  renderSheet();
+}
+function sheetDist() {
+  var d = SH.dist;
+  var hits = S.stock.filter(function (s) { return s.gsm == d.gsm && s.width == d.width && (s.grade || '') === d.grade && (s.maker || '') === d.maker && !!s.rem === d.rem; });
+  var title = (d.maker ? d.maker + ' ' : '') + d.gsm + '×' + d.width + (d.grade ? ' ' + d.grade : '') + (d.rem ? ' 잔량' : '');
+  $('detail').innerHTML = shHead(esc(title), '', false) + fLocList(hits, true);
 }
 function rowItems(code) {
   var ord = (S.stack && S.stack[code]) || [];
@@ -1243,6 +1249,7 @@ function renderSheet() {
   d.style.display = 'block'; $('dim').style.display = 'block'; document.body.classList.add('shopen');
   if (SH.mode === 'cfg') { rowEditor(SH.code); return; }
   if (SH.mode === 'wh') { sheetWh(); return; }
+  if (SH.mode === 'dist') { sheetDist(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
     SH.mode === 'cnt' ? sheetCount() : sheetRow();
 }
@@ -1821,8 +1828,8 @@ function saveCnt() {
 /* 지도 검색 결과: 위치별 한 줄 (작업 버튼 없음 — 누르면 그 창고 지도로 가서 줄 열기, 작업은 줄 화면에서)
    다른 창고 결과도 한눈에 · 선입선출(가장 오래된 입고) 위치 먼저 */
 var FLOCS = [];
-function fLocList(hits) {
-  if (!fOn()) return '';
+function fLocList(hits, force) {
+  if (!force && !fOn()) return '';
   var by = {};
   hits.forEach(function (s) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, date: s.date, items: [] }); g.qty += s.qty; g.items.push(s); if (s.date < g.date) g.date = s.date; });
   var L = FLOCS = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.loc.localeCompare(b.loc); });
