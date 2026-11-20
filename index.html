@@ -1198,9 +1198,27 @@ function distTitle(sig) { var p = sig.split('|'); return (p[3] ? p[3] + ' ' : ''
 function sheetDist() {
   var d = SH.dist, sig = [d.gsm, d.width, d.grade, d.maker, d.rem ? 'Y' : ''].join('|');
   var hits = S.stock.filter(function (s) { return s.gsm == d.gsm && s.width == d.width && (s.grade || '') === d.grade && (s.maker || '') === d.maker && !!s.rem === d.rem; });
-  var locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
-  var merge = Object.keys(locs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="consolidate(\'' + encodeURIComponent(sig) + '\')">↙ 한곳으로 모으기</button>' : '';
-  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + merge + fLocList(hits, true);
+  var whQ = {}; hits.forEach(function (s) { whQ[s.wh] = (whQ[s.wh] || 0) + s.qty; });
+  var whIds = Object.keys(whQ).map(Number).sort(function (a, b) { return a - b; });
+  if (!d.whs) d.whs = whIds.slice();                       // 기본 전체 창고 선택
+  d.whs = d.whs.filter(function (id) { return whQ[id] != null; });   // 없어진 창고 정리
+  if (!d.whs.length) d.whs = whIds.slice();
+  var sel = {}; d.whs.forEach(function (id) { sel[id] = 1; });
+  var fhits = hits.filter(function (s) { return sel[s.wh]; }), flocs = {};
+  fhits.forEach(function (s) { flocs[s.loc] = 1; });
+  // 창고가 2개 이상이면 창고 토글 (켠 창고만 리스트·모으기 대상 · 하나만 켜면 창고 내 정리)
+  var whRow = whIds.length > 1 ? '<div class="cgf" style="margin:2px 0 10px"><span class="muted" style="align-self:center; margin-right:2px">창고</span>' +
+    whIds.map(function (id) { return '<button class="chip' + (sel[id] ? ' on' : '') + '" onclick="distWh(' + id + ')">' + esc(whName(id)) + ' ' + whQ[id] + '롤</button>'; }).join('') + '</div>' : '';
+  var partial = whIds.length > 1 && d.whs.length < whIds.length;
+  var merge = Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="consolidate(\'' + encodeURIComponent(sig) + '\')">↙ 한곳으로 모으기' + (partial ? ' (선택 창고)' : '') + '</button>' : '';
+  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true);
+}
+function distWh(id) {
+  var d = SH.dist; if (!d) return;
+  var i = (d.whs || []).indexOf(id);
+  if (i >= 0) { if (d.whs.length > 1) d.whs.splice(i, 1); }   // 최소 1개 창고는 켜 둠
+  else d.whs.push(id);
+  renderSheet();
 }
 /* 분산된 원지(같은 원지가 2곳 이상)만. 곳수 많은 순 → 같으면 평균 롤 적은(잘게 쪼개진) 순 (④ 우선순위) */
 function distAll() {
@@ -1213,7 +1231,8 @@ function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.si
 var DISTA = [];
 /* ② 한곳으로 모으기: 목표마다 나머지를 담을 수 있는 적재 가능 수량을 계산 → 전부 수용 가능한 곳 우선 추천 */
 function consolidate(enc) {
-  var sig = decodeURIComponent(enc), recs = S.stock.filter(function (s) { return sigOf(s) === sig; });
+  var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
+  var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
   if (recs.length < 2) { toast('모을 위치 없음'); return; }
   var total = recs.reduce(function (a, s) { return a + s.qty; }, 0);
   var cand = recs.map(function (s) {
@@ -1235,7 +1254,8 @@ function consolidate(enc) {
 }
 function doConsolidate(sig, targetLoc) {
   if (!requireWorker()) return;
-  var sources = S.stock.filter(function (s) { return sigOf(s) === sig && s.loc !== targetLoc; });
+  var sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고의 줄만 이동
+  var sources = S.stock.filter(function (s) { return sigOf(s) === sig && s.loc !== targetLoc && (!sel || sel.indexOf(s.wh) >= 0); });
   var moved = 0, short = 0;
   var step = function (k) {
     if (k >= sources.length) {
