@@ -181,6 +181,14 @@
   .zhead .zh .zh-lab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .zoff { flex:none; height:26px; padding:0 9px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:11px; font-weight:700; }
   .zoff.on { border-color:var(--ink); color:var(--ink); background:#EDEFF2; }
+  /* 설정 구역 배치 미리보기 (지도와 같은 좌|우) */
+  .zprev { border:1px solid #E6E8EB; border-radius:8px; overflow:hidden; margin-bottom:8px; }
+  .zprev-row { display:grid; grid-template-columns:40px 1fr 1fr; align-items:stretch; font-size:13px; font-weight:700; }
+  .zprev-row + .zprev-row { border-top:1px solid #E6E8EB; }
+  .zprev-b { background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .zprev-c { padding:6px 8px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .zprev-c + .zprev-c { border-left:1px dashed #C9CDD3; }
+  .zprev-c small { font-weight:500; color:#8A9098; } .zprev-c .side { color:#6B7178; font-weight:800; margin-right:3px; }
   .mk { font-weight:900; color:var(--ink); margin-right:4px; }
   .mk.none { display:none; }
   .sl .mk { margin-right:3px; }
@@ -2741,15 +2749,20 @@ function renderWh() {
   };
   whEl().innerHTML = W.map(function (w, i) {
     if (i !== WI) return '';
+    var slotLab = function (k) { return (Math.floor(k / 2) + 1) + '열 ' + (k % 2 === 0 ? '좌' : '우'); };
+    var zcnt = w.zones.length;
     var zones = w.zones.map(function (z, j) {
+      var opts = '';
+      for (var k = 0; k < zcnt; k++) opts += '<option value="' + k + '"' + (k === j ? ' selected' : '') + '>' + slotLab(k) + '</option>';
       return '<div class="row" style="gap:4px; margin-bottom:4px">' +
-        inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:46px; flex:none; padding:0 4px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
-        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; padding:0 6px" placeholder="별칭 (예: 좌 · 비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
-        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:52px; flex:none; padding:0 4px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
-        '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>' +
-        (j % 2 === 1 ? '<div class="row" style="gap:6px; margin:0 0 10px"><span class="muted" style="font-size:12px">통로 <span style="white-space:nowrap">왼쪽 <b>' + esc(zoneShort(w.id, w.zones[j - 1].code)) + '</b></span> · <span style="white-space:nowrap">오른쪽 <b>' + esc(zoneShort(w.id, z.code)) + '</b></span> · 재고 지도에서 끌어서 바꾸기</span>' +
-          '<button class="btn2" style="height:34px; padding:0 10px; font-size:13px" onclick="swapZone(' + i + ',' + (j - 1) + ')">⇄ 좌우</button></div>' : '');
-    }).join('');
+        inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:42px; flex:none; padding:0 3px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
+        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
+        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:44px; flex:none; padding:0 3px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
+        '<select class="mini" style="width:74px; flex:none; padding:0 2px" onchange="moveZoneTo(' + i + ',' + j + ',+this.value)" aria-label="위치">' + opts + '</select>' +
+        '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
+    }).join('') +
+      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치를 고르면 그 자리 구역과 <b>맞바뀜</b> · 저장해야 지도 반영</div>' +
+      zonePrev(w);
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
       return '<div class="row" style="gap:6px; margin-bottom:4px">' +
@@ -2821,10 +2834,26 @@ function addZone(i) {
 }
 /* 줄 번호 상하 바꾸기 (위치 현황 표시 순서만 · 위치 코드 · 재고는 그대로) → [창고 설정 저장] 필요 */
 function flipRows(i) { W[i].rev = !W[i].rev; renderWh(); toast('상하 바뀜 — [창고 설정 저장]을 눌러야 반영'); }
-/* 통로 좌우 구역 바꾸기 (순서만 바뀜 · 위치 코드 · 재고는 그대로) → [창고 설정 저장] 필요 */
-function swapZone(i, j) {
-  var z = W[i].zones, t = z[j]; z[j] = z[j + 1]; z[j + 1] = t;
-  renderWh(); toast('좌우 바뀜 — [창고 설정 저장]을 눌러야 반영');
+/* 구역 위치 지정 (드롭다운): 고른 자리의 구역과 맞바꿈 → [창고 설정 저장] 필요 */
+function moveZoneTo(i, from, to) {
+  var zs = W[i].zones;
+  if (to === from || to < 0 || to >= zs.length) { renderWh(); return; }
+  var t = zs[from]; zs[from] = zs[to]; zs[to] = t;
+  renderWh(); toast('위치 바뀜 — [창고 설정 저장]을 눌러야 반영');
+}
+/* 배치 미리보기: 지도와 같은 좌|우 묶음 (표시 이름 = 지도에 나오는 그대로) */
+function zonePrev(w) {
+  var h = '', zs = w.zones;
+  for (var b = 0; b * 2 < zs.length; b++) {
+    var zl = zs[b * 2], zr = zs[b * 2 + 1];
+    var cell = function (z, side) {
+      return z ? '<span class="side">' + side + '</span>' + esc(zoneShort(w.id, z.code)) + ' <small>(' + esc(z.code) + ')</small>'
+               : '<span class="muted">' + side + ' 비움</span>';
+    };
+    h += '<div class="zprev-row"><span class="zprev-b">' + (b + 1) + '열</span>' +
+      '<span class="zprev-c">' + cell(zl, '좌') + '</span><span class="zprev-c">' + cell(zr, '우') + '</span></div>';
+  }
+  return '<div class="zprev">' + h + '</div>';
 }
 function delZone(i, j) {
   ask({ title: W[i].zones[j].name + ' 삭제', msg: '저장 시 반영 · 재고가 있으면 저장 불가', input: false, ok: '삭제', danger: true },
