@@ -536,7 +536,7 @@ function fSum(tail) {
 }
 function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; }); return { list: hits, locs: Object.keys(locs).length, qty: hits.reduce(function (a, s) { return a + s.qty; }, 0) }; }
 /* 문구 검색칸: 조회 · 지도 검색창 공통 (글자 칠 때 결과만 갱신 · 입력칸은 그대로) */
-function fQ(v) { F.q = v; if (TAB === 'find') renderFind(); else { renderMap(); var c = $('fq-cnt'); if (c) { var h = fHits(); c.textContent = h.locs + '곳 · ' + h.qty + '롤'; } } }
+function fQ(v) { F.q = v; if (TAB === 'find') renderFind(); else { renderMap(); var c = $('fq-cnt'); var h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); } }
 var M = { wh: null };                               // 위치 현황 창고
 var I = { gsm: null, width: null, qty: 1, rem: false, from: null }; // 입고 (rem = 잔량 반납)
 var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
@@ -1622,6 +1622,23 @@ function saveCnt() {
 }
 
 /* --- 지도 검색 (같은 규격 선택기) --- */
+/* 지도 검색 결과: 위치별 한 줄 (작업 버튼 없음 — 누르면 그 창고 지도로 가서 줄 열기, 작업은 줄 화면에서)
+   다른 창고 결과도 한눈에 · 선입선출(가장 오래된 입고) 위치 먼저 */
+var FLOCS = [];
+function fLocList(hits) {
+  if (!fOn()) return '';
+  var by = {};
+  hits.forEach(function (s) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, date: s.date, items: [] }); g.qty += s.qty; g.items.push(s); if (s.date < g.date) g.date = s.date; });
+  var L = FLOCS = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.loc.localeCompare(b.loc); });
+  if (!L.length) return '<div class="card muted" style="margin-top:12px">해당 재고 없음</div>';
+  return '<h2 style="margin:14px 0 6px">결과 ' + L.length + '곳 <span class="muted" style="font-size:13px; font-weight:500">누르면 지도에서 그 줄 열기</span></h2>' + L.map(function (g, i) {
+    return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin-bottom:6px; padding:8px 10px; cursor:pointer" onclick="fGo(' + i + ')">' +
+      '<span class="tag' + (i ? '' : ' hot') + '"><small>' + esc(whName(g.wh)) + '</small><b>' + esc(keyOf(g.loc)) + '</b></span>' +
+      '<div style="flex:1; min-width:0">' + g.items.map(function (s) { return '<div style="font-weight:700">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + ' · ' + s.qty + '롤' + remTag(s) + (s.grade ? ' <span class="muted" style="font-weight:500">' + esc(s.grade) + '</span>' : '') + '</div>'; }).join('') +
+      '<div class="muted" style="font-size:12px">입고 ' + esc(g.date) + (i ? '' : ' · 선입선출 1순위') + '</div></div><span class="muted">›</span></div>';
+  }).join('');
+}
+function fGo(i) { var g = FLOCS[i]; if (!g) return; M.wh = g.wh; renderMap(); openRow(g.loc); }
 /* 지도 검색창: 조회와 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
 function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
 function sheetFilter() {
@@ -1629,7 +1646,7 @@ function sheetFilter() {
   return shHead('검색', '', false, fSum(fOn() ? ' · ' + h.locs + '곳 · ' + h.qty + '롤' : '')) +
     '<div class="row" style="gap:8px; margin:6px 0"><input class="mini" type="search" style="flex:1; height:44px; font-size:16px" value="' + esc(F.q || '') + '" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="fQ(this.value)" onchange="renderSheet()">' +
     '<span class="muted" id="fq-cnt" style="flex:none">' + (fOn() ? h.locs + '곳 · ' + h.qty + '롤' : '') + '</span></div>' +
-    photoBar('filterPhoto', phNote('롤 라벨을 찍으면 같은 규격이 있는 줄 표시')) + pickerBody(F, true, 'renderSheet()', true) +
+    photoBar('filterPhoto', phNote('롤 라벨을 찍으면 같은 규격이 있는 줄 표시')) + pickerBody(F, true, 'renderSheet()', true) + '<div id="fq-list">' + fLocList(h.list) + '</div>' +
     '<div class="grid2" style="margin-top:12px"><button class="btn2" onclick="clearFilter()">초기화</button><button class="btn" style="height:46px" onclick="closeSheet()">지도 보기</button></div>';
 }
 function clearFilter(ev) {
