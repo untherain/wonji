@@ -980,7 +980,7 @@ function renderMap() {
     if (!z || i > z.rows) return '<div></div>';
     var h = '';
     {
-      var key = z.code + '-' + pad(i), code = w.id + '-' + key;
+      var key = z.code + '-' + pad(i), code = w.id + '-' + key, disp = keyOf(code);   // code=내부 코드(B-01), disp=표시용(우-01)
       var ri = rowInfo(code), items = ri.items, n = ri.rolls, off = !!ri.cfg.off;
       var hit = fOn() ? items.some(fMatch) : false;
       // 규격 목록: 롤 수 많은 순, 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
@@ -1005,7 +1005,7 @@ function renderMap() {
       }
       var tdy = !MV && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
       h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + '"' + (MV ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
-        '<div class="t"><span>' + key + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
+        '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? (n ? '사용 중지 · 재고 ' + n + '롤 있음' : '사용 중지') : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
