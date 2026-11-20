@@ -946,7 +946,7 @@ function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() :
-    searchBar() + progLine() + (ST ? '<div class="ehint">편집 중 — 빈 줄을 눌러 <b>사용 ↔ 미사용</b>, 구역 <b>✓ 완료</b>로 저장</div>' : ''));
+    searchBar() + progLine() + (ST ? '<div class="ehint">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1239,17 +1239,17 @@ function consolidate(enc) {
     var others = total - s.qty, take = Math.min(freeFor(s.loc, s.gsm, s.width, s.grade), others);
     return { loc: s.loc, take: take, result: s.qty + take, left: others - take };   // result=여기 모이는 롤, left=다른 자리에 남는 롤
   }).sort(function (a, b) { return b.result - a.result; });   // 한곳에 가장 많이 모이는 곳
-  if (cand[0].take <= 0) { toast('모을 빈자리가 없음 — 먼저 다른 곳으로 이동', true); return; }
+  if (cand[0].take <= 0) { toast('수용 가능한 공간 없음 · 다른 곳으로 이동 필요', true); return; }
   var labs = cand.map(function (c, i) {
-    var out = c.take <= 0 ? '자리 없음' : (c.left === 0 ? '전부 모임 · ' + c.result + '롤' : c.result + '롤 모임 · ' + c.left + '롤 남음');
+    var out = c.take <= 0 ? '수용 불가' : (c.left === 0 ? '전량 수용' : c.result + '롤 수용 · ' + c.left + '롤 잔여');
     return keyOf(c.loc) + ' · ' + out + (i === 0 ? ' · 추천' : '');
   });
-  ask({ title: '한곳으로 모으기', msg: '지금 ' + recs.length + '곳 · ' + total + '롤 · 모을 위치 선택', chips: labs }, function (v) {
+  ask({ title: '한곳으로 모으기', msg: '현재 ' + recs.length + '곳 · ' + total + '롤 · 목표 위치 선택', chips: labs }, function (v) {
     var i = labs.indexOf(v); if (i < 0) return;
     var c = cand[i];
-    if (c.take <= 0) { toast(keyOf(c.loc) + ' 자리 없음 — 다른 위치 선택', true); return; }
+    if (c.take <= 0) { toast(keyOf(c.loc) + ' 수용 불가 · 다른 위치 선택', true); return; }
     if (c.left === 0) return doConsolidate(sig, c.loc);
-    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.result + '롤 모임 · ' + c.left + '롤은 자리가 없어 다른 곳에 남음', input: false, ok: '모으기', danger: true },
+    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.result + '롤 수용 · ' + c.left + '롤은 공간 부족으로 잔여', input: false, ok: '모으기', danger: true },
       function (y) { if (y) doConsolidate(sig, c.loc); });
   });
 }
@@ -1261,7 +1261,7 @@ function doConsolidate(sig, targetLoc) {
   var step = function (k) {
     if (k >= sources.length) {
       renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
-      toast(keyOf(targetLoc) + '로 ' + moved + '롤 모음' + (short ? ' · ' + short + '롤 남음' : ''));
+      toast(keyOf(targetLoc) + ' · ' + moved + '롤 통합 완료' + (short ? ' · ' + short + '롤 잔여' : ''));
       return;
     }
     var cur = S.stock.filter(function (x) { return x.loc === sources[k].loc && sigOf(x) === sig; })[0];
@@ -1438,7 +1438,7 @@ function sheetRow() {
   if (ri.cfg.off) notes.push(ri.cfg.st || '사용 불가');   // 통로 · 비사용 · 미사용
   var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : '');
   if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
-    h += '<div class="stkhint">위가 <b>맨 위</b>(먼저 빼는 칸) · 새 품목은 맨 위에 추가</div>' +
+    h += '<div class="stkhint"><b>맨 위</b>가 먼저 출고 · 신규 입고분은 맨 위에 추가</div>' +
       (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
       '<button class="btn" style="width:100%; margin-top:12px; background:var(--ink); color:#fff" onclick="ordDone()">완료</button>';
     return h;
@@ -1469,7 +1469,7 @@ function itemBlock(s, i, ri) {
     '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단</span></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
-    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 쌓여 있음 — 먼저 빼야 함</div>' : '';
+    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 적재 · 먼저 이동 필요</div>' : '';
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
     h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
@@ -1822,8 +1822,8 @@ function sheetIn() {
     var eks = Object.keys(elsew);
     if (eks.length) {
       var topL = eks.map(function (k) { return elsew[k]; }).sort(function (a, b) { return b.qty - a.qty; })[0];
-      f += '<div class="hintbox">같은 원지가 이미 <b>' + eks.length + '곳</b>에 있음 · 분산을 줄이려면 ' +
-        '<button class="hlnk" onclick="SH.code=\'' + topL.loc + '\';M.wh=whOf(\'' + topL.loc + '\').id;renderMap();renderSheet()">' + esc(keyOf(topL.loc)) + ' (' + topL.qty + '롤)</button> 에 넣기 권장</div>';
+      f += '<div class="hintbox">같은 원지가 이미 <b>' + eks.length + '곳</b>에 보관 중 · 분산 최소화를 위해 ' +
+        '<button class="hlnk" onclick="SH.code=\'' + topL.loc + '\';M.wh=whOf(\'' + topL.loc + '\').id;renderMap();renderSheet()">' + esc(keyOf(topL.loc)) + ' (' + topL.qty + '롤)</button> 권장</div>';
     }
   }
   h += '<details class="more" id="sh-more"' + (SH.more ? ' open' : '') + ' ontoggle="SH.more=this.open"><summary>더보기: 지종 · 잔량 반납</summary>' +
@@ -2540,7 +2540,7 @@ function distCard() {
   var A = DISTA = distAll();
   var h = '<div class="card"><div class="row"><b>분산 원지 ' + A.length + '건</b>' +
     (A.length ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>' +
-    '<div class="muted" style="margin:2px 0 6px">같은 원지가 여러 위치에 — 현재 기준 · 누르면 위치 보기 · 모으기</div>';
+    '<div class="muted" style="margin:2px 0 6px">같은 원지가 여러 위치에 분산 · 현재 기준 · 선택 시 위치 확인 · 통합</div>';
   h += A.length ? A.map(function (e, i) {
     var c = Object.keys(e.locs).length, frag = e.qty <= c * 2;   // 평균 2롤 이하 = 조각 많음
     return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin:0 0 6px; padding:8px 10px; cursor:pointer" onclick="distAllGo(' + i + ')">' +
