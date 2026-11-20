@@ -1370,15 +1370,24 @@ function itemFix(s, done) {
   ask({ title: '품목 수정', msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty),
     chips: ['제지사 바꾸기', '지종 바꾸기', '제지사 이름 전체 바꾸기'] }, function (c) {
     if (c === '제지사 이름 전체 바꾸기') return qEdit('제지사', s.maker);
-    if (c === '제지사 바꾸기') return pickFix(s, '제지사', 'newMaker', 'maker', S.quick['제지사'] || [], done);
-    if (c === '지종 바꾸기') return pickFix(s, '지종', 'newGrade', 'grade', (S.quick['지종'] || []).concat(['(지종 없음)']), done);
+    if (c === '제지사 바꾸기') return pickFix(s, '제지사', 'newMaker', 'maker', done);
+    if (c === '지종 바꾸기') return pickFix(s, '지종', 'newGrade', 'grade', done);
   });
 }
-function pickFix(s, label, field, key, chips, done) {
-  ask({ title: label + ' 바꾸기', msg: fmtItem(s, s.qty) + ' → 새 ' + label, chips: chips }, function (v) {
+/* 공통 부품: 빠른값(제지사/지종) 선택 팝업 — 지종은 '(지종 없음)' 포함, 빈값 정규화, 현재값과 같으면 무시 */
+function pickQuick(kind, s, title, cur, cb) {
+  var list = (S.quick[kind] || []).slice();
+  if (kind === '지종') list.push('(지종 없음)');
+  ask({ title: title, msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty), chips: list }, function (v) {
     if (v == null) return;
     if (v === '(지종 없음)') v = '';
-    if (v === (s[key] || '')) return;
+    if (cur != null && v === (cur || '')) return;
+    cb(v);
+  });
+}
+/* 품목 수정: 제지사/지종 교정 (fixItem) · done(oldS,newS) = 실사 수량 키 이관 등 */
+function pickFix(s, label, field, key, done) {
+  pickQuick(label, s, label + ' 바꾸기', s[key] || '', function (v) {
     if (!requireWorker()) return;
     var p = Object.assign(itemP(s), { loc: s.loc || SH.code }); p[field] = v;
     call('fixItem', p).then(function (st) {
@@ -1389,20 +1398,27 @@ function pickFix(s, label, field, key, chips, done) {
   });
 }
 function rowFix(i) { itemFix(SH.items[i]); }
-function cntFix(i) {
-  itemFix(SH.clist[i], function (oldS, newS) {   // 실사 중: 입력해 둔 실사 수량을 새 품목 키로 옮김
-    var c = SH.cnt, ok = itemKey(oldS), nk = itemKey(newS);
-    if (c.v[ok] != null) { c.v[nk] = c.v[ok] + (c.v[nk] != null ? c.v[nk] : 0); delete c.v[ok]; }
-  });
+/* 공통 부품: 실사 수량 키 이관 — 품목 키가 바뀌면 입력해 둔 실사 수량을 새 키로 옮김 */
+function cntMigrate(oldS, newS) {
+  if (!SH || !SH.cnt) return;
+  var c = SH.cnt, ok = itemKey(oldS), nk = itemKey(newS);
+  if (c.v[ok] != null) { c.v[nk] = c.v[ok] + (c.v[nk] != null ? c.v[nk] : 0); delete c.v[ok]; }
 }
-function pickMaker(i) {
-  var s = SH.items[i];
-  ask({ title: '제지사 지정', msg: plain(locLabel(s.loc)) + ' · ' + fmtItem(s, s.qty), chips: S.quick['제지사'] || [] }, function (m) {
+function cntFix(i) { itemFix(SH.clist[i], cntMigrate); }
+/* 공통 부품: 제지사 미확인 → 지정 (setMaker) · localFn(m)→true면 서버 안 거치고 로컬 처리(실사 중 미등록 품목) */
+function assignMaker(s, loc, done, localFn) {
+  pickQuick('제지사', Object.assign({}, s, { loc: loc }), '제지사 지정', null, function (m) {
     if (!m) return;
+    if (localFn && localFn(m)) return;
     if (!requireWorker()) return;
-    call('setMaker', Object.assign(itemP(s), { loc: s.loc, maker: m })).then(function (st) { setStock(st); renderMap(); renderSheet(); toast('제지사 지정 완료: ' + m); });
+    call('setMaker', Object.assign(itemP(s), { loc: loc, maker: m })).then(function (st) {
+      var newS = Object.assign({}, s, { maker: m });
+      if (done) done(s, newS);
+      setStock(st); renderMap(); if (SH) renderSheet(); toast('제지사 지정 완료: ' + m);
+    });
   });
 }
+function pickMaker(i) { assignMaker(SH.items[i], SH.items[i].loc); }
 
 /* --- 이동: 작업창 접고 지도에서 도착 줄 누름 --- */
 function startMove(i) { var s = SH.items[i]; MV = { from: s.loc, item: s, qty: 1 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
@@ -1706,20 +1722,9 @@ function sheetCount() {
    같은 위치에 같은 규격 · 같은 제지사 재고가 이미 있으면 한 품목으로 합쳐지므로 실사 수량도 더함 */
 function pickMakerCnt(i) {
   var s = SH.clist[i], code = SH.code;
-  ask({ title: '제지사 지정', msg: plain(locLabel(code)) + ' · ' + fmtItem(s, s.qty), chips: S.quick['제지사'] || [] }, function (m) {
-    if (!m) return;
-    var c = SH.cnt, oldK = itemKey(s), counted = c.v[oldK], newK = itemKey(Object.assign({}, s, { maker: m }));
-    var move = function () {
-      if (!SH || SH.code !== code || SH.cnt !== c) return;
-      var other = c.v[newK];
-      delete c.v[oldK];
-      c.v[newK] = counted + (other != null ? other : 0);
-      renderMap(); renderSheet();
-    };
-    // 전산에 없는 품목(실사 중 "+ 미등록 규격"으로 추가) → 이 화면에서만 바꿈
-    if (!rowItems(code).some(function (x) { return sameItem(x, s); })) { s.maker = m; move(); toast('제지사 지정: ' + m); return; }
-    if (!requireWorker()) return;
-    call('setMaker', Object.assign(itemP(s), { loc: code, maker: m })).then(function (st) { setStock(st); move(); toast('제지사 지정 완료: ' + m); });
+  assignMaker(s, code, cntMigrate, function (m) {   // 전산에 없는 품목(실사 중 "+ 미등록 규격") → 이 화면에서만 바꿈
+    if (rowItems(code).some(function (x) { return sameItem(x, s); })) return false;   // 전산에 있음 → 서버 경로
+    var old = Object.assign({}, s); s.maker = m; cntMigrate(old, s); renderMap(); renderSheet(); toast('제지사 지정: ' + m); return true;
   });
 }
 function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); renderSheet(); }
