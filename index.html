@@ -181,6 +181,10 @@
   .zhead .zh .zh-lab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .zoff { flex:none; height:26px; padding:0 9px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:11px; font-weight:700; }
   .zoff.on { border-color:var(--ink); color:var(--ink); background:#EDEFF2; }
+  .zitem { display:flex; align-items:center; gap:4px; margin-bottom:4px; background:#fff; border-radius:8px; }
+  .zitem.grab { opacity:.65; box-shadow:0 5px 14px rgba(0,0,0,.2); position:relative; z-index:3; }
+  .zhandle { flex:none; width:30px; height:38px; display:flex; align-items:center; justify-content:center; cursor:grab; touch-action:none; color:#9AA0A6; font-size:18px; }
+  .zpos { flex:none; width:18px; text-align:center; font-size:11px; font-weight:800; color:#6B7178; }
   .mk { font-weight:900; color:var(--ink); margin-right:4px; }
   .mk.none { display:none; }
   .sl .mk { margin-right:3px; }
@@ -2741,16 +2745,16 @@ function renderWh() {
   };
   whEl().innerHTML = W.map(function (w, i) {
     if (i !== WI) return '';
-    var zones = w.zones.map(function (z, j) {
-      return '<div class="row" style="gap:4px; margin-bottom:4px">' +
-        inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:46px; flex:none; padding:0 4px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
-        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; padding:0 6px" placeholder="별칭 (예: 좌 · 비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
-        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:52px; flex:none; padding:0 4px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
-        '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>' +
-        // 구역 2개 = 통로 왼쪽 · 오른쪽 한 쌍 → 위치 현황 좌우 바꾸기
-        (j % 2 === 1 ? '<div class="row" style="gap:6px; margin:0 0 10px"><span class="muted" style="font-size:12px">위치 현황 <span style="white-space:nowrap">왼쪽 <b>' + esc(w.zones[j - 1].code) + '</b></span> · <span style="white-space:nowrap">오른쪽 <b>' + esc(z.code) + '</b></span></span>' +
-          '<button class="btn2" style="height:34px; padding:0 10px; font-size:13px" onclick="swapZone(' + i + ',' + (j - 1) + ')">⇄ 좌우 바꾸기</button></div>' : '');
-    }).join('');
+    var zones = '<div class="zlist" id="zlist-' + i + '">' + w.zones.map(function (z, j) {
+      return '<div class="zitem" data-zi="' + j + '">' +
+        '<span class="zhandle" onpointerdown="zDown(event,' + i + ')" aria-label="끌어서 순서 변경" title="끌어서 순서 변경">⠿</span>' +
+        '<span class="zpos">' + (j % 2 === 0 ? '좌' : '우') + '</span>' +
+        inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:44px; flex:none; padding:0 4px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
+        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (예: 좌 · 비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
+        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:48px; flex:none; padding:0 4px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
+        '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
+    }).join('') + '</div>' +
+      '<div class="muted" style="font-size:12px; margin:2px 0 8px">⠿ 끌어서 순서 변경 · 2개씩 짝 = 통로 <b>좌 | 우</b> (앞이 좌)</div>';
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
       return '<div class="row" style="gap:6px; margin-bottom:4px">' +
@@ -2826,6 +2830,35 @@ function flipRows(i) { W[i].rev = !W[i].rev; renderWh(); toast('상하 바뀜 �
 function swapZone(i, j) {
   var z = W[i].zones, t = z[j]; z[j] = z[j + 1]; z[j + 1] = t;
   renderWh(); toast('좌우 바뀜 — [창고 설정 저장]을 눌러야 반영');
+}
+/* 구역 ⠿ 손잡이 끌어서 순서 변경 (= 짝·좌우 위치) → 놓으면 W 순서 반영 + 다시 그림 */
+var ZDRAG = null;
+function zAfter(list, y) {   // 끌리는 줄이 들어갈 바로 다음 줄 (없으면 맨 끝)
+  var els = [].slice.call(list.querySelectorAll('.zitem:not(.grab)')), best = null, bestOff = -Infinity;
+  els.forEach(function (el) { var b = el.getBoundingClientRect(), off = y - b.top - b.height / 2; if (off < 0 && off > bestOff) { bestOff = off; best = el; } });
+  return best;
+}
+function zDown(e, i) {
+  var item = e.target.closest('.zitem'); if (!item) return;
+  e.preventDefault();
+  ZDRAG = { wi: i, list: item.parentNode, item: item };
+  item.classList.add('grab');
+  try { item.setPointerCapture(e.pointerId); } catch (er) {}
+  item.onpointermove = zMove; item.onpointerup = item.onpointercancel = zUp;
+}
+function zMove(e) {
+  if (!ZDRAG) return;
+  var after = zAfter(ZDRAG.list, e.clientY);
+  if (after) ZDRAG.list.insertBefore(ZDRAG.item, after); else ZDRAG.list.appendChild(ZDRAG.item);
+}
+function zUp() {
+  if (!ZDRAG) return;
+  var order = [].slice.call(ZDRAG.list.querySelectorAll('.zitem')).map(function (el) { return +el.dataset.zi; });
+  var zs = W[ZDRAG.wi].zones, changed = order.some(function (v, i) { return v !== i; });
+  if (changed) W[ZDRAG.wi].zones = order.map(function (idx) { return zs[idx]; });
+  ZDRAG.item.classList.remove('grab'); ZDRAG = null;
+  renderWh();
+  if (changed) toast('구역 순서 바뀜 — [창고 설정 저장]을 눌러야 반영');
 }
 function delZone(i, j) {
   ask({ title: W[i].zones[j].name + ' 삭제', msg: '저장 시 반영 · 재고가 있으면 저장 불가', input: false, ok: '삭제', danger: true },
