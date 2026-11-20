@@ -1183,21 +1183,11 @@ var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} }
 function sigOf(s) { return [s.gsm, s.width, s.grade || '', s.maker || '', s.rem ? 'Y' : ''].join('|'); }
 /* 같은 원지 판정 서명 (제지사·평량·지폭·지종·잔량) — 분산 배지용 */
 function distSig(s, maker) { return [s.gsm, s.width, s.grade || '', maker != null ? maker : (s.maker || ''), s.rem ? 'Y' : ''].join('|'); }
-/* 이 서명의 원지가 있는 위치들 (롤 많은 순) */
-function distLocs(sig) {
-  var by = {};
-  S.stock.forEach(function (s) { makersOf(s).forEach(function (m) { if (distSig(s, m.maker) === sig) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0 }); g.qty += m.qty; } }); });
-  return Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.qty - a.qty || a.loc.localeCompare(b.loc); });
-}
-function distTitle(sig) { var p = sig.split('|'); return (p[3] ? p[3] + ' ' : '') + p[0] + '×' + p[1] + (p[2] ? ' ' + p[2] : '') + (p[4] === 'Y' ? ' 잔량' : ''); }
-/* 분산 배지 누름 → 그 원지가 있는 위치 목록 → 누르면 그 줄로 이동 */
+/* 분산 배지 누름 → 그 규격으로 검색을 열어 공통 결과 리스트(창고명 포함 · fLocList) 그대로 사용 */
 function distPop(enc) {
-  var sig = decodeURIComponent(enc), L = distLocs(sig);
-  if (L.length < 2) { toast('다른 위치 없음'); return; }
-  var labs = L.map(function (g) { return keyOf(g.loc) + ' · ' + g.qty + '롤'; });
-  ask({ title: distTitle(sig) + ' · ' + L.length + '곳', msg: '누르면 그 줄로 이동', chips: labs }, function (v) {
-    var i = labs.indexOf(v); if (i < 0) return; var g = L[i]; M.wh = g.wh; renderMap(); openRow(g.loc);
-  });
+  var p = decodeURIComponent(enc).split('|');   // 평량|지폭|지종|제지사|잔량
+  F.gsm = p[0] || null; F.width = p[1] || null; F.grade = p[2] || ''; F.maker = p[3] || ''; F.q = '';
+  openFilter();
 }
 function rowItems(code) {
   var ord = (S.stack && S.stack[code]) || [];
