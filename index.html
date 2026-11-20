@@ -4,7 +4,6 @@
 <title>원지 창고</title>
 <meta name="apple-mobile-web-app-title" content="원지 창고">
 <meta name="robots" content="noindex">
-
 <meta charset="utf-8">
 <script>
 (function () {
@@ -1244,7 +1243,7 @@ function distAll() {
 function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
 var DISTA = [];
 /* ② 한곳으로 모으기 = 줄 정리: 적게 든 줄부터 비워 다른 줄 빈 자리로 → 줄 수 감소
-   입고일 규칙: 자리 여유(창고에 운용 중 빈 줄 있음) → 입고일 같은 줄끼리만 · 자리 부족(빈 줄 없음) → 입고일 섞어도 됨 */
+   입고일 규칙: 자리 여유(운용 중 빈 줄 4줄 이상) → 입고일 같은 줄끼리만 · 자리 부족(빈 줄 3줄 이하) → 입고일 섞어도 됨 */
 function lotKey(s) {
   var l = s.lots && s.lots.length ? s.lots : [{ date: s.date }], d = {};
   l.forEach(function (x) { d[x.date] = 1; });
@@ -1276,8 +1275,8 @@ function consolidate(enc) {
   if (recs.length < 2) { toast('모을 위치 없음'); return; }
   var ids = recs.map(function (s) { return String(s.wh); }), empty = 0;
   S.whs.forEach(function (w) { if (ids.indexOf(String(w.id)) >= 0) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
-  var mix = empty === 0, P = mergePlan(recs, mix);
-  var rule = mix ? '자리 부족 (빈 줄 없음) → 입고일 섞어서 정리' : '자리 여유 (빈 줄 ' + empty + '개) → 입고일 같은 줄끼리만';
+  var mix = empty <= 3, P = mergePlan(recs, mix);   // 빈 줄 3줄 이하 = 자리 부족
+  var rule = mix ? '자리 부족 (빈 줄 ' + empty + '줄) → 입고일 섞어서 정리' : '자리 여유 (빈 줄 ' + empty + '줄) → 입고일 같은 줄끼리만';
   if (!P.moves.length) {
     var P2 = mix ? null : mergePlan(recs, true);
     ask({ title: '한곳으로 모으기', input: false, chips: [], msg: P.before + '줄 · 줄일 수 있는 줄 없음\n' + rule +
