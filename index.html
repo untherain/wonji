@@ -344,19 +344,12 @@
 <main>
   <div id="loading">불러오는 중...</div>
 
-  <!-- 1. 찾기 -->
-  <section id="s-find">
-    <div class="seg" id="f-mode" style="background:#E6E8EB; margin:0 0 6px"></div>
-    <div id="f-spec">
-      <input id="f-q" class="mini" type="search" style="width:100%; height:44px; margin-bottom:8px; font-size:16px" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="fQ(this.value)">
-      <div id="f-pick"></div>
-      <div class="row" style="margin:16px 0 8px"><b id="f-sum" style="font-size:16px"></b><span id="f-sort"></span></div>
-      <div id="f-list"></div>
-    </div>
+  <!-- 1. 생산계획 (피킹) -->
+  <section id="s-plan">
     <div id="f-plan"></div>
   </section>
 
-  <!-- 2. 위치 현황 -->
+  <!-- 2. 재고 (위치 현황 + 검색) -->
   <section id="s-map">
     <div id="m-body"></div>
     <div class="muted" style="margin-top:8px">줄을 누르면 출고 · 이동 · 입고 · 실사</div>
@@ -514,8 +507,9 @@
 </div>
 
 <nav id="nav">
-  <button data-t="map" class="on">지도</button>
-  <button data-t="find">조회</button>
+  <button data-t="map" class="on">재고</button>
+  <button data-t="in">입고</button>
+  <button data-t="plan">계획</button>
   <button data-t="log">기록</button>
   <button data-t="set">설정</button>
 </nav>
@@ -541,13 +535,13 @@ function fSum(tail) {
 }
 function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; }); return { list: hits, locs: Object.keys(locs).length, qty: hits.reduce(function (a, s) { return a + s.qty; }, 0) }; }
 /* 문구 검색칸: 조회 · 지도 검색창 공통 (글자 칠 때 결과만 갱신 · 입력칸은 그대로) */
-function fQ(v) { F.q = v; if (TAB === 'find') renderFind(); else { renderMap(); var c = $('fq-cnt'); var h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); } }
+function fQ(v) { F.q = v; renderMap(); var c = $('fq-cnt'), h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); }
 var M = { wh: null };                               // 위치 현황 창고
 var I = { gsm: null, width: null, qty: 1, rem: false, from: null }; // 입고 (rem = 잔량 반납)
 var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
 var LG = { mode: '이력' };   // 기록 (이력 · 보고서)
 var TAB = 'map';
-var TITLES = { find: '조회', map: '위치 현황', in: '입고', mng: '작업', log: '기록', set: '설정' };
+var TITLES = { map: '재고 · 위치 현황', in: '입고', plan: '생산계획', log: '기록', set: '설정', find: '조회', mng: '작업' };
 
 /* ===== 공통 ===== */
 function $(id) { return document.getElementById(id); }
@@ -599,10 +593,9 @@ function refreshStock(force) {
     if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver);
     if (force) toast('재고 새로 고침 완료');
-    if (TAB === 'find' && !(FM === 'plan' && document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderFind();
-    else if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
+    if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
     else if (TAB === 'in') inHint();
-    else if (TAB === 'mng') renderG();
+    else if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
   });
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshStock(false); });
@@ -860,13 +853,13 @@ function scanQR(cb) {
 /* ===== 탭 ===== */
 function show(t) {
   TAB = t;
-  ['find', 'map', 'in', 'mng', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
+  ['map', 'in', 'plan', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
   $('title').textContent = TITLES[t];
   $('testBar').style.display = isTest() ? 'inline-block' : 'none';
   $('hdrExtra').innerHTML = '';
   SH = null; MV = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
-  ({ find: renderFind, map: renderMap, in: renderIn, mng: renderMng, log: renderLog, set: renderSet })[t]();
+  ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
   window.scrollTo(0, 0);
   refreshStock(false);
 }
@@ -874,41 +867,7 @@ function show(t) {
 $('i-step').outerHTML = stepper(1, 'I.qty=Math.max(1,I.qty-1);renderIn()', 'I.qty++;renderIn()', '롤 수', 'i-qty');
 $('g-step').outerHTML = stepper(1, 'G.qty=Math.max(0,G.qty-1);renderG()', 'G.qty++;renderG()', '롤 수', 'g-qty');
 
-/* ===== 1. 찾기 ===== */
-function renderFind() {
-  seg($('f-mode'), [['spec', '규격 선택'], ['plan', '생산계획서']], FM, setFM);
-  $('f-spec').style.display = FM === 'spec' ? 'block' : 'none';
-  $('f-plan').style.display = FM === 'plan' ? 'block' : 'none';
-  if (FM === 'plan') { $('hdrExtra').innerHTML = ''; renderPlan(); return; }
-  PKT = { sp: F, render: renderFind, filter: true };   // 공통 선택기 · 다시 누르면 해제 = 전체
-  $('f-pick').innerHTML = pickerBody(F, true, 'renderFind()', true);
-  var fs = sortGet('find', 'find');
-  var fq = $('f-q'); if (fq && document.activeElement !== fq) fq.value = F.q || '';   // 지도 검색창에서 바꾼 문구도 표시
-  var res = S.stock.filter(fMatch)
-    .sort(function (a, b) {
-      return fs === 'qty' ? b.qty - a.qty || a.date.localeCompare(b.date) :
-        fs === 'loc' ? a.loc.localeCompare(b.loc) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date);
-    });
-  $('f-sort').innerHTML = sortBtn('find', 'find', 'renderFind()');
-  hdrSum('find', fSum(' · ' + res.length + '곳 · ' + res.reduce(function (n, s) { return n + s.qty; }, 0) + '롤'));
-  var first = res.slice().sort(function (a, b) { return a.date.localeCompare(b.date); })[0];
-  var total = res.reduce(function (n, s) { return n + s.qty; }, 0);
-  $('f-sum').textContent = '재고 목록';
-  $('f-list').innerHTML = res.length ? res.map(function (s, i) {
-    return '<div class="card row' + (s === first ? ' hot' : '') + '" style="justify-content:flex-start; flex-wrap:wrap">' +
-      '<span class="tag' + (s === first ? ' hot' : '') + '"><small>' + esc(whName(s.wh)) + '</small><b>' + esc(keyOf(s.loc)) + '</b></span>' +
-      '<div style="flex:1; min-width:0"><div style="font-weight:700; font-size:17px">' + specLp(s) + ' · ' + s.qty + '롤' + remTag(s) + '</div>' +
-      (s.grade ? '<div class="muted">' + esc(s.grade) + '</div>' : '') + '<div class="muted">' + lotText(s) + '</div>' +
-      (s === first ? '<div style="font-size:12px; font-weight:700; color:var(--blue)">선입선출 1순위</div>' : '') + '</div>' +
-      '<div class="grid3" style="width:100%; margin-top:8px">' + ['출고', '이동', '실사'].map(function (m) {
-        return '<button class="btn2" style="height:40px" onclick="findAct(\'' + m + '\',' + i + ')">' + m + '</button>';
-      }).join('') + '</div></div>';
-  }).join('') : '<div class="card muted">해당 재고 없음</div>';
-  renderFind.res = res;
-}
-/* 조회 결과에서 바로 출고 · 이동 · 실사: 위치 · 규격이 선택된 채로 작업 화면 열기 */
-function findAct(mode, i) { actOn(mode, renderFind.res && renderFind.res[i]); }
-/* 재고 1건에서 바로 출고 · 이동 · 실사 (위치 · 규격 선택된 채로 작업 화면) */
+/* ===== 1. 재고(지도) 작업 열기 — 검색 결과 줄에서 바로 출고 · 이동 · 실사 ===== */
 function actOn(mode, s) {
   if (!s) return;
   show('map'); M.wh = s.wh; renderMap();
@@ -2371,12 +2330,10 @@ function cancelHist(i) {
    - 피킹: 호기별 하단 품목부터, 위치는 선입선출 · 1호기부터 배분, 제지사 다른 재고는 대체 후보로만
    - 출고 확정: 피킹 체크한 품목만 한 번에 출고 (이력 메모: 생산계획 · 호기 · 계획 번호) */
 var LINES = ['1호기', '2호기', '3호기', '기타'];
-var FM = (function () { try { return localStorage.getItem('findMode') || 'spec'; } catch (e) { return 'spec'; } })();
 function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, seq: 1, msg: '' }; }
 var PL = (function () { try { return JSON.parse(localStorage.getItem('plan') || 'null') || newPL(); } catch (e) { return newPL(); } })();
 var PQ = { line: '1호기', gsm: null, width: null, maker: '', grade: '', qty: 1 };
 function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} }
-function setFM(m) { FM = m; try { localStorage.setItem('findMode', m); } catch (e) {} renderFind(); }
 
 /* 제지사 표준화: 기준정보의 별칭 (왕자|Oji|王子 → 왕자) */
 function normMk(x) { return String(x || '').replace(/\s+/g, '').replace(/제지$/, '').toUpperCase(); }
@@ -2479,7 +2436,7 @@ function renderPlan() {
   el.innerHTML = h;
   chips($('pq-line'), LINES, PQ.line, function (v) { PQ.line = v; renderPlan(); });
   PKT = { sp: PQ, render: renderPlan };
-  hdrSum('find', sLine([P(PQ.line, '호기', 'pq-line'), ' · ', P(PQ.maker || '', '제지사', 'sp-mk', null, false), PQ.maker ? ' ' : '', P(PQ.gsm, '평량', 'sp-gsm'), P(PQ.width, '지폭', 'sp-width', null, true, '×'),
+  hdrSum('plan', sLine([P(PQ.line, '호기', 'pq-line'), ' · ', P(PQ.maker || '', '제지사', 'sp-mk', null, false), PQ.maker ? ' ' : '', P(PQ.gsm, '평량', 'sp-gsm'), P(PQ.width, '지폭', 'sp-width', null, true, '×'),
     P(PQ.qty + '롤', '수량', 'pq-add', null, true, ' · '), P(PQ.grade || '', '지종', 'sp-gr', null, false, ' · ')], '빠른 입력'));
 }
 function planRow(it) {
@@ -2618,7 +2575,7 @@ function renderPick(el) {
     var pend = PL.items.filter(function (it) { return it.line === line && !PL.done[it.id]; });
     if (pend.length) ps.push(P(line + ' ' + pend.filter(function (it) { return PL.picked[it.id]; }).length + '/' + pend.length, line, 'pk-' + line, null, true, ps.length ? ' · ' : ''));
   });
-  hdrSum('find', ps.length ? sLine(ps, '피킹 체크') : '');
+  hdrSum('plan', ps.length ? sLine(ps, '피킹 체크') : '');
   var h = '<div class="row"><div><b style="font-size:17px">피킹 리스트</b><div class="muted">' + esc(PL.date || '') +
     ' · 호기별 하단 품목부터 · 위치 선입선출</div></div><button class="btn2" onclick="PL.stage=\'edit\'; savePL(); renderPlan()">계획 수정</button></div>' +
     photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '집어 든 롤 라벨을 찍으면 계획과 비교해 맞으면 자동 체크');
@@ -3383,7 +3340,7 @@ function saveAgingN(n) {
   needPin(function (pin) {
     call('saveAging', n, pin).then(function (v) {
       S.agingDays = v; RP.data = null; if ($('set-aging')) $('set-aging').value = v;
-      if (TAB === 'find') renderFind(); else if (TAB === 'log' && LG.mode === '보고서') renderRep(); else if (TAB === 'map' && SH) renderSheet();
+      if (TAB === 'plan') renderPlan(); else if (TAB === 'log' && LG.mode === '보고서') renderRep(); else if (TAB === 'map') { renderMap(); if (SH) renderSheet(); }
       toast('장기 재고 기준 ' + v + '일 저장됨');
     });
   });
