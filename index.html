@@ -154,6 +154,7 @@
   .cell .sl.shit { background:var(--ink); color:#fff; font-weight:900; border-radius:5px; padding:1px 5px; margin:0 -3px; }
   .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
   .cell .sl.dim { opacity:.4; }
+  .distb { flex:none; font-size:10px; font-weight:900; color:#7A3E00; background:#FFE0B2; border-radius:4px; padding:0 4px; margin-right:4px; cursor:pointer; }
   .bar { height:4px; border-radius:2px; background:#D5D8DC; overflow:hidden; margin-top:2px; }
   .bar i { display:block; height:100%; background:var(--ink); }
   .pill { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
@@ -957,6 +958,9 @@ function renderMap() {
     return [x.id, esc(x.name) + ' <small>' + n + '롤</small>', 'wh:' + x.id];
   }), M.wh, function (v) { M.wh = v; renderMap(); }, true);
   if (!w) { $('m-body').innerHTML = '<div class="card muted">설정 탭에서 창고 등록 필요</div>'; return; }
+  // 같은 원지가 몇 곳에 있는지 (서명 → 위치 수) — 셀 규격 "분산" 배지용. 전 창고 기준, 한 번만 계산
+  var DISTCNT = {};
+  (function () { var m = {}; S.stock.forEach(function (s) { makersOf(s).forEach(function (mk) { var sg = distSig(s, mk.maker); (m[sg] = m[sg] || {})[s.loc] = 1; }); }); Object.keys(m).forEach(function (sg) { DISTCNT[sg] = Object.keys(m[sg]).length; }); })();
   /* 줄 1칸: 같은 번호의 왼쪽 · 오른쪽 줄이 한 행(같은 높이)에 놓이도록 칸 단위로 그림 */
   function cellOf(z, i) {
     if (!z || i > z.rows) return '<div></div>';
@@ -972,13 +976,17 @@ function renderMap() {
       items.forEach(function (s) {
         var mh = hit && fMatch(s);   // 이 규격이 검색에 걸렸나 (셀이 hit일 때만 표시)
         makersOf(s).forEach(function (m) {
-          var k = m.maker + '|' + spec(s), e = (byS[k] = byS[k] || { mk: m.maker, sp: spec(s), q: 0, hit: false });
+          var k = m.maker + '|' + spec(s), e = (byS[k] = byS[k] || { mk: m.maker, sp: spec(s), q: 0, hit: false, sig: distSig(s, m.maker) });
           e.q += m.qty; if (mh) e.hit = true;
         });
       });
       var sk = Object.keys(byS).sort(function (a, b) { return byS[b].q - byS[a].q; });
       var anyHit = sk.some(function (k) { return byS[k].hit; });   // 걸린 규격이 있으면 나머지는 흐리게
-      var specs = sk.map(function (k) { var x = byS[k]; return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + x.q + '롤</span></div>'; }).join('');
+      var specs = sk.map(function (k) {
+        var x = byS[k];
+        var b = (!MV && !ST && (DISTCNT[x.sig] || 1) > 1) ? '<span class="distb" onclick="event.stopPropagation();distPop(\'' + encodeURIComponent(x.sig) + '\')" title="여러 위치에 분산">분산</span>' : '';
+        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + b + x.q + '롤</span></div>';
+      }).join('');
       var pct = ri.slots ? Math.min(100, Math.round(ri.used / ri.slots * 100)) : 0;
       var tag = ri.cfg.use && ri.cfg.use !== '원지' ? '<span class="utag">' + esc(ri.cfg.use) + '</span>' : '';
       var mvc = '', fit = '';
@@ -1173,6 +1181,24 @@ var MV = null;   // 이동 중: { from, item, qty } — 도착 줄은 지도에�
 var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} } — 빈 줄 탭으로 토글
 /* 품목 스펙 서명 (적재순서 저장/정렬용) — 서버 stackMap과 동일 규칙 */
 function sigOf(s) { return [s.gsm, s.width, s.grade || '', s.maker || '', s.rem ? 'Y' : ''].join('|'); }
+/* 같은 원지 판정 서명 (제지사·평량·지폭·지종·잔량) — 분산 배지용 */
+function distSig(s, maker) { return [s.gsm, s.width, s.grade || '', maker != null ? maker : (s.maker || ''), s.rem ? 'Y' : ''].join('|'); }
+/* 이 서명의 원지가 있는 위치들 (롤 많은 순) */
+function distLocs(sig) {
+  var by = {};
+  S.stock.forEach(function (s) { makersOf(s).forEach(function (m) { if (distSig(s, m.maker) === sig) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0 }); g.qty += m.qty; } }); });
+  return Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.qty - a.qty || a.loc.localeCompare(b.loc); });
+}
+function distTitle(sig) { var p = sig.split('|'); return (p[3] ? p[3] + ' ' : '') + p[0] + '×' + p[1] + (p[2] ? ' ' + p[2] : '') + (p[4] === 'Y' ? ' 잔량' : ''); }
+/* 분산 배지 누름 → 그 원지가 있는 위치 목록 → 누르면 그 줄로 이동 */
+function distPop(enc) {
+  var sig = decodeURIComponent(enc), L = distLocs(sig);
+  if (L.length < 2) { toast('다른 위치 없음'); return; }
+  var labs = L.map(function (g) { return keyOf(g.loc) + ' · ' + g.qty + '롤'; });
+  ask({ title: distTitle(sig) + ' · ' + L.length + '곳', msg: '누르면 그 줄로 이동', chips: labs }, function (v) {
+    var i = labs.indexOf(v); if (i < 0) return; var g = L[i]; M.wh = g.wh; renderMap(); openRow(g.loc);
+  });
+}
 function rowItems(code) {
   var ord = (S.stack && S.stack[code]) || [];
   return S.stock.filter(function (s) { return s.loc === code; }).sort(function (a, b) {
