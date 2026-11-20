@@ -177,6 +177,10 @@
   .void { opacity:.55; } .void b { text-decoration: line-through; }
   #toast { position:fixed; left:max(14px, calc((100% - 640px) / 2 + 14px)); right:max(14px, calc((100% - 640px) / 2 + 14px)); bottom:80px; background:var(--ink); color:#fff; padding:14px; border-radius:12px; font-weight:700; display:none; z-index:9; white-space:pre-line; }
   .zhead { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); gap:6px; font-weight:900; font-size:14px; margin:12px 0 6px; }
+  .zhead .zh { display:flex; align-items:center; gap:6px; min-width:0; }
+  .zhead .zh .zh-lab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .zoff { flex:none; height:26px; padding:0 9px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:11px; font-weight:700; }
+  .zoff.on { border-color:var(--ink); color:var(--ink); background:#EDEFF2; }
   .mk { font-weight:900; color:var(--ink); margin-right:4px; }
   .mk.none { display:none; }
   .sl .mk { margin-right:3px; }
@@ -985,8 +989,7 @@ function renderMap() {
   for (var k = 0; k < w.zones.length; k += 2) {   // 구역 두 개씩: 왼쪽 | 통로 | 오른쪽
     var z1 = w.zones[k], z2 = w.zones[k + 1];
     var zlp = ' data-lp="wh:' + w.id + '"';   // 구역 머리말 길게 누르기 = 창고 설정 (구역 이름 · 줄 수 · 좌우 · 상하)
-    html += '<div class="zhead"><span' + zlp + '>' + esc(zoneShort(w.id, z1.code)) + ' <span class="muted">' + z1.rows + '줄</span></span><span></span><span' + (z2 ? zlp : '') + '>' +
-      (z2 ? esc(zoneShort(w.id, z2.code)) + ' <span class="muted">' + z2.rows + '줄</span>' : '') + '</span></div>' +
+    html += '<div class="zhead">' + zHead(w, z1) + '<span></span>' + (z2 ? zHead(w, z2) : '<span></span>') + '</div>' +
       '<div class="map">' + pairRows(z1, z2) + '</div>';
   }
   $('m-body').innerHTML = html;
@@ -997,6 +1000,42 @@ function renderMap() {
     if (el) try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
   }
   if (!fo) renderMap.scrolled = '';
+}
+/* 구역 머리말: 이름(별칭/코드) · 줄 수 · 중지 개수 · 전체 중지/해제 토글 */
+function zoneStat(w, z) {
+  var off = 0, empty = [], all = [];
+  for (var i = 1; i <= z.rows; i++) {
+    var code = w.id + '-' + z.code + '-' + pad(i), ri = rowInfo(code); all.push(code);
+    if (ri.cfg.off) off++; else if (ri.rolls === 0) empty.push(code);
+  }
+  return { off: off, empty: empty, all: all, total: z.rows };
+}
+function zHead(w, z) {
+  var st = zoneStat(w, z), label = esc(zoneShort(w.id, z.code)), allOff = st.total > 0 && st.off === st.total;
+  var btn = MV ? '' : '<button class="zoff' + (allOff ? ' on' : '') + '" onclick="zoneOff(\'' + w.id + '\',\'' + z.code + '\',event)">' + (allOff ? '전체 해제' : '전체 중지') + '</button>';
+  return '<div class="zh"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
+    ' <span class="muted">' + z.rows + '줄' + (st.off ? ' · ' + st.off + ' 중지' : '') + '</span></span>' + btn + '</div>';
+}
+function zoneOff(whId, zc, ev) {
+  if (ev) ev.stopPropagation();
+  if (MV) return;
+  var w = S.whs.filter(function (x) { return String(x.id) === String(whId); })[0]; if (!w) return;
+  var z = w.zones.filter(function (x) { return x.code === zc; })[0]; if (!z) return;
+  var st = zoneStat(w, z), label = zoneShort(whId, zc);
+  if (st.total > 0 && st.off === st.total) {   // 모두 중지 상태 → 전체 해제
+    ask({ title: label + ' 전체 사용 해제', msg: st.total + '줄을 다시 사용합니다.', input: false, ok: '전체 해제' },
+      function (y) { if (y) applyZoneOff(st.all, false, label + ' 전체 해제 완료'); });
+    return;
+  }
+  if (!st.empty.length) { toast('중지할 빈 줄이 없음 — 재고 있는 줄은 중지 불가', true); return; }
+  var hasStock = st.total - st.off - st.empty.length;
+  ask({ title: label + ' 전체 사용 중지', msg: st.empty.length + '개 빈 줄을 사용 중지합니다.' + (hasStock ? '\n재고 있는 ' + hasStock + '줄은 제외됩니다.' : ''), input: false, ok: st.empty.length + '줄 중지', danger: true },
+    function (y) { if (y) applyZoneOff(st.empty, true, label + ' ' + st.empty.length + '줄 사용 중지 완료'); });
+}
+function applyZoneOff(codes, off, msg) {
+  needPin(function (pin) {
+    call('setRowsOff', codes, off, pin).then(function (whs) { S.whs = whs; renderMap(); if (SH) renderSheet(); toast(msg); }, function () {});
+  });
 }
 /* 줄 개별 설정: 칸 수 · 최대 적재 단수 · 보관 용도 · 사용 중지 */
 function rowEditor(code) {
