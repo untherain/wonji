@@ -2500,12 +2500,19 @@ function drawRep() {
       (note ? '<div class="muted" style="margin:2px 0 6px">' + note + '</div>' : '') +
       (T[key].length > 1 ? htmlTable(T[key], sumLast) : '<div class="muted" style="padding:6px 0">해당 없음</div>') + '</div>';
   }
+  // 섹션 한 번에 하나씩 (긴 표가 페이지를 채우지 않게)
+  var secs = {
+    '입출고': function () { return card('일자별 입출고', 'io', esc(RP.from + ' ~ ' + RP.to) + ' · 단위: 롤', true); },
+    '분산': function () { return distCard(); },
+    '장기': function () { return card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상 · 길게 눌러 기준일 변경</span>', false); },
+    '실사': function () { return card('실사 조정 내역', 'adj', '롤은 그대로인데 전산 숫자가 달랐던 건 · 사유별 확인', false); },
+    '재고': function () { return card('현재 재고', 'stock', '창고 · 규격별', true); }
+  };
+  var order = ['입출고', '분산', '장기', '실사', '재고'];
+  if (order.indexOf(RP.sec) < 0) RP.sec = '입출고';
   $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">기준 ' + esc(r.at) + ' · 취소·수정 전 원래 건·테스트 건 제외</div>' +
-    card('일자별 입출고', 'io', esc(RP.from + ' ~ ' + RP.to) + ' · 단위: 롤', true) +
-    card('현재 재고', 'stock', '창고 · 규격별', true) +
-    card('실사 조정 내역', 'adj', '롤은 그대로인데 전산 숫자가 달랐던 건 · 사유별 확인', false) +
-    card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상 · 길게 눌러 기준일 변경</span>', false) +
-    distCard();
+    '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
+  seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
 }
 /* 분산 원지 카드: 곳수·롤수, 조각 많은 건 강조 · 누르면 위치 리스트 + 모으기 */
 function distCard() {
