@@ -360,6 +360,13 @@
   body.shopen #toast { bottom:auto; top:12px; z-index:25; }
   #toast .undo { margin-left:auto; flex:none; height:40px; }
   #md-chips { grid-template-columns:repeat(2,1fr); gap:7px; }
+  #md-chips.list { grid-template-columns:1fr; max-height:55vh; overflow-y:auto; }
+  #modal .chip.opt { height:auto; min-height:58px; padding:8px 14px; text-align:left; white-space:normal; display:flex; flex-direction:column; justify-content:center; gap:2px; }
+  .chip.opt b { font-size:18px; font-weight:900; }
+  .chip.opt i { font-style:normal; font-size:12px; font-weight:800; background:var(--y); border-radius:6px; padding:1px 6px; vertical-align:2px; }
+  .chip.opt small { font-size:14px; font-weight:500; color:#555; }
+  .chip.opt.rec { border:2px solid var(--ink); }
+  .chip.opt.off { opacity:.45; }
   #loading { padding:40px; text-align:center; color:var(--sub); }
 </style>
 </head>
@@ -720,6 +727,7 @@ function ask(o, cb) {
   inp.type = o.type || 'text'; inp.value = o.value == null ? '' : o.value; inp.placeholder = o.placeholder || '';
   inp.setAttribute('inputmode', o.numeric ? 'numeric' : 'text');
   var chs = $('md-chips'); chs.innerHTML = ''; chs.style.display = o.chips ? 'grid' : 'none';
+  chs.className = o.list ? 'list' : '';   // list: 1열 (제목+보조줄 선택지)
   if (o.chips) { inp.style.display = 'none'; ok.style.display = 'none'; }
   else ok.style.display = '';
   ok.parentNode.style.gridTemplateColumns = o.chips ? '1fr' : '';   // 확인 버튼 없으면 취소 전체 폭
@@ -731,8 +739,14 @@ function ask(o, cb) {
     b.onclick = function () { close('\u0001' + x); }; chs.appendChild(b);
   }); }
   (o.chips || []).forEach(function (c) {
-    var b = document.createElement('button'); b.className = 'chip'; b.textContent = c;
-    b.onclick = function () { close(c); }; chs.appendChild(b);
+    var b = document.createElement('button'); b.className = 'chip';
+    if (typeof c === 'string') { b.textContent = c; b.onclick = function () { close(c); }; }
+    else {   // { v: 반환값, t: 제목, tag: 배지, sub: 보조줄, off: 비활성 }
+      b.className = 'chip opt' + (c.off ? ' off' : '') + (c.tag ? ' rec' : ''); b.disabled = !!c.off;
+      b.innerHTML = '<b>' + esc(c.t) + (c.tag ? ' <i>' + esc(c.tag) + '</i>' : '') + '</b>' + (c.sub ? '<small>' + esc(c.sub) + '</small>' : '');
+      b.onclick = function () { close(c.v); };
+    }
+    chs.appendChild(b);
   });
   ok.textContent = o.ok || '확인';
   ok.style.background = o.danger ? '#9A1C1C' : ''; ok.style.color = o.danger ? '#fff' : '';
@@ -1237,19 +1251,19 @@ function consolidate(enc) {
   var total = recs.reduce(function (a, s) { return a + s.qty; }, 0);
   var cand = recs.map(function (s) {
     var others = total - s.qty, take = Math.min(freeFor(s.loc, s.gsm, s.width, s.grade), others);
-    return { loc: s.loc, take: take, result: s.qty + take, left: others - take };   // result=여기 모이는 롤, left=다른 자리에 남는 롤
-  }).sort(function (a, b) { return b.result - a.result; });   // 한곳에 가장 많이 모이는 곳
+    return { loc: s.loc, has: s.qty, take: take, result: s.qty + take, left: others - take };   // has=지금 있는 롤, take=옮겨 올 롤, result=옮긴 뒤 이 줄, left=못 옮기고 남는 롤
+  }).sort(function (a, b) { return (a.take <= 0) - (b.take <= 0) || b.result - a.result || a.take - b.take; });   // 많이 모이는 곳 → 같으면 덜 옮기는 곳 · 빈 자리 없는 줄은 맨 아래
   if (cand[0].take <= 0) { toast('수용 가능한 공간 없음 · 다른 곳으로 이동 필요', true); return; }
-  var labs = cand.map(function (c, i) {
-    var out = c.take <= 0 ? '수용 불가' : (c.left === 0 ? '전량 수용' : c.result + '롤 수용 · ' + c.left + '롤 잔여');
-    return keyOf(c.loc) + ' · ' + out + (i === 0 ? ' · 추천' : '');
+  var best = cand[0].result, all = cand[0].left === 0;
+  var opts = cand.map(function (c, i) {
+    return { v: i, t: keyOf(c.loc), tag: i === 0 ? '추천' : '', off: c.take <= 0,
+      sub: c.take <= 0 ? '빈 자리 없음' : '지금 ' + c.has + '롤 + ' + c.take + '롤 이동 → ' + c.result + '롤' + (c.left === 0 ? ' · 전부 모임' : '') };
   });
-  ask({ title: '한곳으로 모으기', msg: '현재 ' + recs.length + '곳 · ' + total + '롤 · 목표 위치 선택', chips: labs }, function (v) {
-    var i = labs.indexOf(v); if (i < 0) return;
-    var c = cand[i];
-    if (c.take <= 0) { toast(keyOf(c.loc) + ' 수용 불가 · 다른 위치 선택', true); return; }
+  var msg = recs.length + '곳 · ' + total + '롤' + (all ? ' → 모을 줄 선택' : '\n한 줄 최대 ' + best + '롤 · 전부 모으기 불가, 나머지는 제자리');
+  ask({ title: '한곳으로 모으기', msg: msg, chips: opts, list: true }, function (i) {
+    var c = cand[i]; if (!c || c.take <= 0) return;
     if (c.left === 0) return doConsolidate(sig, c.loc);
-    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.result + '롤 수용 · ' + c.left + '롤은 공간 부족으로 잔여', input: false, ok: '모으기', danger: true },
+    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.take + '롤 이동 → ' + keyOf(c.loc) + ' ' + c.result + '롤\n나머지 ' + c.left + '롤은 제자리 (자리 부족)', input: false, ok: '모으기', danger: true },
       function (y) { if (y) doConsolidate(sig, c.loc); });
   });
 }
@@ -1261,7 +1275,7 @@ function doConsolidate(sig, targetLoc) {
   var step = function (k) {
     if (k >= sources.length) {
       renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
-      toast(keyOf(targetLoc) + ' · ' + moved + '롤 통합 완료' + (short ? ' · ' + short + '롤 잔여' : ''));
+      toast(keyOf(targetLoc) + ' · ' + moved + '롤 이동 완료' + (short ? ' · ' + short + '롤 제자리' : ''));
       return;
     }
     var cur = S.stock.filter(function (x) { return x.loc === sources[k].loc && sigOf(x) === sig; })[0];
