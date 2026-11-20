@@ -155,6 +155,9 @@
   .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
   .cell .sl.dim { opacity:.4; }
   .distb { flex:none; font-size:10px; font-weight:900; color:#7A3E00; background:#FFE0B2; border-radius:4px; padding:0 4px; margin-right:4px; cursor:pointer; }
+  .frag { font-size:10px; font-weight:900; background:#FBE9E7; color:#9A1C1C; border-radius:4px; padding:0 4px; margin-left:4px; white-space:nowrap; }
+  .hintbox { background:#FFF3E0; border:1px solid #E8A33D; color:#7A4A00; border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:8px; }
+  .hlnk { background:none; border:none; color:#163A7D; font:inherit; font-weight:900; text-decoration:underline; cursor:pointer; padding:0; }
   .bar { height:4px; border-radius:2px; background:#D5D8DC; overflow:hidden; margin-top:2px; }
   .bar i { display:block; height:100%; background:var(--ink); }
   .pill { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
@@ -1190,11 +1193,52 @@ function distPop(enc) {
   SH = { code: null, mode: 'dist', dist: { gsm: p[0], width: p[1], grade: p[2] || '', maker: p[3] || '', rem: p[4] === 'Y' } };
   renderSheet();
 }
+function distTitle(sig) { var p = sig.split('|'); return (p[3] ? p[3] + ' ' : '') + p[0] + '×' + p[1] + (p[2] ? ' ' + p[2] : '') + (p[4] === 'Y' ? ' 잔량' : ''); }
 function sheetDist() {
-  var d = SH.dist;
+  var d = SH.dist, sig = [d.gsm, d.width, d.grade, d.maker, d.rem ? 'Y' : ''].join('|');
   var hits = S.stock.filter(function (s) { return s.gsm == d.gsm && s.width == d.width && (s.grade || '') === d.grade && (s.maker || '') === d.maker && !!s.rem === d.rem; });
-  var title = (d.maker ? d.maker + ' ' : '') + d.gsm + '×' + d.width + (d.grade ? ' ' + d.grade : '') + (d.rem ? ' 잔량' : '');
-  $('detail').innerHTML = shHead(esc(title), '', false) + fLocList(hits, true);
+  var locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
+  var merge = Object.keys(locs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="consolidate(\'' + encodeURIComponent(sig) + '\')">↙ 한곳으로 모으기</button>' : '';
+  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + merge + fLocList(hits, true);
+}
+/* 분산된 원지(같은 원지가 2곳 이상)만. 곳수 많은 순 → 같으면 평균 롤 적은(잘게 쪼개진) 순 (④ 우선순위) */
+function distAll() {
+  var m = {};
+  S.stock.forEach(function (s) { makersOf(s).forEach(function (mk) { var sg = distSig(s, mk.maker); var e = m[sg] || (m[sg] = { sig: sg, locs: {}, qty: 0 }); e.locs[s.loc] = 1; e.qty += mk.qty; }); });
+  return Object.keys(m).map(function (k) { return m[k]; }).filter(function (e) { return Object.keys(e.locs).length > 1; })
+    .sort(function (a, b) { var la = Object.keys(a.locs).length, lb = Object.keys(b.locs).length; return lb - la || (a.qty / la) - (b.qty / lb); });
+}
+function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
+var DISTA = [];
+/* ② 한곳으로 모으기: 목표 위치 고르면 나머지 위치의 롤을 그리로 이동 (기존 moveStock 재사용, 적재 공간 체크) */
+function consolidate(enc) {
+  var sig = decodeURIComponent(enc), recs = S.stock.filter(function (s) { return sigOf(s) === sig; }).sort(function (a, b) { return b.qty - a.qty; });
+  if (recs.length < 2) { toast('모을 위치 없음'); return; }
+  var labs = recs.map(function (s, i) { return keyOf(s.loc) + ' · ' + s.qty + '롤' + (i === 0 ? ' (추천)' : ''); });
+  ask({ title: '한곳으로 모으기', msg: recs.length + '곳 → 1곳 · 목표 위치 선택', chips: labs }, function (v) {
+    var i = labs.indexOf(v); if (i < 0) return;
+    doConsolidate(sig, recs[i].loc);
+  });
+}
+function doConsolidate(sig, targetLoc) {
+  if (!requireWorker()) return;
+  var sources = S.stock.filter(function (s) { return sigOf(s) === sig && s.loc !== targetLoc; });
+  var moved = 0, short = 0;
+  var step = function (k) {
+    if (k >= sources.length) {
+      renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
+      toast(moved + '롤을 ' + keyOf(targetLoc) + '로 모음' + (short ? ' · ' + short + '롤 공간 부족으로 남음' : ' 완료'));
+      return;
+    }
+    var cur = S.stock.filter(function (x) { return x.loc === sources[k].loc && sigOf(x) === sig; })[0];
+    if (!cur) return step(k + 1);
+    var free = freeFor(targetLoc, cur.gsm, cur.width, cur.grade), q = Math.min(cur.qty, free);
+    if (q <= 0) { short += cur.qty; return step(k + 1); }
+    call('moveStock', Object.assign(itemP(cur), { from: cur.loc, to: targetLoc, qty: q })).then(function (r) {
+      setStock(r); moved += q; if (q < cur.qty) short += cur.qty - q; step(k + 1);
+    }, function () { step(k + 1); });
+  };
+  step(0);
 }
 function rowItems(code) {
   var ord = (S.stack && S.stack[code]) || [];
@@ -1733,6 +1777,20 @@ function sheetIn() {
       f += '<div class="warnbox"><b>공간 부족 — 최대 ' + free + '롤</b>' + (sug ? '<div class="row" style="margin-top:6px"><span>추천: <b>' + esc(locLabel(sug)) + '</b> (' +
         freeFor(sug, sp.gsm, sp.width, sp.grade || '') + '롤 가능)</span><button class="btn2" style="height:38px; flex:none" onclick="SH.code=\'' + sug + '\';M.wh=whOf(\'' + sug + '\').id;renderMap();renderSheet()">' + keyOf(sug) + '로</button></div>' : '<div>빈 줄 없음</div>') + '</div>';
     } else maxB = '<i class="mxb">최대 ' + free + '</i>';   // 적재 가능 롤 수 = 롤 수 버튼 모서리 표시 (따로 줄 안 씀)
+    // ③ 분산 예방: 같은 원지가 다른 곳에 이미 있으면 알림 (거기에 넣으면 분산 안 됨)
+    var elsew = {};
+    S.stock.forEach(function (s) {
+      if (s.loc === code || s.gsm != sp.gsm || s.width != sp.width || !!s.rem !== !!SH.rem) return;
+      if (sp.maker && (s.maker || '') !== sp.maker) return;
+      if (sp.grade && (s.grade || '') !== sp.grade) return;
+      (elsew[s.loc] = elsew[s.loc] || { loc: s.loc, qty: 0 }).qty += s.qty;
+    });
+    var eks = Object.keys(elsew);
+    if (eks.length) {
+      var topL = eks.map(function (k) { return elsew[k]; }).sort(function (a, b) { return b.qty - a.qty; })[0];
+      f += '<div class="hintbox">같은 원지가 이미 <b>' + eks.length + '곳</b>에 있음 · 분산을 줄이려면 ' +
+        '<button class="hlnk" onclick="SH.code=\'' + topL.loc + '\';M.wh=whOf(\'' + topL.loc + '\').id;renderMap();renderSheet()">' + esc(keyOf(topL.loc)) + ' (' + topL.qty + '롤)</button> 에 넣기 권장</div>';
+    }
   }
   h += '<details class="more" id="sh-more"' + (SH.more ? ' open' : '') + ' ontoggle="SH.more=this.open"><summary>더보기: 지종 · 잔량 반납</summary>' +
     lbl('지종', '') + gradeGrid(sp.grade || '') +
@@ -2411,6 +2469,9 @@ function repTables() {
   var aj = [['일시', '위치', '규격', '조정', '사유', '작업자']];
   (r.adj || []).forEach(function (x) { aj.push([x.time, locLabel(x.loc), x.gsm + '×' + x.width + (x.rem ? ' 잔량' : ''), x.qty, x.reason, x.worker]); });
   T.adj = aj;
+  var di = [['규격', '지종', '제지사', '곳수', '롤 수', '위치']];   // 분산 원지 (현재 재고 기준)
+  distAll().forEach(function (e) { var p = e.sig.split('|'); di.push([p[0] + '×' + p[1] + (p[4] === 'Y' ? ' 잔량' : ''), p[2], p[3], Object.keys(e.locs).length, e.qty, Object.keys(e.locs).map(keyOf).join(' ')]); });
+  T.dist = di;
   return T;
 }
 function htmlTable(rows, sumLast) {
@@ -2430,10 +2491,25 @@ function drawRep() {
     card('일자별 입출고', 'io', esc(RP.from + ' ~ ' + RP.to) + ' · 단위: 롤', true) +
     card('현재 재고', 'stock', '창고 · 규격별', true) +
     card('실사 조정 내역', 'adj', '롤은 그대로인데 전산 숫자가 달랐던 건 · 사유별 확인', false) +
-    card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상 · 길게 눌러 기준일 변경</span>', false);
+    card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상 · 길게 눌러 기준일 변경</span>', false) +
+    distCard();
+}
+/* 분산 원지 카드: 곳수·롤수, 조각 많은 건 강조 · 누르면 위치 리스트 + 모으기 */
+function distCard() {
+  var A = DISTA = distAll();
+  var h = '<div class="card"><div class="row"><b>분산 원지 ' + A.length + '건</b>' +
+    (A.length ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>' +
+    '<div class="muted" style="margin:2px 0 6px">같은 원지가 여러 위치에 — 현재 기준 · 누르면 위치 보기 · 모으기</div>';
+  h += A.length ? A.map(function (e, i) {
+    var c = Object.keys(e.locs).length, frag = e.qty <= c * 2;   // 평균 2롤 이하 = 조각 많음
+    return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin:0 0 6px; padding:8px 10px; cursor:pointer" onclick="distAllGo(' + i + ')">' +
+      '<span class="tag' + (frag ? ' hot' : '') + '"><small>' + c + '곳</small><b>' + e.qty + '롤</b></span>' +
+      '<div style="flex:1; min-width:0; font-weight:700">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</div><span class="muted">›</span></div>';
+  }).join('') : '<div class="muted" style="padding:6px 0">여러 곳에 분산된 원지 없음</div>';
+  return h + '</div>';
 }
 function repCsv(key) {
-  var names = { io: '입출고_' + RP.from + '_' + RP.to, stock: '재고현황_' + todayStr(), aging: '장기재고_' + todayStr(), adj: '실사조정_' + RP.from + '_' + RP.to };
+  var names = { io: '입출고_' + RP.from + '_' + RP.to, stock: '재고현황_' + todayStr(), aging: '장기재고_' + todayStr(), adj: '실사조정_' + RP.from + '_' + RP.to, dist: '분산원지_' + todayStr() };
   var rows = repTables()[key];
   var csv = '﻿' + rows.map(function (r) { return r.map(function (v) { v = plain(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
   try {
