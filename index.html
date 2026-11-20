@@ -246,6 +246,13 @@
   .sheet .it { padding:10px 0; border-bottom:1px solid #E6E8EB; }
   .sheet .it.open { background:#FFF8E1; margin:0 -16px; padding:10px 16px; }
   .sheet .sp { font-size:18px; }
+  /* 적재순서 */
+  .stkno { display:inline-block; min-width:20px; height:20px; line-height:20px; text-align:center; border-radius:5px; background:var(--ink); color:#fff; font-size:12px; font-weight:900; vertical-align:2px; }
+  .toptag { font-size:11px; font-weight:900; background:var(--y); color:var(--ink); border-radius:4px; padding:1px 6px; white-space:nowrap; }
+  .stkwarn { margin-top:10px; padding:8px 10px; border-radius:8px; background:#FBE9E7; border:1px solid #9A1C1C; color:#9A1C1C; font-size:13px; font-weight:700; }
+  .stkhint { margin:4px 0 10px; padding:7px 10px; border-radius:8px; background:#EDEFF2; font-size:12.5px; color:#3E444B; }
+  .sheet .it.ord { background:#F6F7F9; margin:0 -16px; padding:10px 16px; border-bottom:2px solid #E6E8EB; }
+  .btn2[disabled] { opacity:.35; }
   .sheet .mk { display:inline-block; background:var(--ink); color:var(--y); border-radius:4px; padding:0 5px; font-size:12px; vertical-align:2px; margin-right:5px; }
   .sheet .mk.none { background:#9A1C1C; color:#fff; }
   .xb { height:40px; width:44px; padding:0; font-size:18px; flex:none; }
@@ -738,15 +745,7 @@ function ask(o, cb) {
 
 /* 관리자 PIN: 설정을 바꿀 때만 묻고, 한 번 맞으면 앱을 닫을 때까지 기억 */
 var ADMIN_PIN = null;
-function needPin(cb) {
-  if (!S.hasPin) return cb('');
-  if (ADMIN_PIN !== null) return cb(ADMIN_PIN);
-  var origin = lastBtn;   // PIN 확인 뒤에도 원래 누른 저장 버튼에 "처리 중…" 표시
-  ask({ title: '관리자 PIN 입력', type: 'password', numeric: true }, function (p) {
-    if (p === null) return;
-    call('verifyPin', p).then(function () { ADMIN_PIN = p; lastBtn = origin; lastBtnAt = Date.now(); cb(p); });
-  });
-}
+function needPin(cb) { cb(ADMIN_PIN || ''); }   // 혼자 사용 — PIN 요구 제거
 /* 폰 저장소: 사파리 개인정보 보호 · 시크릿 모드 등으로 막혀도 앱은 계속 동작 */
 function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
 function lsSet(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} }
@@ -1172,9 +1171,17 @@ function goMng(mode, code) { G.mode = mode; G.from = code; G.item = null; G.cnt 
 var SH = null;   // { code, mode: ''|'out'|'in'|'cnt'|'add'|'cfg'|'filter', it, qty, sp, cnt, rem, from, more }
 var MV = null;   // 이동 중: { from, item, qty } — 도착 줄은 지도에서 누름
 var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} } — 빈 줄 탭으로 토글
+/* 품목 스펙 서명 (적재순서 저장/정렬용) — 서버 stackMap과 동일 규칙 */
+function sigOf(s) { return [s.gsm, s.width, s.grade || '', s.maker || '', s.rem ? 'Y' : ''].join('|'); }
 function rowItems(code) {
-  return S.stock.filter(function (s) { return s.loc === code; })
-    .sort(function (a, b) { return b.qty - a.qty || a.date.localeCompare(b.date); });
+  var ord = (S.stack && S.stack[code]) || [];
+  return S.stock.filter(function (s) { return s.loc === code; }).sort(function (a, b) {
+    var ia = ord.indexOf(sigOf(a)), ib = ord.indexOf(sigOf(b));
+    if (ia < 0 && ib < 0) return b.qty - a.qty || a.date.localeCompare(b.date);   // 둘 다 미등록: 기존 정렬
+    if (ia < 0) return -1;   // 적재순서에 없는(새로 들어온) 품목은 맨 위
+    if (ib < 0) return 1;
+    return ia - ib;          // 저장된 순서(위→아래)
+  });
 }
 function itemP(s) { return { gsm: s.gsm, width: s.width, grade: s.grade || '', rem: !!s.rem, maker: s.maker || '', byMaker: true, worker: worker(), test: isTest() }; }
 function mkName(m, i, fn) { return m ? esc(m) : i != null ? '<button class="sg miss" style="font-size:14px" onclick="' + (fn || 'pickMaker') + '(' + i + ')">제지사 미확인 ▸</button>' : '<span style="color:#9A1C1C">제지사 미확인</span>'; }
@@ -1326,21 +1333,41 @@ function sheetRow() {
   if (ri.cfg.use) notes.push(ri.cfg.use);
   if (ri.cfg.off) notes.push('사용 중지');
   var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : '');
+  if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
+    h += '<div class="stkhint">위가 <b>맨 위</b>(먼저 빼는 칸) · 새로 들어온 품목은 맨 위에 붙습니다</div>' +
+      (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
+      '<button class="btn" style="width:100%; margin-top:12px; background:var(--ink); color:#fff" onclick="ordDone()">완료</button>';
+    return h;
+  }
   h += items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '<div class="muted" style="padding:12px 0">비어 있음</div>';
-  h += '<div class="grid3" style="margin-top:12px">' +
+  h += (items.length > 1 ? '<button class="btn2" style="width:100%; margin-top:10px" onclick="ordStart()">↕ 적재순서 바꾸기</button>' : '') +
+    '<div class="grid3" style="margin-top:12px">' +
     (ri.cfg.off ? '<span></span>' : '<button class="btn2 dk" onclick="shMode(\'in\')">＋ 입고</button>') +
     '<button class="btn2" onclick="shMode(\'cnt\')">실사</button><button class="btn2" onclick="shMode(\'cfg\')">줄 설정</button></div>';
   return h;
 }
 function itemBlock(s, i, ri) {
-  var lv = ri.w ? levels(ri.w, s.width, ri.key) : 0, open = SH.mode === 'out' && sameItem(SH.it, s);
-  var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span><b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
+  var n = SH.items.length, lv = ri.w ? levels(ri.w, s.width, ri.key) : 0;
+  // 적재순서 편집 모드: 번호 + 위로/아래로/맨 위
+  if (SH.ord) {
+    return '<div class="it ord"><div class="row"><span><b class="stkno">' + (i + 1) + '</b> <b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>' +
+      '<div class="grid3" style="margin-top:8px; gap:6px">' +
+      '<button class="btn2"' + (i === 0 ? ' disabled' : ' onclick="ordMove(' + i + ',-1)"') + '>▲ 위로</button>' +
+      '<button class="btn2"' + (i === n - 1 ? ' disabled' : ' onclick="ordMove(' + i + ',1)"') + '>▼ 아래로</button>' +
+      '<button class="btn2"' + (i === 0 ? ' disabled' : ' onclick="ordTop(' + i + ')"') + '>⤒ 맨 위</button></div></div>';
+  }
+  var open = SH.mode === 'out' && sameItem(SH.it, s);
+  var badge = n > 1 ? '<b class="stkno" title="적재 순서 (1=맨 위)">' + (i + 1) + '</b> ' : '';
+  var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 먼저 출고</span>' : '';
+  var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.grade ? ' <span class="muted">' + esc(s.grade) + '</span>' : '') +
-    (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') +
+    (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
     '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단</span></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
+    var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
+    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 깔려 있음 — 먼저 치워야 함</div>' : '';
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
-    h += '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
+    h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
       '<div class="muted" style="margin:10px 0 6px; font-weight:700">출고처 — 누르면 저장</div>' +
       '<div class="cgf">' +
@@ -1351,6 +1378,15 @@ function itemBlock(s, i, ri) {
     h += '<div class="grid2" style="margin-top:8px"><button class="btn2" onclick="openOut(' + i + ')">출고</button><button class="btn2" onclick="startMove(' + i + ')">이동</button></div>';
   }
   return h + '</div>';
+}
+/* 적재순서 편집: S.stack[code]을 현재 표시 순서로 초기화 → 위/아래로 바꾸고 완료 때 저장 */
+function ordStart() { SH.ord = true; SH.mode = ''; SH.it = null; S.stack = S.stack || {}; S.stack[SH.code] = SH.items.map(sigOf); renderSheet(); }
+function ordMove(i, dir) { var a = S.stack[SH.code], j = i + dir; if (!a || j < 0 || j >= a.length) return; var t = a[i]; a[i] = a[j]; a[j] = t; renderSheet(); }
+function ordTop(i) { var a = S.stack[SH.code]; if (!a || i <= 0) return; a.unshift(a.splice(i, 1)[0]); renderSheet(); }
+function ordDone() {
+  var code = SH.code, sigs = ((S.stack && S.stack[code]) || []).slice();
+  SH.ord = false; renderSheet();
+  call('saveStack', code, sigs).then(function (m) { S.stack = m; if (SH && SH.code === code) renderSheet(); }, function () {});
 }
 function openOut(i) { SH.mode = 'out'; SH.it = SH.items[i]; SH.qty = 1; renderSheet(); }
 function doOut(j) {
