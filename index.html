@@ -325,6 +325,11 @@
   .band .stepper button { width:42px; height:42px; font-size:22px; } .band .stepper span { font-size:22px; min-width:36px; }
   .cell.can { border:2px solid var(--ok); } .cell.cant { background:#E6E8EB; color:#9AA0A6; } .cell.from { background:var(--y); border:2px solid var(--ink); }
   .cell .fit { font-size:12px; font-weight:900; color:var(--ok); } .cell.cant .fit { color:#9A1C1C; }
+  /* 운용 정지 모드 */
+  .cell.selock { opacity:.4; }
+  .cell.setog { border:2px dashed #9AA0A6; }
+  .cell.setog.sechg { border:2px solid var(--ink); background:var(--y); color:var(--ink); opacity:1; }
+  .band.stband { background:#EDEFF2; color:var(--ink); border:2px solid var(--ink); }
   .warnbox { background:#FDECEC; border:1px solid #9A1C1C; border-radius:10px; padding:10px 12px; margin-top:10px; color:#9A1C1C; }
   .warnbox span { color:var(--ink); }
   .shfoot { position:sticky; bottom:calc(-14px - env(safe-area-inset-bottom)); background:#fff; margin:8px -16px calc(-14px - env(safe-area-inset-bottom)); padding:8px 16px calc(10px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); box-shadow:0 -4px 10px rgba(0,0,0,.06); }
@@ -871,7 +876,7 @@ function show(t) {
   $('title').textContent = TITLES[t];
   $('testBar').style.display = isTest() ? 'inline-block' : 'none';
   $('hdrExtra').innerHTML = '';
-  SH = null; MV = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
+  SH = null; MV = null; ST = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
   ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
   window.scrollTo(0, 0);
   refreshStock(false);
@@ -933,7 +938,8 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
-  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : searchBar() + progLine());
+  if (ST && ST.wh != M.wh) ST = null;   // 다른 창고로 이동 시 모드 종료
+  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : ST ? stBand() : searchBar() + progLine());
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -957,6 +963,8 @@ function renderMap() {
     {
       var key = z.code + '-' + pad(i), code = w.id + '-' + key, disp = keyOf(code);   // code=내부 코드(B-01), disp=표시용(우-01)
       var ri = rowInfo(code), items = ri.items, n = ri.rolls, off = !!ri.cfg.off;
+      var stCur = ri.cfg.st || (off ? '미사용' : '');   // 운용 상태 이름
+      if (ST) { var eff = stState(code); off = eff !== ''; stCur = eff; }   // 운용 정지 모드: 반영된 상태로 표시
       var hit = fOn() ? items.some(fMatch) : false;
       // 규격 목록: 롤 수 많은 순, 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
       var byS = {};
@@ -978,10 +986,12 @@ function renderMap() {
         else { var fr = off ? 0 : freeFor(code, MV.item.gsm, MV.item.width, MV.item.grade); mvc = fr >= MV.qty ? ' can' : ' cant'; fit = '<div class="fit">' + (fr >= MV.qty ? '들어감 ' + fr + '롤' : '공간 부족') + '</div>'; }
         hit = false;
       }
-      var tdy = !MV && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + '"' + (MV ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
+      var sec = '';
+      if (ST) { sec = stTog(code) ? (' setog' + (code in ST.chg ? ' sechg' : '')) : ' selock'; hit = false; }   // 토글 가능 강조 · 그 외 흐리게
+      var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + sec + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
-        (tag || off || !specs ? '<div class="s">' + tag + (off ? (n ? '사용 중지 · 재고 ' + n + '롤 있음' : '사용 중지') : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
+        (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
     }
@@ -1008,14 +1018,25 @@ function renderMap() {
   }
   if (!fo) renderMap.scrolled = '';
 }
-/* 구역 머리말: 이름(별칭/코드) · 줄 수 · 중지 개수 · 전체 중지/해제 토글 */
+/* 구역 머리말 통계: 통로는 줄 수에서 제외 · idle=미사용 · empty=운용 중 빈 줄(미사용 전환 대상) */
 function zoneStat(w, z) {
-  var off = 0, empty = [], all = [];
+  var idle = [], empty = [], lines = 0, pillar = 0;
   for (var i = 1; i <= z.rows; i++) {
-    var code = w.id + '-' + z.code + '-' + pad(i), ri = rowInfo(code); all.push(code);
-    if (ri.cfg.off) off++; else if (ri.rolls === 0) empty.push(code);
+    var code = w.id + '-' + z.code + '-' + pad(i), ri = rowInfo(code), st = ri.cfg.st || (ri.cfg.off ? '미사용' : '');
+    if (st === '통로') { pillar++; continue; }   // 통로는 "줄"이 아님 → 줄 수에서 제외
+    lines++;
+    if (st === '미사용') idle.push(code);
+    else if (!st && ri.rolls === 0) empty.push(code);   // 운용 중 빈 줄
   }
-  return { off: off, empty: empty, all: all, total: z.rows };
+  return { idle: idle, empty: empty, lines: lines, pillar: pillar, total: z.rows };
+}
+/* 운용 정지 모드: 반영된(대기 포함) 상태 · 토글 가능 여부 */
+function stState(code) { if (ST && (code in ST.chg)) return ST.chg[code]; var c = rowInfo(code).cfg; return c.st || (c.off ? '미사용' : ''); }
+function stTog(code) {   // 같은 구역 · 재고 없음 · 원래 운용/미사용(통로·비사용 제외)만 토글
+  if (!ST) return false;
+  var p = String(code).split('-'); if (p[0] != ST.wh || p[1] !== ST.zone) return false;
+  var ri = rowInfo(code), orig = ri.cfg.st || (ri.cfg.off ? '미사용' : '');
+  return ri.rolls === 0 && (orig === '' || orig === '미사용');
 }
 /* 구역 자리(슬롯) → 좌|우 묶음 배열. z.slot(1부터) 기준, 빈칸은 null. 지도·설정 미리보기 공통 */
 function bandsOf(w) {
@@ -1027,30 +1048,53 @@ function bandsOf(w) {
 }
 function zHead(w, z) {
   if (!z) return '<span></span>';   // 빈 자리 (그리드 칸 유지)
-  var st = zoneStat(w, z), label = esc(zoneShort(w.id, z.code)), allOff = st.total > 0 && st.off === st.total;
-  var btn = MV ? '' : '<button class="zoff' + (allOff ? ' on' : '') + '" onclick="zoneOff(\'' + w.id + '\',\'' + z.code + '\',event)">' + (allOff ? '전체 해제' : '전체 중지') + '</button>';
+  var st = zoneStat(w, z), label = esc(zoneShort(w.id, z.code));
+  var allIdle = st.idle.length > 0 && !st.empty.length;   // 미사용만 있고 운용 빈 줄 없음 → 재개
+  var btn = (MV || ST) ? '' : '<button class="zoff' + (st.idle.length ? ' on' : '') + '" onclick="zoneEdit(\'' + w.id + '\',\'' + z.code + '\',event)">' + (allIdle ? '운용 재개' : '운용 정지') + '</button>';
+  var meta = st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
   return '<div class="zh"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
-    ' <span class="muted">' + z.rows + '줄' + (st.off ? ' · ' + st.off + ' 중지' : '') + '</span></span>' + btn + '</div>';
+    ' <span class="muted">' + meta + '</span></span>' + btn + '</div>';
 }
-function zoneOff(whId, zc, ev) {
+/* 구역 머리말 "운용 정지" → 그 구역의 운용 상태 편집 모드 진입 (빈 줄 탭 = 미사용 ↔ 운용) */
+function zoneEdit(whId, zc, ev) {
   if (ev) ev.stopPropagation();
-  if (MV) return;
+  if (MV || ST) return;
   var w = S.whs.filter(function (x) { return String(x.id) === String(whId); })[0]; if (!w) return;
   var z = w.zones.filter(function (x) { return x.code === zc; })[0]; if (!z) return;
-  var st = zoneStat(w, z), label = zoneShort(whId, zc);
-  if (st.total > 0 && st.off === st.total) {   // 모두 중지 상태 → 전체 해제
-    ask({ title: label + ' 전체 사용 해제', msg: st.total + '줄을 다시 사용합니다.', input: false, ok: '전체 해제' },
-      function (y) { if (y) applyZoneOff(st.all, false, label + ' 전체 해제 완료'); });
-    return;
-  }
-  if (!st.empty.length) { toast('중지할 빈 줄이 없음 — 재고 있는 줄은 중지 불가', true); return; }
-  var hasStock = st.total - st.off - st.empty.length;
-  ask({ title: label + ' 전체 사용 중지', msg: st.empty.length + '개 빈 줄을 사용 중지합니다.' + (hasStock ? '\n재고 있는 ' + hasStock + '줄은 제외됩니다.' : ''), input: false, ok: st.empty.length + '줄 중지', danger: true },
-    function (y) { if (y) applyZoneOff(st.empty, true, label + ' ' + st.empty.length + '줄 사용 중지 완료'); });
+  ST = { wh: w.id, zone: zc, chg: {} }; M.wh = w.id;
+  renderMap(); window.scrollTo(0, 0);
 }
-function applyZoneOff(codes, off, msg) {
+/* 모드 밴드: 미사용 수 · 전체 토글 · 저장/취소 */
+function stBand() {
+  var w = S.whs.filter(function (x) { return x.id == ST.wh; })[0];
+  var z = w && w.zones.filter(function (x) { return x.code === ST.zone; })[0];
+  if (!w || !z) { ST = null; return searchBar() + progLine(); }
+  var tog = 0, idle = 0;
+  for (var i = 1; i <= z.rows; i++) { var code = w.id + '-' + z.code + '-' + pad(i); if (stTog(code)) { tog++; if (stState(code) === '미사용') idle++; } }
+  var allIdle = tog > 0 && idle === tog, nch = stPairs().length;
+  return '<div class="band stband"><div class="row"><b>' + esc(zoneShort(w.id, z.code)) + ' 운용 상태</b>' +
+    '<span style="margin-left:auto; font-weight:900">미사용 ' + idle + ' / ' + tog + '줄</span></div>' +
+    '<div class="row" style="gap:6px; margin-top:7px">' +
+    '<button class="btn2" style="flex:1; height:40px" onclick="stAll(' + (allIdle ? 'false' : 'true') + ')">' + (allIdle ? '전체 운용' : '전체 미사용') + '</button>' +
+    '<button class="btn2" style="flex:none; height:40px; padding:0 12px" onclick="stCancel()">취소</button>' +
+    '<button class="btn" style="flex:none; height:40px; padding:0 14px; background:var(--ink); color:#fff" onclick="stSave()">✓ 저장' + (nch ? ' (' + nch + ')' : '') + '</button></div>' +
+    '<div style="margin-top:5px; font-size:12px; opacity:.8">빈 줄을 눌러 미사용 ↔ 운용. 재고 있는 줄 · 통로 · 비사용은 줄 설정에서 변경.</div></div>';
+}
+function stPairs() {   // 원래 상태와 달라진 줄만
+  if (!ST) return [];
+  return Object.keys(ST.chg).filter(function (c) { var ri = rowInfo(c), o = ri.cfg.st || (ri.cfg.off ? '미사용' : ''); return ST.chg[c] !== o; }).map(function (c) { return [c, ST.chg[c]]; });
+}
+function stAll(idle) {
+  var w = S.whs.filter(function (x) { return x.id == ST.wh; })[0], z = w.zones.filter(function (x) { return x.code === ST.zone; })[0];
+  for (var i = 1; i <= z.rows; i++) { var code = w.id + '-' + z.code + '-' + pad(i); if (stTog(code)) ST.chg[code] = idle ? '미사용' : ''; }
+  renderMap();
+}
+function stCancel() { ST = null; renderMap(); }
+function stSave() {
+  var pairs = stPairs();
+  if (!pairs.length) { ST = null; renderMap(); return; }
   needPin(function (pin) {
-    call('setRowsOff', codes, off, pin).then(function (whs) { S.whs = whs; renderMap(); if (SH) renderSheet(); toast(msg); }, function () {});
+    call('setRowStates', pairs, pin).then(function (whs) { S.whs = whs; ST = null; renderMap(); if (SH) renderSheet(); toast(pairs.length + '줄 상태 변경됨'); }, function () {});
   });
 }
 /* 줄 개별 설정: 칸 수 · 최대 적재 단수 · 보관 용도 · 사용 중지 */
@@ -1067,11 +1111,16 @@ function rowEditor(code) {
     numRow('칸 수', 're-slots', c.slots, w.slots, '비우면 창고 기본 ' + w.slots + '칸') +
     numRow('최대 적재 단수', 're-lv', c.maxLv, '기준', '비우면 적재 기준: ' + esc(rule)) +
     '<div class="row" style="gap:8px; padding:8px 0"><b style="flex:none">보관 용도</b><select id="re-use" style="flex:1">' + uses + '</select></div>' +
-    '<label class="radio"><input id="re-off" type="checkbox"' + (c.off ? ' checked' : '') + '> <b>사용 중지</b> (기둥 · 출입구 등)</label>' +
+    (function () {
+      var cur = c.st || (c.off ? '미사용' : '');
+      var ss = [['', '운용 (사용)'], ['미사용', '미사용 — 일시 비움 (운용정지 대상)'], ['비사용', '비사용 — 파손 · 예약 (수동)'], ['통로', '통로 — 기둥 · 출입구 (영구)']];
+      return '<div class="row" style="gap:8px; padding:8px 0; border-top:1px solid #E6E8EB"><b style="flex:none">사용 상태</b><select id="re-st" style="flex:1">' +
+        ss.map(function (s) { return '<option value="' + s[0] + '"' + (cur === s[0] ? ' selected' : '') + '>' + esc(s[1]) + '</option>'; }).join('') + '</select></div>';
+    })() +
     '<div class="shfoot"><button class="btn" style="width:100%" onclick="saveRowEditor(\'' + code + '\')">이 줄 설정 저장</button></div>';
 }
 function saveRowEditor(code) {
-  var cfg = { slots: $('re-slots').value, maxLv: $('re-lv').value, use: $('re-use').value, off: $('re-off').checked };
+  var cfg = { slots: $('re-slots').value, maxLv: $('re-lv').value, use: $('re-use').value, st: $('re-st').value };
   needPin(function (pin) {
     call('saveRowConfig', code, cfg, pin).then(function (whs) { S.whs = whs; toast(locLabel(code) + ' 설정 저장됨'); renderMap(); showDetail(code); });
   });
@@ -1125,6 +1174,7 @@ function goMng(mode, code) { G.mode = mode; G.from = code; G.item = null; G.cnt 
 /* ===== 지도 작업창: 줄 누르면 출고 · 이동 · 입고 · 실사 (모든 작업을 지도에서) ===== */
 var SH = null;   // { code, mode: ''|'out'|'in'|'cnt'|'add'|'cfg'|'filter', it, qty, sp, cnt, rem, from, more }
 var MV = null;   // 이동 중: { from, item, qty } — 도착 줄은 지도에서 누름
+var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} } — 빈 줄 탭으로 토글
 function rowItems(code) {
   return S.stock.filter(function (s) { return s.loc === code; })
     .sort(function (a, b) { return b.qty - a.qty || a.date.localeCompare(b.date); });
@@ -1372,7 +1422,11 @@ function moveTo(code) {
     undoToast('이동 ' + plain(locRoute(from, code)) + ' · ' + fmtItem(s, q), r.nos);
   });
 }
-function cellTap(code) { if (MV) moveTo(code); else openRow(code); }
+function cellTap(code) {
+  if (MV) return moveTo(code);
+  if (ST) { if (stTog(code)) { ST.chg[code] = stState(code) === '미사용' ? '' : '미사용'; renderMap(); } return; }
+  openRow(code);
+}
 
 /* --- 공통 규격 선택기: 자주 쓰는 규격(빈도순) + 평량 · 지폭(작은 순 고정) + 제지사 --- */
 function sortNum(a) { return a.slice().sort(function (x, y) { return Number(x) - Number(y); }); }
@@ -2789,6 +2843,10 @@ function renderWh() {
     return '<option value="">원지</option>' + (S.uses || []).filter(function (u) { return u !== '원지'; })
       .map(function (u) { return '<option' + (cur === u ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('');
   };
+  var stOpts = function (cur) {
+    return [['', '운용'], ['미사용', '미사용'], ['비사용', '비사용'], ['통로', '통로']]
+      .map(function (s) { return '<option value="' + s[0] + '"' + ((cur || '') === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('');
+  };
   whEl().innerHTML = W.map(function (w, i) {
     if (i !== WI) return '';
     var slotLab = function (k) { return (Math.floor(k / 2) + 1) + '열 ' + (k % 2 === 0 ? '좌' : '우'); };
@@ -2822,8 +2880,7 @@ function renderWh() {
         '<div class="row" style="gap:6px; margin-top:4px; justify-content:flex-start; font-size:13px; white-space:nowrap">' +
         '칸 ' + inp(base + 'slots', c.slots, true, ' style="width:52px; flex:none; padding:0 4px; text-align:center" placeholder="기본" aria-label="칸 수"') +
         '단 ' + inp(base + 'maxLv', c.maxLv, true, ' style="width:52px; flex:none; padding:0 4px; text-align:center" placeholder="기준" aria-label="최대 적재 단수"') +
-        '<label style="display:flex; align-items:center; gap:4px; margin-left:auto"><input type="checkbox" style="width:20px; height:20px"' + (c.off ? ' checked' : '') +
-        ' onchange="W[' + i + '].rows[\'' + k + '\'].off=this.checked">사용 중지</label></div></div>';
+        '<label style="display:flex; align-items:center; gap:4px; margin-left:auto">상태 <select class="mini" style="flex:none; padding:0 6px" onchange="setW(\'' + base + 'st\', this.value)" aria-label="사용 상태">' + stOpts(c.st || (c.off ? '미사용' : '')) + '</select></label></div></div>';
     }).join('');
     return '<div class="card">' +
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
@@ -2914,7 +2971,7 @@ function addEx(i) {
     var m = k.toUpperCase().match(/^([A-Z][A-Z0-9]{0,2})-?(\d{1,3})$/);
     if (!m) { toast('형식: A-24', true); return; }
     k = m[1] + '-' + pad(m[2]);
-    if (!W[i].rows[k]) W[i].rows[k] = { slots: null, maxLv: null, use: '', off: false };
+    if (!W[i].rows[k]) W[i].rows[k] = { slots: null, maxLv: null, use: '', st: '' };
     renderWh();
   });
 }
