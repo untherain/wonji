@@ -525,7 +525,7 @@ function fOn() { return !!(F.gsm || F.width || F.maker || F.grade || fWords().le
 function fMatch(s) {
   if ((F.gsm && s.gsm != F.gsm) || (F.width && s.width != F.width) || (F.maker && s.maker !== F.maker) || (F.grade && s.grade !== F.grade)) return false;
   var qs = fWords(); if (!qs.length) return true;
-  var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no),
+  var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no), keyOf(s.loc),
     s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
   return qs.every(function (w) { return t.indexOf(w) >= 0; });
 }
@@ -550,11 +550,11 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function
 function pad(n) { n = Number(n); return (n < 10 ? '0' : '') + n; }
 function whName(id) { var w = S.whs.filter(function (x) { return x.id == id; })[0]; return w ? w.name : id + '창고'; }
 /* 화면 표시용: 위치명 · 규격이 중간에서 줄바뀌지 않게 (NBSP · 단어 결합 문자). 서버 · 파일로 보낼 땐 plain() */
-function locLabel(code) { var p = String(code).split('-'); return p.length === 3 ? whName(p[0]) + '\u00a0' + p[1] + '-\u2060' + p[2] : code; }
+function locLabel(code) { var p = String(code).split('-'); return p.length === 3 ? whName(p[0]) + '\u00a0' + zoneShort(p[0], p[1]) + '-\u2060' + p[2] : code; }
 /* 출발 → 도착: 같은 창고면 도착 쪽 창고 이름 생략 ("1창고 A-01 → A-04") */
 function locRoute(a, b) {
   var pa = String(a || '').split('-'), pb = String(b || '').split('-');
-  var tail = pb.length === 3 && pa[0] === pb[0] ? pb[1] + '-\u2060' + pb[2] : locLabel(b);
+  var tail = pb.length === 3 && pa[0] === pb[0] ? zoneShort(pb[0], pb[1]) + '-\u2060' + pb[2] : locLabel(b);
   return locLabel(a) + ' → ' + tail;
 }
 function plain(t) { return String(t).replace(/\u2060/g, '').replace(/\u00a0/g, ' '); }
@@ -891,7 +891,7 @@ function renderFind() {
   $('f-sum').textContent = '재고 목록';
   $('f-list').innerHTML = res.length ? res.map(function (s, i) {
     return '<div class="card row' + (s === first ? ' hot' : '') + '" style="justify-content:flex-start; flex-wrap:wrap">' +
-      '<span class="tag' + (s === first ? ' hot' : '') + '"><small>' + esc(whName(s.wh)) + '</small><b>' + esc(s.zone + '-' + pad(s.no)) + '</b></span>' +
+      '<span class="tag' + (s === first ? ' hot' : '') + '"><small>' + esc(whName(s.wh)) + '</small><b>' + esc(keyOf(s.loc)) + '</b></span>' +
       '<div style="flex:1; min-width:0"><div style="font-weight:700; font-size:17px">' + specLp(s) + ' · ' + s.qty + '롤' + remTag(s) + '</div>' +
       (s.grade ? '<div class="muted">' + esc(s.grade) + '</div>' : '') + '<div class="muted">' + lotText(s) + '</div>' +
       (s === first ? '<div style="font-size:12px; font-weight:700; color:var(--blue)">선입선출 1순위</div>' : '') + '</div>' +
@@ -916,7 +916,14 @@ function actOn(mode, s) {
 
 /* ===== 적재 계산: 줄 = 칸 여러 개, 칸 하나에 한 규격, 지폭별 최대 적재 단수 (줄 개별 설정 반영) ===== */
 function whOf(code) { var id = String(code || '').split('-')[0]; return S.whs.filter(function (x) { return String(x.id) === id; })[0]; }
-function keyOf(code) { var p = String(code || '').split('-'); return p[1] + '-' + p[2]; }
+function rawKey(code) { var p = String(code || '').split('-'); return p[1] + '-' + p[2]; }
+/* 화면 표시용 위치: 구역 코드(A) 대신 창고 설정의 구역 이름 ("좌" → 좌-03, "A구역" → A-03) */
+function zoneShort(wid, zc) {
+  var w = (S.whs || []).filter(function (x) { return String(x.id) === String(wid); })[0];
+  var z = w && w.zones.filter(function (x) { return x.code === zc; })[0];
+  return (z ? String(z.name || '').replace(/\s+/g, '').replace(/구역$/, '') : '') || zc;
+}
+function keyOf(code) { var p = String(code || '').split('-'); return p.length === 3 ? zoneShort(p[0], p[1]) + '-' + p[2] : p[1] + '-' + p[2]; }
 function cfgOf(w, key) { return (w && w.rows[key]) || {}; }
 function ruleLv(w, width) {
   for (var i = 0; i < w.rule.length; i++) if (w.rule[i].max === null || Number(width) <= w.rule[i].max) return w.rule[i].lv;
@@ -928,7 +935,7 @@ function levels(w, width, key) {
 }
 function slotsOf(w, key) { var c = cfgOf(w, key); return c.slots || w.slots; }
 function rowInfo(code) {
-  var w = whOf(code), key = keyOf(code), items = S.stock.filter(function (s) { return s.loc === code; });
+  var w = whOf(code), key = rawKey(code), items = S.stock.filter(function (s) { return s.loc === code; });
   var rolls = 0, used = 0;
   items.forEach(function (s) { rolls += s.qty; if (w) used += Math.ceil(s.qty / levels(w, s.width, key)); });
   return { w: w, key: key, cfg: cfgOf(w, key), items: items, rolls: rolls, used: used, slots: w ? slotsOf(w, key) : 0 };
