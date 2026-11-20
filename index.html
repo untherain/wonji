@@ -1223,7 +1223,8 @@ function sheetDist() {
   var whRow = whIds.length > 1 ? '<div class="cgf" style="margin:2px 0 10px"><span class="muted" style="align-self:center; margin-right:2px">창고</span>' +
     whIds.map(function (id) { return '<button class="chip' + (sel[id] ? ' on' : '') + '" onclick="distWh(' + id + ')">' + esc(whName(id)) + ' ' + whQ[id] + '롤</button>'; }).join('') + '</div>' : '';
   var partial = whIds.length > 1 && d.whs.length < whIds.length;
-  var merge = Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="consolidate(\'' + encodeURIComponent(sig) + '\')">↙ 한곳으로 모으기' + (partial ? ' (선택 창고)' : '') + '</button>' : '';
+  var job = MJ && MJ.sig === sig;
+  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '모으기 작업 목록 (' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ')' : '한곳으로 모으기' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
   $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true);
 }
 function distWh(id) {
@@ -1284,30 +1285,76 @@ function consolidate(enc) {
     return;
   }
   var lines = P.moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(m.to) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : ''); });
-  ask({ title: '한곳으로 모으기', input: false, ok: '정리 실행', danger: true,
-    msg: P.before + '줄 → ' + P.after + '줄 · ' + P.rolls + '롤 이동\n' + rule + '\n\n' + lines.join('\n') +
-      '\n\n비는 줄: ' + P.emptied.map(keyOf).join(', ') },
-    function (y) { if (y) doConsolidate(sig, P.moves); });
+  ask({ title: '한곳으로 모으기', input: false, ok: '작업 목록 만들기',
+    msg: P.before + '줄 → ' + P.after + '줄 · ' + P.rolls + '롤 이동 · ' + P.moves.length + '건\n' + rule + '\n\n' + lines.join('\n') +
+      '\n\n비는 줄: ' + P.emptied.map(keyOf).join(', ') + '\n전산 반영은 줄마다 완료 누를 때' },
+    function (y) {
+      if (!y) return;
+      MJ = { sig: sig, before: P.before, after: P.after, rule: rule,
+        moves: P.moves.map(function (m) { return { from: m.from, to: m.to, qty: m.qty, mix: m.mix, done: 0, nos: [] }; }) };
+      mjSave(); openMerge();
+    });
 }
-function doConsolidate(sig, moves) {
+/* 모으기 작업 목록: 실제로 옮긴 뒤 줄마다 완료 → 그때만 전산 이동 (이 기기에 보관 · 앱 다시 열어도 유지) */
+var MJ = null;
+try { MJ = JSON.parse(localStorage.getItem('mergeJob') || 'null'); } catch (e) { MJ = null; }
+function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
+function mjLeft() { return MJ ? MJ.moves.filter(function (m) { return !m.done; }).length : 0; }
+function openMerge() { SH = { code: null, mode: 'merge' }; renderSheet(); }
+function startMerge(enc) {
+  var sig = decodeURIComponent(enc);
+  if (MJ && MJ.sig === sig) return openMerge();
+  if (MJ && mjLeft()) {
+    ask({ title: '진행 중 작업 목록 있음', msg: distTitle(MJ.sig) + ' · 남은 ' + mjLeft() + '건\n새 목록으로 교체 (완료된 이동은 그대로)', input: false, ok: '교체' },
+      function (y) { if (y) { MJ = null; mjSave(); consolidate(enc); } });
+    return;
+  }
+  consolidate(enc);
+}
+function sheetMerge() {
+  var j = MJ; if (!j) { SH = null; return closeSheet(); }
+  var n = j.moves.length - mjLeft();
+  var h = shHead(esc(distTitle(j.sig)) + ' 모으기', j.before + '줄 → ' + j.after + '줄 · <b>' + n + '/' + j.moves.length + ' 완료</b><br>' + esc(j.rule), false);
+  h += '<div class="muted" style="margin:8px 0">실제로 옮긴 뒤 <b>완료</b> · 그때 전산 반영</div>';
+  h += j.moves.map(function (m, i) {
+    return '<div class="card" style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin:0 0 6px' + (m.done ? '; opacity:.5' : '') + '">' +
+      '<div style="flex:1; min-width:0"><b style="font-size:18px">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b>' +
+      '<div class="muted">' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : '') + '</div></div>' +
+      (m.done ? '<button class="btn2" style="flex:none; height:44px; padding:0 12px" onclick="mjUndo(' + i + ')">✓ 완료 · 취소</button>'
+              : '<button class="btn" style="flex:none; height:44px; padding:0 20px" onclick="mjDone(' + i + ')">완료</button>') + '</div>';
+  }).join('');
+  h += '<button class="' + (mjLeft() ? 'btn2' : 'btn') + '" style="width:100%; margin-top:8px" onclick="mjEnd()">' + (mjLeft() ? '목록 삭제' : '작업 종료') + '</button>';
+  $('detail').innerHTML = h;
+}
+function mjDone(i) {
   if (!requireWorker()) return;
-  var moved = 0, fail = 0;
-  var step = function (k) {
-    if (k >= moves.length) {
-      renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
-      toast(moved + '롤 이동 완료' + (fail ? ' · ' + fail + '롤 미이동' : ''), !!fail);
-      return;
-    }
-    var m = moves[k], cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === sig; })[0];
-    if (!cur) { fail += m.qty; return step(k + 1); }
-    var q = Math.min(m.qty, cur.qty, freeFor(m.to, cur.gsm, cur.width, cur.grade));
-    if (q <= 0) { fail += m.qty; return step(k + 1); }
-    call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q })).then(function (r) {
-      setStock(r); moved += q; fail += m.qty - q; step(k + 1);
-    }, function () { fail += m.qty; step(k + 1); });
-  };
-  step(0);
+  var m = MJ && MJ.moves[i]; if (!m || m.done) return;
+  var cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === MJ.sig; })[0];
+  if (!cur) { toast(keyOf(m.from) + ' 재고 없음 · 새로고침 확인', true); return; }
+  var q = Math.min(m.qty, cur.qty);
+  call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '모으기' })).then(function (r) {
+    setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; mjSave();
+    renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 완료');
+  });
 }
+function mjUndo(i) {
+  var m = MJ && MJ.moves[i]; if (!m || !m.done) return;
+  if (!m.nos.length) { toast('취소할 기록 없음 · 기록 탭에서 취소', true); return; }
+  ask({ title: '완료 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n전산 이동 취소 (재고 원복)', input: false, ok: '완료 취소', danger: true }, function (y) {
+    if (!y || !requireWorker()) return;
+    call('undoTx', { nos: m.nos, worker: worker(), test: isTest() }).then(function (st) {
+      setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('완료 취소');
+    });
+  });
+}
+function mjEnd() {
+  var left = mjLeft();
+  var fin = function () { MJ = null; mjSave(); SH = null; closeSheet(); };
+  if (!left) return fin();
+  ask({ title: '목록 삭제', msg: '남은 ' + left + '건 미진행 · 완료된 이동은 그대로', input: false, ok: '삭제', danger: true }, function (y) { if (y) fin(); });
+}
+/* 기록 탭이 열려 있으면 다시 불러옴 (이력 · 보고서) */
+function refreshLog() { if (TAB !== 'log') return; if (LG.mode === '보고서') renderRep(); else loadHist(); }
 function rowItems(code) {
   var ord = (S.stack && S.stack[code]) || [];
   return S.stock.filter(function (s) { return s.loc === code; }).sort(function (a, b) {
@@ -1362,6 +1409,7 @@ function renderSheet() {
   if (SH.mode === 'cfg') { rowEditor(SH.code); return; }
   if (SH.mode === 'wh') { sheetWh(); return; }
   if (SH.mode === 'dist') { sheetDist(); return; }
+  if (SH.mode === 'merge') { sheetMerge(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
     SH.mode === 'cnt' ? sheetCount() : sheetRow();
 }
@@ -3726,7 +3774,7 @@ function saveAgingN(n) {
   needPin(function (pin) {
     call('saveAging', n, pin).then(function (v) {
       S.agingDays = v; RP.data = null; if ($('set-aging')) $('set-aging').value = v;
-      if (TAB === 'plan') renderPlan(); else if (TAB === 'log' && LG.mode === '보고서') renderRep(); else if (TAB === 'map') { renderMap(); if (SH) renderSheet(); }
+      if (TAB === 'plan') renderPlan(); else if (TAB === 'log') refreshLog(); else if (TAB === 'map') { renderMap(); if (SH) renderSheet(); }
       toast('장기 재고 기준 ' + v + '일 저장됨');
     });
   });
