@@ -1243,48 +1243,69 @@ function distAll() {
 }
 function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
 var DISTA = [];
-/* ② 한곳으로 모으기: 목표마다 "고르면 몇 롤이 모이고 몇 롤이 남는지"를 보여줌 (가장 많이 모이는 곳 추천) */
+/* ② 한곳으로 모으기 = 줄 정리: 적게 든 줄부터 비워 다른 줄 빈 자리로 → 줄 수 감소
+   입고일 규칙: 자리 여유(창고에 운용 중 빈 줄 있음) → 입고일 같은 줄끼리만 · 자리 부족(빈 줄 없음) → 입고일 섞어도 됨 */
+function lotKey(s) {
+  var l = s.lots && s.lots.length ? s.lots : [{ date: s.date }], d = {};
+  l.forEach(function (x) { d[x.date] = 1; });
+  return Object.keys(d).sort().join(',');
+}
+function mergePlan(recs, mix) {
+  var L = recs.map(function (s) { return { loc: s.loc, qty: s.qty, free: freeFor(s.loc, s.gsm, s.width, s.grade), dk: lotKey(s), gone: false, got: false }; });
+  var moves = [];
+  L.slice().sort(function (a, b) { return a.qty - b.qty; }).forEach(function (src) {   // 적게 든 줄부터 비우기 시도
+    if (src.got || src.gone) return;   // 받은 줄은 다시 비우지 않음
+    var rc = L.filter(function (r) { return r !== src && !r.gone && r.free > 0 && (mix || r.dk === src.dk); })
+      .sort(function (a, b) { return (b.dk === src.dk) - (a.dk === src.dk) || b.free - a.free; });   // 같은 입고일 → 빈 자리 큰 줄 (이동 건수 최소)
+    if (rc.reduce(function (a, r) { return a + r.free; }, 0) < src.qty) return;   // 다 못 옮기면 그대로 둠
+    var need = src.qty;
+    rc.forEach(function (r) {
+      if (!need) return;
+      var q = Math.min(need, r.free); r.free -= q; r.qty += q; r.got = true; need -= q;
+      moves.push({ from: src.loc, to: r.loc, qty: q, mix: r.dk !== src.dk });
+    });
+    src.gone = true; src.qty = 0;
+  });
+  return { moves: moves, before: L.length, after: L.filter(function (r) { return !r.gone; }).length,
+    emptied: L.filter(function (r) { return r.gone; }).map(function (r) { return r.loc; }),
+    rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0) };
+}
 function consolidate(enc) {
   var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
   var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
   if (recs.length < 2) { toast('모을 위치 없음'); return; }
-  var total = recs.reduce(function (a, s) { return a + s.qty; }, 0);
-  var cand = recs.map(function (s) {
-    var others = total - s.qty, take = Math.min(freeFor(s.loc, s.gsm, s.width, s.grade), others);
-    return { loc: s.loc, has: s.qty, take: take, result: s.qty + take, left: others - take };   // has=지금 있는 롤, take=옮겨 올 롤, result=옮긴 뒤 이 줄, left=못 옮기고 남는 롤
-  }).sort(function (a, b) { return (a.take <= 0) - (b.take <= 0) || b.result - a.result || a.take - b.take; });   // 많이 모이는 곳 → 같으면 덜 옮기는 곳 · 빈 자리 없는 줄은 맨 아래
-  if (cand[0].take <= 0) { toast('수용 가능한 공간 없음 · 다른 곳으로 이동 필요', true); return; }
-  var best = cand[0].result, all = cand[0].left === 0;
-  var opts = cand.map(function (c, i) {
-    return { v: i, t: keyOf(c.loc), tag: i === 0 ? '추천' : '', off: c.take <= 0,
-      sub: c.take <= 0 ? '빈 자리 없음' : '지금 ' + c.has + '롤 + ' + c.take + '롤 이동 → ' + c.result + '롤' + (c.left === 0 ? ' · 전부 모임' : '') };
-  });
-  var msg = recs.length + '곳 · ' + total + '롤' + (all ? ' → 모을 줄 선택' : '\n한 줄 최대 ' + best + '롤 · 전부 모으기 불가, 나머지는 제자리');
-  ask({ title: '한곳으로 모으기', msg: msg, chips: opts, list: true }, function (i) {
-    var c = cand[i]; if (!c || c.take <= 0) return;
-    if (c.left === 0) return doConsolidate(sig, c.loc);
-    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.take + '롤 이동 → ' + keyOf(c.loc) + ' ' + c.result + '롤\n나머지 ' + c.left + '롤은 제자리 (자리 부족)', input: false, ok: '모으기', danger: true },
-      function (y) { if (y) doConsolidate(sig, c.loc); });
-  });
+  var ids = recs.map(function (s) { return String(s.wh); }), empty = 0;
+  S.whs.forEach(function (w) { if (ids.indexOf(String(w.id)) >= 0) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
+  var mix = empty === 0, P = mergePlan(recs, mix);
+  var rule = mix ? '자리 부족 (빈 줄 없음) → 입고일 섞어서 정리' : '자리 여유 (빈 줄 ' + empty + '개) → 입고일 같은 줄끼리만';
+  if (!P.moves.length) {
+    var P2 = mix ? null : mergePlan(recs, true);
+    ask({ title: '한곳으로 모으기', input: false, chips: [], msg: P.before + '줄 · 줄일 수 있는 줄 없음\n' + rule +
+      (P2 && P2.moves.length ? '\n(입고일 섞으면 ' + P2.before + '줄 → ' + P2.after + '줄 가능)' : '') }, function () {});
+    return;
+  }
+  var lines = P.moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(m.to) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : ''); });
+  ask({ title: '한곳으로 모으기', input: false, ok: '정리 실행', danger: true,
+    msg: P.before + '줄 → ' + P.after + '줄 · ' + P.rolls + '롤 이동\n' + rule + '\n\n' + lines.join('\n') +
+      '\n\n비는 줄: ' + P.emptied.map(keyOf).join(', ') },
+    function (y) { if (y) doConsolidate(sig, P.moves); });
 }
-function doConsolidate(sig, targetLoc) {
+function doConsolidate(sig, moves) {
   if (!requireWorker()) return;
-  var sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고의 줄만 이동
-  var sources = S.stock.filter(function (s) { return sigOf(s) === sig && s.loc !== targetLoc && (!sel || sel.indexOf(s.wh) >= 0); });
-  var moved = 0, short = 0;
+  var moved = 0, fail = 0;
   var step = function (k) {
-    if (k >= sources.length) {
+    if (k >= moves.length) {
       renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
-      toast(keyOf(targetLoc) + ' · ' + moved + '롤 이동 완료' + (short ? ' · ' + short + '롤 제자리' : ''));
+      toast(moved + '롤 이동 완료' + (fail ? ' · ' + fail + '롤 미이동' : ''), !!fail);
       return;
     }
-    var cur = S.stock.filter(function (x) { return x.loc === sources[k].loc && sigOf(x) === sig; })[0];
-    if (!cur) return step(k + 1);
-    var free = freeFor(targetLoc, cur.gsm, cur.width, cur.grade), q = Math.min(cur.qty, free);
-    if (q <= 0) { short += cur.qty; return step(k + 1); }
-    call('moveStock', Object.assign(itemP(cur), { from: cur.loc, to: targetLoc, qty: q })).then(function (r) {
-      setStock(r); moved += q; if (q < cur.qty) short += cur.qty - q; step(k + 1);
-    }, function () { step(k + 1); });
+    var m = moves[k], cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === sig; })[0];
+    if (!cur) { fail += m.qty; return step(k + 1); }
+    var q = Math.min(m.qty, cur.qty, freeFor(m.to, cur.gsm, cur.width, cur.grade));
+    if (q <= 0) { fail += m.qty; return step(k + 1); }
+    call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q })).then(function (r) {
+      setStock(r); moved += q; fail += m.qty - q; step(k + 1);
+    }, function () { fail += m.qty; step(k + 1); });
   };
   step(0);
 }
