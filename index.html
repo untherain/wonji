@@ -343,7 +343,7 @@
   <section id="s-find">
     <div class="seg" id="f-mode" style="background:#E6E8EB; margin:0 0 6px"></div>
     <div id="f-spec">
-      <input id="f-q" class="mini" type="search" style="width:100%; height:44px; margin-bottom:8px; font-size:16px" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="F.q=this.value; renderFind()">
+      <input id="f-q" class="mini" type="search" style="width:100%; height:44px; margin-bottom:8px; font-size:16px" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="fQ(this.value)">
       <div id="f-pick"></div>
       <div class="row" style="margin:16px 0 8px"><b id="f-sum" style="font-size:16px"></b><span id="f-sort"></span></div>
       <div id="f-list"></div>
@@ -518,7 +518,25 @@
 <script>
 /* ===== 상태 ===== */
 var S = { whs: [], quick: {}, stock: [] };
-var F = { gsm: null, width: null };                 // 찾기 필터
+var F = { gsm: null, width: null, maker: '', grade: '', q: '' };   // 찾기 필터 (조회 · 지도 검색 공통)
+/* 공통 검색 조건: 평량 · 지폭 · 제지사 · 지종 + 문구(띄어쓰기로 나눈 낱말 모두 포함) */
+function fWords() { return String(F.q || '').toUpperCase().split(/\s+/).filter(String); }
+function fOn() { return !!(F.gsm || F.width || F.maker || F.grade || fWords().length); }
+function fMatch(s) {
+  if ((F.gsm && s.gsm != F.gsm) || (F.width && s.width != F.width) || (F.maker && s.maker !== F.maker) || (F.grade && s.grade !== F.grade)) return false;
+  var qs = fWords(); if (!qs.length) return true;
+  var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no),
+    s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
+  return qs.every(function (w) { return t.indexOf(w) >= 0; });
+}
+/* 검색 조건 요약 줄 (조회 머리말 · 지도 검색창 공통) */
+function fSum(tail) {
+  return sLine([P(F.maker || '', '제지사', 'sp-mk', null, false), F.maker ? ' ' : '', P(F.gsm || '전체', '평량', 'sp-gsm'), P(F.width || '전체', '지폭', 'sp-width', null, true, '×'),
+    P(F.grade || '', '지종', 'sp-gr', null, false, ' · '), F.q ? ' · "' + esc(F.q) + '"' : '', tail || '']);
+}
+function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; }); return { list: hits, locs: Object.keys(locs).length, qty: hits.reduce(function (a, s) { return a + s.qty; }, 0) }; }
+/* 문구 검색칸: 조회 · 지도 검색창 공통 (글자 칠 때 결과만 갱신 · 입력칸은 그대로) */
+function fQ(v) { F.q = v; if (TAB === 'find') renderFind(); else { renderMap(); var c = $('fq-cnt'); if (c) { var h = fHits(); c.textContent = h.locs + '곳 · ' + h.qty + '롤'; } } }
 var M = { wh: null };                               // 위치 현황 창고
 var I = { gsm: null, width: null, qty: 1, rem: false, from: null }; // 입고 (rem = 잔량 반납)
 var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
@@ -860,22 +878,14 @@ function renderFind() {
   PKT = { sp: F, render: renderFind, filter: true };   // 공통 선택기 · 다시 누르면 해제 = 전체
   $('f-pick').innerHTML = pickerBody(F, true, 'renderFind()', true);
   var fs = sortGet('find', 'find');
-  var qs = String(F.q || '').toUpperCase().split(/\s+/).filter(String);   // 문구 검색: 띄어쓰기로 나눈 낱말 모두 포함
-  var res = S.stock.filter(function (s) {
-    if ((F.gsm && s.gsm != F.gsm) || (F.width && s.width != F.width) || (F.maker && s.maker !== F.maker) || (F.grade && s.grade !== F.grade)) return false;
-    if (!qs.length) return true;
-    var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no),
-      s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
-    return qs.every(function (w) { return t.indexOf(w) >= 0; });
-  })
+  var fq = $('f-q'); if (fq && document.activeElement !== fq) fq.value = F.q || '';   // 지도 검색창에서 바꾼 문구도 표시
+  var res = S.stock.filter(fMatch)
     .sort(function (a, b) {
       return fs === 'qty' ? b.qty - a.qty || a.date.localeCompare(b.date) :
         fs === 'loc' ? a.loc.localeCompare(b.loc) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date);
     });
   $('f-sort').innerHTML = sortBtn('find', 'find', 'renderFind()');
-  hdrSum('find', sLine([P(F.maker || '', '제지사', 'sp-mk', null, false), F.maker ? ' ' : '', P(F.gsm || '전체', '평량', 'sp-gsm'), P(F.width || '전체', '지폭', 'sp-width', null, true, '×'),
-    P(F.grade || '', '지종', 'sp-gr', null, false, ' · '), F.q ? ' · "' + esc(F.q) + '"' : '',
-    ' · ' + res.length + '곳 · ' + res.reduce(function (n, s) { return n + s.qty; }, 0) + '롤']));
+  hdrSum('find', fSum(' · ' + res.length + '곳 · ' + res.reduce(function (n, s) { return n + s.qty; }, 0) + '롤'));
   var first = res.slice().sort(function (a, b) { return a.date.localeCompare(b.date); })[0];
   var total = res.reduce(function (n, s) { return n + s.qty; }, 0);
   $('f-sum').textContent = '재고 목록';
@@ -950,7 +960,7 @@ function renderMap() {
     {
       var key = z.code + '-' + pad(i), code = w.id + '-' + key;
       var ri = rowInfo(code), items = ri.items, n = ri.rolls, off = !!ri.cfg.off;
-      var hit = F.gsm || F.width ? items.some(function (s) { return (!F.gsm || s.gsm == F.gsm) && (!F.width || s.width == F.width); }) : false;
+      var hit = fOn() ? items.some(fMatch) : false;
       // 규격 목록: 롤 수 많은 순, 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
       var byS = {};
       items.forEach(function (s) {
@@ -1020,10 +1030,10 @@ function saveRowEditor(code) {
 }
 function goIn(code) { I.loc = code; show('in'); }
 function searchBar() {
-  if (!F.gsm && !F.width) return '<button class="srch" onclick="openFilter()">🔍 규격 검색 (평량 · 지폭)</button>';
-  var hits = S.stock.filter(function (s) { return (!F.gsm || s.gsm == F.gsm) && (!F.width || s.width == F.width); });
-  var locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
-  return '<div class="srch" role="button" onclick="openFilter()"><b>' + (F.gsm || '전체') + ' × ' + (F.width || '전체') + '</b><span class="cnt">' +
+  if (!fOn()) return '<button class="srch" onclick="openFilter()">🔍 검색 (규격 · 제지사 · 문구)</button>';
+  var fh = fHits(), hits = fh.list, locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
+  var lab = [F.maker, (F.gsm || F.width) ? (F.gsm || '전체') + ' × ' + (F.width || '전체') : '', F.grade, F.q ? '"' + F.q + '"' : ''].filter(Boolean).join(' ');
+  return '<div class="srch" role="button" onclick="openFilter()"><b>' + esc(lab) + '</b><span class="cnt">' +
     Object.keys(locs).length + '곳 · ' + hits.reduce(function (a, s) { return a + s.qty; }, 0) + '롤</span><button class="clr" aria-label="검색 해제" onclick="clearFilter(event)">✕</button></div>';
 }
 /* 오늘 입고 진행 한 줄: 몇 줄 · 몇 롤 · 마지막 입고 → [이어서] = 그 줄 입고창을 같은 규격으로 */
@@ -1179,7 +1189,7 @@ function filterPhoto(cam) {
   readLabel(cam, function (r) {
     if (!SH) return;
     if (r.gsm) F.gsm = String(r.gsm); if (r.width) F.width = String(r.width);
-    SH.sp = { gsm: F.gsm, width: F.width };
+    SH.sp = F;
     if (r.gsm && r.width) { SH.phmsg = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); return; }   // 결과 = 지도 노란 줄 + 위쪽 검색 줄
     SH.phmsg = (!r.gsm ? '평량' : '') + (!r.gsm && !r.width ? ' · ' : '') + (!r.width ? '지폭' : '') + ' 못 읽음 — 다시 촬영 또는 아래 버튼';
     renderMap(); renderSheet();
@@ -1329,7 +1339,11 @@ function chipGrid(kind, key, cur, cols) {
 }
 /* 선택기 대상: 기본 = 작업창(SH.sp) · 생산계획 빠른 입력은 PKT = { sp: PQ, render: renderPlan } */
 var PKT = null, MKLIST = [];
-function pkt() { return PKT || { sp: SH.sp, render: renderSheet, sheet: true }; }
+function pkt() {
+  if (PKT) return PKT;
+  var flt = SH && SH.mode === 'filter';   // 지도 검색창: 고르면 지도 표시도 같이 갱신
+  return { sp: SH.sp, render: flt ? function () { renderMap(); renderSheet(); } : renderSheet, sheet: true };
+}
 function makerGrid(cur) {
   var lv = liveVals('제지사', S.quick['제지사'] || [], cur), l = MKLIST = lv.show;
   return '<div class="cgf" id="sp-mk">' + l.map(function (m, i) {
@@ -1608,18 +1622,19 @@ function saveCnt() {
 }
 
 /* --- 지도 검색 (같은 규격 선택기) --- */
-function openFilter() { SH = { code: null, mode: 'filter', sp: { gsm: F.gsm, width: F.width }, phmsg: '' }; renderSheet(); }
+/* 지도 검색창: 조회와 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
+function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
 function sheetFilter() {
-  var hits = S.stock.filter(function (s) { return (!F.gsm || s.gsm == F.gsm) && (!F.width || s.width == F.width); });
-  var locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
-  return shHead('규격 검색', '', false, sLine([P(F.gsm || '전체', '평량', 'sp-gsm'), P(F.width || '전체', '지폭', 'sp-width', null, true, '×'),
-    (F.gsm || F.width) ? ' · ' + Object.keys(locs).length + '곳 · ' + hits.reduce(function (a, s) { return a + s.qty; }, 0) + '롤' : ''])) +
-    photoBar('filterPhoto', phNote('롤 라벨을 찍으면 같은 규격이 있는 줄 표시')) + pickerHtml(false) +
+  var h = fHits();
+  return shHead('검색', '', false, fSum(fOn() ? ' · ' + h.locs + '곳 · ' + h.qty + '롤' : '')) +
+    '<div class="row" style="gap:8px; margin:6px 0"><input class="mini" type="search" style="flex:1; height:44px; font-size:16px" value="' + esc(F.q || '') + '" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="fQ(this.value)" onchange="renderSheet()">' +
+    '<span class="muted" id="fq-cnt" style="flex:none">' + (fOn() ? h.locs + '곳 · ' + h.qty + '롤' : '') + '</span></div>' +
+    photoBar('filterPhoto', phNote('롤 라벨을 찍으면 같은 규격이 있는 줄 표시')) + pickerBody(F, true, 'renderSheet()', true) +
     '<div class="grid2" style="margin-top:12px"><button class="btn2" onclick="clearFilter()">초기화</button><button class="btn" style="height:46px" onclick="closeSheet()">지도 보기</button></div>';
 }
 function clearFilter(ev) {
   if (ev) ev.stopPropagation();
-  F.gsm = F.width = null; if (SH && SH.mode === 'filter') SH.sp = { gsm: null, width: null };
+  F.gsm = F.width = null; F.maker = F.grade = F.q = '';
   renderMap(); if (SH) renderSheet();
 }
 
