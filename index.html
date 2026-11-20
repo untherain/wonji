@@ -994,12 +994,10 @@ function renderMap() {
     return h;
   }
   var html = '';
-  for (var k = 0; k < w.zones.length; k += 2) {   // 구역 두 개씩: 왼쪽 | 통로 | 오른쪽
-    var z1 = w.zones[k], z2 = w.zones[k + 1];
-    var zlp = ' data-lp="wh:' + w.id + '"';   // 구역 머리말 길게 누르기 = 창고 설정 (구역 이름 · 줄 수 · 좌우 · 상하)
-    html += '<div class="zhead">' + zHead(w, z1) + '<span></span>' + (z2 ? zHead(w, z2) : '<span></span>') + '</div>' +
-      '<div class="map">' + pairRows(z1, z2) + '</div>';
-  }
+  bandsOf(w).forEach(function (pair) {   // 자리(슬롯) 기준: 왼쪽 | 통로 | 오른쪽 (빈칸 가능)
+    html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' +
+      '<div class="map">' + pairRows(pair[0], pair[1]) + '</div>';
+  });
   $('m-body').innerHTML = html;
   // 검색 결과가 있으면 첫 번째로 걸린 줄로 스크롤 (조건 바뀐 때만 · 작업 중엔 안 함)
   if (fo && fh.length && fkey !== renderMap.scrolled && !SH) {
@@ -1018,7 +1016,16 @@ function zoneStat(w, z) {
   }
   return { off: off, empty: empty, all: all, total: z.rows };
 }
+/* 구역 자리(슬롯) → 좌|우 묶음 배열. z.slot(1부터) 기준, 빈칸은 null. 지도·설정 미리보기 공통 */
+function bandsOf(w) {
+  var slots = [];
+  (w.zones || []).forEach(function (z, i) { var s = (z.slot != null ? z.slot - 1 : i); if (s < 0) s = i; slots[s] = z; });
+  var bands = [];
+  for (var s = 0; s < slots.length; s++) { (bands[s >> 1] = bands[s >> 1] || [null, null])[s & 1] = slots[s] || null; }
+  return bands.length ? bands : [[null, null]];
+}
 function zHead(w, z) {
+  if (!z) return '<span></span>';   // 빈 자리 (그리드 칸 유지)
   var st = zoneStat(w, z), label = esc(zoneShort(w.id, z.code)), allOff = st.total > 0 && st.off === st.total;
   var btn = MV ? '' : '<button class="zoff' + (allOff ? ' on' : '') + '" onclick="zoneOff(\'' + w.id + '\',\'' + z.code + '\',event)">' + (allOff ? '전체 해제' : '전체 중지') + '</button>';
   return '<div class="zh"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
@@ -2714,7 +2721,7 @@ function cloneWhs() {
     return {
       id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
       rule: w.rule.map(function (r) { return { max: r.max === null ? '' : r.max, lv: r.lv }; }),
-      zones: w.zones.map(function (z) { return { code: z.code, name: z.name, rows: z.rows }; }),
+      zones: w.zones.map(function (z, j) { return { code: z.code, name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1 }; }),
       rows: JSON.parse(JSON.stringify(w.rows))
     };
   });
@@ -2750,10 +2757,10 @@ function renderWh() {
   whEl().innerHTML = W.map(function (w, i) {
     if (i !== WI) return '';
     var slotLab = function (k) { return (Math.floor(k / 2) + 1) + '열 ' + (k % 2 === 0 ? '좌' : '우'); };
-    var zcnt = w.zones.length;
+    var offerSlots = (bandsOf(w).length + 1) * 2;   // 현재 열 + 한 열 더 (빈칸 자리 선택 가능)
     var zones = w.zones.map(function (z, j) {
-      var opts = '';
-      for (var k = 0; k < zcnt; k++) opts += '<option value="' + k + '"' + (k === j ? ' selected' : '') + '>' + slotLab(k) + '</option>';
+      var cur = z.slot != null ? z.slot - 1 : j, opts = '';
+      for (var k = 0; k < offerSlots; k++) opts += '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + slotLab(k) + '</option>';
       return '<div class="row" style="gap:4px; margin-bottom:4px">' +
         inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:42px; flex:none; padding:0 3px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
         inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
@@ -2818,7 +2825,7 @@ function whPrev(i) {
 function addWh() {
   var max = W.reduce(function (m, w) { return Math.max(m, +w.id || 0); }, 0);
   W.push({ id: max + 1, name: (max + 1) + '창고', slots: 7, rule: [{ max: 1000, lv: 6 }, { max: '', lv: 4 }],
-    zones: [{ code: 'A', name: '', rows: 24 }, { code: 'B', name: '', rows: 24 }], rows: {} });
+    zones: [{ code: 'A', name: '', rows: 24, slot: 1 }, { code: 'B', name: '', rows: 24, slot: 2 }], rows: {} });
   WI = W.length - 1;
   renderWh();
 }
@@ -2829,30 +2836,32 @@ function delWh(i) {
 function addZone(i) {
   var used = W[i].zones.map(function (z) { return String(z.code).toUpperCase(); });
   var code = 'ABCDEFGHJKLMNPQRSTUVWXYZ'.split('').filter(function (c) { return used.indexOf(c) < 0; })[0] || 'Z';
-  W[i].zones.push({ code: code, name: '', rows: 10 });
+  var maxS = W[i].zones.reduce(function (m, z) { return Math.max(m, z.slot || 0); }, 0);
+  W[i].zones.push({ code: code, name: '', rows: 10, slot: maxS + 1 });
   renderWh();
 }
 /* 줄 번호 상하 바꾸기 (위치 현황 표시 순서만 · 위치 코드 · 재고는 그대로) → [창고 설정 저장] 필요 */
 function flipRows(i) { W[i].rev = !W[i].rev; renderWh(); toast('상하 바뀜 — [창고 설정 저장]을 눌러야 반영'); }
-/* 구역 위치 지정 (드롭다운): 고른 자리의 구역과 맞바꿈 → [창고 설정 저장] 필요 */
-function moveZoneTo(i, from, to) {
-  var zs = W[i].zones;
-  if (to === from || to < 0 || to >= zs.length) { renderWh(); return; }
-  var t = zs[from]; zs[from] = zs[to]; zs[to] = t;
+/* 구역 위치 지정 (드롭다운, to=0부터 슬롯): 그 자리에 구역 있으면 맞바꿈, 빈칸이면 이동 → [창고 설정 저장] */
+function moveZoneTo(i, j, to) {
+  var zs = W[i].zones, z = zs[j], from = z.slot != null ? z.slot - 1 : j;
+  if (to === from) { renderWh(); return; }
+  var occ = zs.filter(function (x) { return x !== z && (x.slot != null ? x.slot - 1 : zs.indexOf(x)) === to; })[0];
+  if (occ) occ.slot = from + 1;   // 맞바꿈: 그 자리 구역은 내 자리로
+  z.slot = to + 1;
   renderWh(); toast('위치 바뀜 — [창고 설정 저장]을 눌러야 반영');
 }
-/* 배치 미리보기: 지도와 같은 좌|우 묶음 (표시 이름 = 지도에 나오는 그대로) */
+/* 배치 미리보기: 지도와 같은 좌|우 묶음 (표시 이름 = 지도에 나오는 그대로, 빈칸 표시) */
 function zonePrev(w) {
-  var h = '', zs = w.zones;
-  for (var b = 0; b * 2 < zs.length; b++) {
-    var zl = zs[b * 2], zr = zs[b * 2 + 1];
+  var h = '';
+  bandsOf(w).forEach(function (pair, b) {
     var cell = function (z, side) {
       return z ? '<span class="side">' + side + '</span>' + esc(zoneShort(w.id, z.code)) + ' <small>(' + esc(z.code) + ')</small>'
                : '<span class="muted">' + side + ' 비움</span>';
     };
     h += '<div class="zprev-row"><span class="zprev-b">' + (b + 1) + '열</span>' +
-      '<span class="zprev-c">' + cell(zl, '좌') + '</span><span class="zprev-c">' + cell(zr, '우') + '</span></div>';
-  }
+      '<span class="zprev-c">' + cell(pair[0], '좌') + '</span><span class="zprev-c">' + cell(pair[1], '우') + '</span></div>';
+  });
   return '<div class="zprev">' + h + '</div>';
 }
 function delZone(i, j) {
@@ -2879,7 +2888,7 @@ function whToServer() {
     return {
       id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
       ruleText: w.rule.map(function (r, j) { return (j === w.rule.length - 1 ? '*' : r.max) + ':' + r.lv; }).join(', '),
-      zones: w.zones.map(function (z) { return { code: String(z.code).trim().toUpperCase(), name: z.name, rows: z.rows }; }),
+      zones: w.zones.map(function (z, j) { return { code: String(z.code).trim().toUpperCase(), name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1 }; }),
       rows: w.rows
     };
   });
