@@ -284,7 +284,7 @@
   .shtop .sg.ocr { color:var(--blue); }
   .shtop .sg.miss { background:#FDECEC; color:#9A1C1C; }
   .phnote.bad { color:#9A1C1C; font-weight:700; }
-  .chip[data-qk], [data-lp] { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+  .chip[data-qk], [data-lp], span[data-qv] { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
   /* 사진 영역 지정 (인식 전) */
   #crop { position:fixed; inset:0; z-index:40; background:#111; display:none; flex-direction:column; }
   body.cropopen { overflow:hidden; }
@@ -343,6 +343,7 @@
   <section id="s-find">
     <div class="seg" id="f-mode" style="background:#E6E8EB; margin:0 0 6px"></div>
     <div id="f-spec">
+      <input id="f-q" class="mini" type="search" style="width:100%; height:44px; margin-bottom:8px; font-size:16px" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="F.q=this.value; renderFind()">
       <div id="f-pick"></div>
       <div class="row" style="margin:16px 0 8px"><b id="f-sum" style="font-size:16px"></b><span id="f-sort"></span></div>
       <div id="f-list"></div>
@@ -540,6 +541,11 @@ function locRoute(a, b) {
 }
 function plain(t) { return String(t).replace(/\u2060/g, '').replace(/\u00a0/g, ' '); }
 function spec(x) { return x.gsm + '\u2060×\u2060' + x.width; }
+/* 품목 규격 표시 (제지사 · 평량 · 지폭 각각 길게 누르기 = 공통 값 수정 qEdit) */
+function specLp(x) {
+  var q = function (k, v) { return '<span data-qk="' + k + '" data-qv="' + esc(v) + '">' + esc(v) + '</span>'; };
+  return (x.maker ? q('제지사', x.maker) + ' ' : '') + q('평량', x.gsm) + '⁠×⁠' + q('폭', x.width);
+}
 function remTag(s) { return s && s.rem ? '<span class="rem">잔량</span>' : ''; }
 function hhmm() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 function ageOf(day) { if (!day) return 0; var a = new Date(day + 'T00:00:00'), b = new Date(todayStr() + 'T00:00:00'); return Math.round((b - a) / 86400000); }
@@ -852,15 +858,23 @@ function renderFind() {
   $('f-plan').style.display = FM === 'plan' ? 'block' : 'none';
   if (FM === 'plan') { $('hdrExtra').innerHTML = ''; renderPlan(); return; }
   PKT = { sp: F, render: renderFind, filter: true };   // 공통 선택기 · 다시 누르면 해제 = 전체
-  $('f-pick').innerHTML = pickerBody(F, false, 'renderFind()');
+  $('f-pick').innerHTML = pickerBody(F, true, 'renderFind()', true);
   var fs = sortGet('find', 'find');
-  var res = S.stock.filter(function (s) { return (!F.gsm || s.gsm == F.gsm) && (!F.width || s.width == F.width); })
+  var qs = String(F.q || '').toUpperCase().split(/\s+/).filter(String);   // 문구 검색: 띄어쓰기로 나눈 낱말 모두 포함
+  var res = S.stock.filter(function (s) {
+    if ((F.gsm && s.gsm != F.gsm) || (F.width && s.width != F.width) || (F.maker && s.maker !== F.maker) || (F.grade && s.grade !== F.grade)) return false;
+    if (!qs.length) return true;
+    var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no),
+      s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
+    return qs.every(function (w) { return t.indexOf(w) >= 0; });
+  })
     .sort(function (a, b) {
       return fs === 'qty' ? b.qty - a.qty || a.date.localeCompare(b.date) :
         fs === 'loc' ? a.loc.localeCompare(b.loc) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date);
     });
   $('f-sort').innerHTML = sortBtn('find', 'find', 'renderFind()');
-  hdrSum('find', sLine([P(F.gsm || '전체', '평량', 'sp-gsm'), P(F.width || '전체', '지폭', 'sp-width', null, true, '×'),
+  hdrSum('find', sLine([P(F.maker || '', '제지사', 'sp-mk', null, false), F.maker ? ' ' : '', P(F.gsm || '전체', '평량', 'sp-gsm'), P(F.width || '전체', '지폭', 'sp-width', null, true, '×'),
+    P(F.grade || '', '지종', 'sp-gr', null, false, ' · '), F.q ? ' · "' + esc(F.q) + '"' : '',
     ' · ' + res.length + '곳 · ' + res.reduce(function (n, s) { return n + s.qty; }, 0) + '롤']));
   var first = res.slice().sort(function (a, b) { return a.date.localeCompare(b.date); })[0];
   var total = res.reduce(function (n, s) { return n + s.qty; }, 0);
@@ -868,7 +882,7 @@ function renderFind() {
   $('f-list').innerHTML = res.length ? res.map(function (s, i) {
     return '<div class="card row' + (s === first ? ' hot' : '') + '" style="justify-content:flex-start; flex-wrap:wrap">' +
       '<span class="tag' + (s === first ? ' hot' : '') + '"><small>' + esc(whName(s.wh)) + '</small><b>' + esc(s.zone + '-' + pad(s.no)) + '</b></span>' +
-      '<div style="flex:1; min-width:0"><div style="font-weight:700; font-size:17px">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + ' · ' + s.qty + '롤' + remTag(s) + '</div>' +
+      '<div style="flex:1; min-width:0"><div style="font-weight:700; font-size:17px">' + specLp(s) + ' · ' + s.qty + '롤' + remTag(s) + '</div>' +
       (s.grade ? '<div class="muted">' + esc(s.grade) + '</div>' : '') + '<div class="muted">' + lotText(s) + '</div>' +
       (s === first ? '<div style="font-size:12px; font-weight:700; color:var(--blue)">선입선출 1순위</div>' : '') + '</div>' +
       '<div class="grid3" style="width:100%; margin-top:8px">' + ['출고', '이동', '실사'].map(function (m) {
@@ -1359,7 +1373,7 @@ function gradeGrid(cur) {
     moreChip('지종', lv.hidden.length) + '<button class="chip etc" onclick="spGrInput()">+ 입력</button></div>';
 }
 function spGr(i) { var t = pkt(), g = GRLIST[i]; t.sp.grade = t.sp.grade === g ? '' : g; if (t.sheet && SH.ocr) delete SH.ocr.grade; t.render(); }
-function spGrInput() { var t = pkt(); ask({ title: '지종 입력' }, function (v) { if (v) quickAddVal('지종', v, function () { t.sp.grade = v; t.render(); }); }); }
+function spGrInput() { var t = pkt(), search = isSearchPick(); ask({ title: '지종 입력' }, function (v) { if (v && search) { t.sp.grade = v; return t.render(); } if (v) quickAddVal('지종', v, function () { t.sp.grade = v; t.render(); }); }); }
 /* 출고처 · 반납 호기 [+ 입력]: 바로 등록 후 cb(이름) */
 function destAdd(cb) { ask({ title: '출고처 입력', placeholder: '예: 코팅 4호기' }, function (v) { if (v) quickAddVal('출고처', v, function () { cb(v); }); }); }
 /* 검색 화면(지도 검색 · 조회)인가: [+ 입력] 값은 찾기만 하고 등록하지 않음 */
@@ -1531,7 +1545,7 @@ function sheetCount() {
   var h = shHead(esc(keyOf(SH.code)) + ' 실사', ds.length ? '' : '실제 롤 수로 맞춘 뒤 저장', true, ds.length ? sLine(ds, '차이 ' + ds.length + '건') : '');
   h += list.length ? list.map(function (s, i) {
     var a = c.v[itemKey(s)], d = a - s.qty; if (d) diff++;
-    return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
+    return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + specLp(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
       '<br><span class="muted">전산 ' + s.qty + '롤</span></span>' +
       stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량') + '</div></div>';
   }).join('') : '<div class="muted" style="padding:12px 0">재고 없음</div>';
