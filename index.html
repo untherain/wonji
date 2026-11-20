@@ -997,7 +997,7 @@ function renderMap() {
       var mvc = '', fit = '';
       if (MV) {
         if (code === MV.from) { mvc = ' from'; fit = '<div class="fit" style="color:var(--ink)">출발</div>'; }
-        else { var fr = off ? 0 : freeFor(code, MV.item.gsm, MV.item.width, MV.item.grade); mvc = fr >= MV.qty ? ' can' : ' cant'; fit = '<div class="fit">' + (fr >= MV.qty ? '들어감 ' + fr + '롤' : '공간 부족') + '</div>'; }
+        else { var fr = off ? 0 : freeFor(code, MV.item.gsm, MV.item.width, MV.item.grade); mvc = fr >= MV.qty ? ' can' : ' cant'; fit = '<div class="fit">' + (fr >= MV.qty ? fr + '롤 가능' : '공간 부족') + '</div>'; }
         hit = false;
       }
       var sec = '';
@@ -1229,26 +1229,27 @@ function distAll() {
 }
 function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
 var DISTA = [];
-/* ② 한곳으로 모으기: 목표마다 나머지를 담을 수 있는 적재 가능 수량을 계산 → 전부 수용 가능한 곳 우선 추천 */
+/* ② 한곳으로 모으기: 목표마다 "고르면 몇 롤이 모이고 몇 롤이 남는지"를 보여줌 (가장 많이 모이는 곳 추천) */
 function consolidate(enc) {
   var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
   var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
   if (recs.length < 2) { toast('모을 위치 없음'); return; }
   var total = recs.reduce(function (a, s) { return a + s.qty; }, 0);
   var cand = recs.map(function (s) {
-    var others = total - s.qty, free = freeFor(s.loc, s.gsm, s.width, s.grade);   // 이 위치가 더 받을 수 있는 롤 수
-    return { loc: s.loc, qty: s.qty, fit: Math.min(free, others), full: free >= others };
-  }).sort(function (a, b) { return (b.full - a.full) || (b.fit - a.fit) || (b.qty - a.qty); });   // 전부 수용 → 많이 수용 → 기존 많은 곳
+    var others = total - s.qty, take = Math.min(freeFor(s.loc, s.gsm, s.width, s.grade), others);
+    return { loc: s.loc, take: take, result: s.qty + take, left: others - take };   // result=여기 모이는 롤, left=다른 자리에 남는 롤
+  }).sort(function (a, b) { return b.result - a.result; });   // 한곳에 가장 많이 모이는 곳
+  if (cand[0].take <= 0) { toast('모을 빈자리가 없음 — 먼저 다른 곳으로 이동', true); return; }
   var labs = cand.map(function (c, i) {
-    var cap = c.full ? '전부 들어감' : (c.fit > 0 ? c.fit + '롤만 들어감' : '여유 없음');
-    return keyOf(c.loc) + ' · ' + c.qty + '롤 · ' + cap + (i === 0 ? ' (추천)' : '');
+    var out = c.take <= 0 ? '자리 없음' : (c.left === 0 ? '전부 모임 · ' + c.result + '롤' : c.result + '롤 모임 · ' + c.left + '롤 남음');
+    return keyOf(c.loc) + ' · ' + out + (i === 0 ? ' · 추천' : '');
   });
-  ask({ title: '한곳으로 모으기', msg: recs.length + '곳 · 총 ' + total + '롤 → 1곳', chips: labs }, function (v) {
+  ask({ title: '한곳으로 모으기', msg: '지금 ' + recs.length + '곳 · ' + total + '롤 · 모을 위치 선택', chips: labs }, function (v) {
     var i = labs.indexOf(v); if (i < 0) return;
     var c = cand[i];
-    if (c.full) return doConsolidate(sig, c.loc);
-    if (c.fit <= 0) { toast(keyOf(c.loc) + ' 여유 없음 — 다른 위치 선택', true); return; }
-    ask({ title: '공간 부족', msg: keyOf(c.loc) + '에 ' + c.fit + '롤만 들어가고 나머지는 원래 자리에 남습니다.', input: false, ok: '그래도 모으기', danger: true },
+    if (c.take <= 0) { toast(keyOf(c.loc) + ' 자리 없음 — 다른 위치 선택', true); return; }
+    if (c.left === 0) return doConsolidate(sig, c.loc);
+    ask({ title: keyOf(c.loc) + '로 모으기', msg: c.result + '롤 모임 · ' + c.left + '롤은 자리가 없어 다른 곳에 남음', input: false, ok: '모으기', danger: true },
       function (y) { if (y) doConsolidate(sig, c.loc); });
   });
 }
@@ -1260,7 +1261,7 @@ function doConsolidate(sig, targetLoc) {
   var step = function (k) {
     if (k >= sources.length) {
       renderMap(); if (SH && SH.mode === 'dist') renderSheet(); if (TAB === 'log' && LG.mode === '보고서') renderRep();
-      toast(moved + '롤을 ' + keyOf(targetLoc) + '로 모음' + (short ? ' · ' + short + '롤 공간 부족으로 남음' : ' 완료'));
+      toast(keyOf(targetLoc) + '로 ' + moved + '롤 모음' + (short ? ' · ' + short + '롤 남음' : ''));
       return;
     }
     var cur = S.stock.filter(function (x) { return x.loc === sources[k].loc && sigOf(x) === sig; })[0];
@@ -1437,7 +1438,7 @@ function sheetRow() {
   if (ri.cfg.off) notes.push(ri.cfg.st || '사용 불가');   // 통로 · 비사용 · 미사용
   var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : '');
   if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
-    h += '<div class="stkhint">위가 <b>맨 위</b>(먼저 빼는 칸) · 새로 들어온 품목은 맨 위에 붙습니다</div>' +
+    h += '<div class="stkhint">위가 <b>맨 위</b>(먼저 빼는 칸) · 새 품목은 맨 위에 추가</div>' +
       (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
       '<button class="btn" style="width:100%; margin-top:12px; background:var(--ink); color:#fff" onclick="ordDone()">완료</button>';
     return h;
@@ -1468,7 +1469,7 @@ function itemBlock(s, i, ri) {
     '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단</span></span><b class="sp" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
-    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 깔려 있음 — 먼저 치워야 함</div>' : '';
+    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 쌓여 있음 — 먼저 빼야 함</div>' : '';
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
     h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
