@@ -122,6 +122,7 @@
   .locwait { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:12px; border:1.5px dashed #C9CDD3; border-radius:12px; color:var(--sub); font-size:14px; font-weight:700; }
   .locwait .btn2 { height:32px; padding:0 12px; font-size:13px; color:#9A1C1C; }
   .locwait span { width:100%; }
+  .card.full { opacity:.5; }
   .prow { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .prow .pl { flex:1; min-width:0; } .prow .pq { width:62px; flex:none; text-align:center; padding:0 4px; }
   .tag { display:inline-block; width:66px; height:62px; border-radius:10px; background:#E6E8EB; text-align:center; padding-top:6px; flex:none; }
@@ -822,7 +823,7 @@ function seg(el, items, cur, onPick, dark) {
     if (!dark) b.style.color = 'var(--ink)';
     b.innerHTML = Array.isArray(x) ? x[1] : esc(x);
     if (Array.isArray(x) && x[2]) b.dataset.lp = x[2];   // 길게 누르기 동작 (예: 'wh:1' = 창고 설정)
-    b.onclick = function () { onPick(v); };
+    b.onclick = function () { [].forEach.call(el.children, function (c) { c.classList.toggle('on', c === b); }); onPick(v); };
     el.appendChild(b);
   });
 }
@@ -1333,13 +1334,13 @@ function sheetDist() {
   var sel = {}; d.whs.forEach(function (id) { sel[id] = 1; });
   var fhits = hits.filter(function (s) { return sel[s.wh]; }), flocs = {};
   fhits.forEach(function (s) { flocs[s.loc] = 1; });
-  // 창고가 2개 이상이면 창고 토글 (켠 창고만 리스트·모으기 대상 · 하나만 켜면 창고 내 정리)
+  // 창고가 2개 이상이면 창고 토글 (켠 창고만 리스트·병합 대상 · 하나만 켜면 창고 내 정리)
   var whRow = whIds.length > 1 ? '<div class="cgf" style="margin:2px 0 10px"><span class="muted" style="align-self:center; margin-right:2px">창고</span>' +
     whIds.map(function (id) { return '<button class="chip' + (sel[id] ? ' on' : '') + '" onclick="distWh(' + id + ')">' + esc(whName(id)) + ' ' + whQ[id] + '롤</button>'; }).join('') + '</div>' : '';
   var partial = whIds.length > 1 && d.whs.length < whIds.length;
   var job = MJ && MJ.sig === sig;
-  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '모으기 작업 목록 · ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' 완료' : '한곳으로 모으기' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
-  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true);
+  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '병합 작업 목록 · ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' 완료' : '원지 병합' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
+  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true, true);
 }
 function distWh(id) {
   var d = SH.dist; if (!d) return;
@@ -1357,7 +1358,7 @@ function distAll() {
 }
 function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
 var DISTA = [];
-/* ② 한곳으로 모으기 = 줄 정리: 적게 든 줄부터 비워 다른 줄 빈 자리로 → 줄 수 감소
+/* ② 원지 병합 = 줄 정리: 적게 든 줄부터 비워 다른 줄 빈 자리로 → 줄 수 감소
    입고일 규칙: 자리 여유(운용 중 빈 줄 4줄 이상) → 입고일 같은 줄끼리만 · 자리 부족(빈 줄 3줄 이하) → 입고일 섞어도 됨 */
 function lotKey(s) {
   var l = s.lots && s.lots.length ? s.lots : [{ date: s.date }], d = {};
@@ -1387,14 +1388,14 @@ function mergePlan(recs, mix) {
 function consolidate(enc) {
   var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
   var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
-  if (recs.length < 2) { toast('모으기 대상 없음'); return; }
+  if (recs.length < 2) { toast('병합 대상 없음'); return; }
   var ids = recs.map(function (s) { return String(s.wh); }), empty = 0;
   S.whs.forEach(function (w) { if (ids.indexOf(String(w.id)) >= 0) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
   var mix = empty <= 3, P = mergePlan(recs, mix);   // 빈 줄 3줄 이하 = 자리 부족
   var rule = mix ? '빈 줄 ' + empty + '줄 · 입고일 혼합 허용' : '빈 줄 ' + empty + '줄 · 동일 입고일만 통합';
   if (!P.moves.length) {
     var P2 = mix ? null : mergePlan(recs, true);
-    ask({ title: '한곳으로 모으기', input: false, chips: [], msg: '보관 ' + P.before + '줄 · 감소 불가\n' + rule +
+    ask({ title: '원지 병합', input: false, chips: [], msg: '보관 ' + P.before + '줄 · 감소 불가\n' + rule +
       (P2 && P2.moves.length ? '\n입고일 혼합 시 ' + P2.before + '줄 → ' + P2.after + '줄 가능' : '') }, function () {});
     return;
   }
@@ -1402,16 +1403,16 @@ function consolidate(enc) {
     moves: P.moves.map(function (m) { return { from: m.from, to: m.to, qty: m.qty, mix: m.mix, d: m.d, td: m.td, done: 0, nos: [] }; }) };
   mjSave(); openMerge();
 }
-/* 모으기 작업 목록: 실제로 옮긴 뒤 줄마다 완료 → 그때만 전산 이동 (이 기기에 보관 · 앱 다시 열어도 유지) */
+/* 병합 작업 목록: 실제로 옮긴 뒤 줄마다 완료 → 그때만 전산 이동 (이 기기에 보관 · 앱 다시 열어도 유지) */
 var MJ = null;
 try { MJ = JSON.parse(localStorage.getItem('mergeJob') || 'null'); } catch (e) { MJ = null; }
 function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
 function mjLeft() { return MJ ? MJ.moves.filter(function (m) { return !m.done; }).length : 0; }
 function openMerge() { SH = { code: null, mode: 'merge' }; renderSheet(); }
-/* 미완료 모으기 작업이 있을 때: 기존 작업 계속 / 신규 작업 시작(잔여분 삭제) 선택 (작업 목록은 한 번에 1개) */
+/* 미완료 병합 작업이 있을 때: 기존 작업 계속 / 신규 작업 시작(잔여분 삭제) 선택 (작업 목록은 한 번에 1개) */
 function mjBusy(startNew) {
   var left = mjLeft();
-  ask({ title: '미완료 모으기 작업 존재', input: false, list: true,
+  ask({ title: '미완료 병합 작업 존재', input: false, list: true,
     msg: distTitle(MJ.sig) + (MJ.here ? ' · 도착 ' + keyOf(MJ.here) : '') + ' · 잔여 ' + left + '건',
     chips: [{ v: 'go', t: '기존 작업 계속', sub: distTitle(MJ.sig) + ' 이동 화면' },
             { v: 'new', t: '신규 작업 시작', sub: '잔여 ' + left + '건 삭제 · 완료분 재고 유지' }] },
@@ -1429,13 +1430,13 @@ function startMerge(enc) {
   }
   consolidate(enc);
 }
-/* 모으기 단계 화면: 한 화면 한 건 (출발 → 도착 크게) · 이동 완료 시 재고 반영 후 다음 건 */
+/* 병합 단계 화면: 한 화면 한 건 (출발 → 도착 크게) · 이동 완료 시 재고 반영 후 다음 건 */
 function mjDate(dk) { return String(dk || '').split(',').filter(String).map(function (d) { return d.slice(5); }).join(' · '); }
 function sheetMerge() {
   var j = MJ; if (!j) { SH = null; return closeSheet(); }
   var tot = j.moves.length, n = tot - mjLeft();
   var whRow = '';
-  if (j.here && !n) {   // 줄 화면 모으기 · 이동 시작 전: 대상 창고 선택
+  if (j.here && !n) {   // 줄 화면 병합 · 이동 시작 전: 대상 창고 선택
     var s0 = S.stock.filter(function (x) { return x.loc === j.here && sigOf(x) === j.sig; })[0], wq = {};
     if (s0) othersOf(s0).forEach(function (x) { wq[x.wh] = (wq[x.wh] || 0) + x.qty; });
     var ids = Object.keys(wq).sort(function (a, b) { return a - b; });
@@ -1443,7 +1444,7 @@ function sheetMerge() {
       whRow = '<div class="cgf" style="margin:10px 0 0"><span class="muted" style="align-self:center; margin-right:2px">대상 창고</span>' +
         ids.map(function (id) { return '<button class="chip' + ((j.whs || []).indexOf(String(id)) >= 0 ? ' on' : '') + '" onclick="mjWh(' + id + ')">' + esc(whName(id)) + ' ' + wq[id] + '롤</button>'; }).join('') + '</div>';
   }
-  var h = shHead('모으기 · ' + esc(distTitle(j.sig)), '보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
+  var h = shHead('병합 · ' + esc(distTitle(j.sig)), '보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
   if (!tot) {
     h += '<div class="card" style="margin-top:10px"><b>이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
   } else {
@@ -1471,9 +1472,9 @@ function sheetMerge() {
 }
 /* 같은 원지(서명 같음)가 있는 다른 위치들 */
 function othersOf(s) { var g = sigOf(s); return S.stock.filter(function (x) { return x.loc !== s.loc && sigOf(x) === g; }); }
-/* B. 여기로 모으기: 이 줄을 목적지로 고정 · 적게 든 곳부터 통째로 옮김(줄 수 감소) · 빈 자리 넘으면 거기서 멈춤
-   같은 창고 먼저 → 다른 창고 · 작업 목록(MJ)은 한곳으로 모으기와 같은 부품 */
-/* 도착 줄(here) 기준 모으기 계획: 대상 창고(whs)의 같은 원지를 적게 든 줄부터 전량 이동 · 잔여 자리 초과분은 이동 불가 */
+/* B. 여기로 병합: 이 줄을 목적지로 고정 · 적게 든 곳부터 통째로 옮김(줄 수 감소) · 빈 자리 넘으면 거기서 멈춤
+   같은 창고 먼저 → 다른 창고 · 작업 목록(MJ)은 원지 병합와 같은 부품 */
+/* 도착 줄(here) 기준 병합 계획: 대상 창고(whs)의 같은 원지를 적게 든 줄부터 전량 이동 · 잔여 자리 초과분은 이동 불가 */
 function hereJob(here, sig, whs) {
   var s = S.stock.filter(function (x) { return x.loc === here && sigOf(x) === sig; })[0];
   var J = { sig: sig, here: here, whs: whs, rule: '', moves: [], skip: [], before: 1, after: 1, free: 0 };
@@ -1503,7 +1504,7 @@ function mergeHere(i) {
     var whs = all[String(s.wh)] ? [String(s.wh)] : Object.keys(all);   // 기본: 같은 창고 (없으면 전체)
     var J = hereJob(here, sig, whs);
     if (!J.moves.length && Object.keys(all).length < 2) {
-      ask({ title: '모으기 · ' + keyOf(here), input: false, chips: [], msg: keyOf(here) + ' 잔여 자리 ' + J.free + '롤 · 전량 이동 가능 위치 없음' +
+      ask({ title: '병합 · ' + keyOf(here), input: false, chips: [], msg: keyOf(here) + ' 잔여 자리 ' + J.free + '롤 · 전량 이동 가능 위치 없음' +
         (J.skip.length ? '\n\n이동 불가 (자리 부족): ' + J.skip.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(', ') : '') }, function () {});
       return;
     }
@@ -1521,7 +1522,7 @@ function mjDone(i) {
   var cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === MJ.sig; })[0];
   if (!cur) { toast(keyOf(m.from) + ' 재고 없음 · 새로고침 확인', true); return; }
   var q = Math.min(m.qty, cur.qty);
-  call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '모으기' })).then(function (r) {
+  call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '병합' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; mjSave();
     renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
@@ -1753,8 +1754,8 @@ function itemBlock(s, i, ri) {
   } else {
     var oth = othersOf(s).length, job = MJ && MJ.sig === sigOf(s) && MJ.here === SH.code;
     h += '<div class="grid' + (oth || job ? '3' : '2') + '" style="margin-top:8px"><button class="btn2" onclick="openOut(' + i + ')">출고</button><button class="btn2" onclick="startMove(' + i + ')">이동</button>' +
-      (job ? '<button class="btn2" onclick="openMerge()">모으기 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + '</button>'
-           : oth ? '<button class="btn2" onclick="mergeHere(' + i + ')">모으기</button>' : '') + '</div>';
+      (job ? '<button class="btn2" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + '</button>'
+           : oth ? '<button class="btn2" onclick="mergeHere(' + i + ')">병합</button>' : '') + '</div>';
   }
   return h + '</div>';
 }
@@ -2199,17 +2200,18 @@ function saveCnt() {
 /* 지도 검색 결과: 위치별 한 줄 (작업 버튼 없음 — 누르면 그 창고 지도로 가서 줄 열기, 작업은 줄 화면에서)
    다른 창고 결과도 한눈에 · 선입선출(가장 오래된 입고) 위치 먼저 */
 var FLOCS = [];
-function fLocList(hits, force) {
+function fLocList(hits, force, dim) {
   if (!force && !fOn()) return '';
   var by = {};
   hits.forEach(function (s) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, date: s.date, items: [] }); g.qty += s.qty; g.items.push(s); if (s.date < g.date) g.date = s.date; });
   var L = FLOCS = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.loc.localeCompare(b.loc); });
   if (!L.length) return '<div class="card muted" style="margin-top:12px">해당 재고 없음</div>';
   return '<h2 style="margin:14px 0 6px">결과 ' + L.length + '곳 <span class="muted" style="font-size:13px; font-weight:500">누르면 지도에서 그 줄 열기</span></h2>' + L.map(function (g, i) {
-    return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin-bottom:6px; padding:8px 10px; cursor:pointer" onclick="fGo(' + i + ')">' +
+    var s0 = g.items[0], full = dim && freeFor(g.loc, s0.gsm, s0.width, s0.grade) === 0;
+    return '<div class="card row' + (full ? ' full' : '') + '" role="button" style="justify-content:flex-start; gap:10px; margin-bottom:6px; padding:8px 10px; cursor:pointer" onclick="fGo(' + i + ')">' +
       '<span class="tag' + (i ? '' : ' hot') + '"><small>' + esc(whName(g.wh)) + '</small><b>' + esc(keyOf(g.loc)) + '</b></span>' +
       '<div style="flex:1; min-width:0">' + g.items.map(function (s) { return '<div style="font-weight:700">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + ' · ' + s.qty + '롤' + remTag(s) + (s.grade ? ' <span class="muted" style="font-weight:500">' + esc(s.grade) + '</span>' : '') + '</div>'; }).join('') +
-      '<div class="muted" style="font-size:12px">입고 ' + esc(g.date) + (i ? '' : ' · 선입선출 1순위') + '</div></div><span class="muted">›</span></div>';
+      '<div class="muted" style="font-size:12px">입고 ' + esc(g.date) + (i ? '' : ' · 선입선출 1순위') + (full ? ' · 빈 자리 없음' : '') + '</div></div><span class="muted">›</span></div>';
   }).join('');
 }
 function fGo(i) { var g = FLOCS[i]; if (!g) return; M.wh = g.wh; renderMap(); openRow(g.loc); }
@@ -2975,7 +2977,7 @@ function drawRep() {
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
   seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
 }
-/* 분산 원지 카드: 곳수·롤수, 조각 많은 건 강조 · 누르면 위치 리스트 + 모으기 */
+/* 분산 원지 카드: 곳수·롤수, 조각 많은 건 강조 · 누르면 위치 리스트 + 병합 */
 function distCard() {
   var A = DISTA = distAll();
   var h = '<div class="card"><div class="row"><b>분산 원지 ' + A.length + '건</b>' +
@@ -3361,7 +3363,7 @@ function renderPick(el) {
   });
   el.innerHTML = h;
 }
-/* 공통 번호 행: 왼쪽 번호 원(완료 = 초록) + 보조 라벨 · 가운데 내용 · 오른쪽 버튼 (피킹 리스트 · 모으기 작업 목록) */
+/* 공통 번호 행: 왼쪽 번호 원(완료 = 초록) + 보조 라벨 · 가운데 내용 · 오른쪽 버튼 (피킹 리스트 · 병합 작업 목록) */
 function seqRow(o) {
   return '<div style="display:flex; gap:10px; padding:9px 12px; border-top:1px solid #E6E8EB; background:' + (o.bg || '#fff') + '">' +
     '<div style="width:40px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (o.done ? '#1E6B3A' : 'var(--y)') +
