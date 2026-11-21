@@ -1072,7 +1072,11 @@ function stTog(code) {   // 활성 구역 · 재고 없음 · 원래 사용/미�
 /* 구역 자리(슬롯) → 좌|우 묶음 배열. z.slot(1부터) 기준, 빈칸은 null. 지도·설정 미리보기 공통 */
 function bandsOf(w) {
   var slots = [];
-  (w.zones || []).forEach(function (z, i) { var s = (z.slot != null ? z.slot - 1 : i); if (s < 0) s = i; slots[s] = z; });
+  (w.zones || []).forEach(function (z, i) {
+    var s = (z.slot != null ? z.slot - 1 : i); if (s < 0) s = i;
+    while (slots[s]) s++;   // 자리 중복 시 다음 빈 자리 (구역이 지도에서 사라지지 않게)
+    slots[s] = z;
+  });
   var bands = [];
   for (var s = 0; s < slots.length; s++) { (bands[s >> 1] = bands[s >> 1] || [null, null])[s & 1] = slots[s] || null; }
   return bands.length ? bands : [[null, null]];
