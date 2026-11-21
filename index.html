@@ -118,8 +118,9 @@
 .seg .ndot { margin-left:4px; }
   .locbox { display:flex; flex-direction:column; gap:6px; }
   .sugtag { font-size:12px; font-weight:800; color:var(--ink); background:var(--y); border-radius:6px; padding:2px 8px; }
-  #i-loc.sug select, #i-plan.sug .locbox { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
-  #i-plan.sug .locbox { border:1px solid var(--y); border-radius:10px; padding:6px 8px; }
+  #i-loc.sug select, #i-loc.sug .pq { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
+  .prow { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .prow .pl { flex:1; min-width:0; } .prow .pq { width:62px; flex:none; text-align:center; padding:0 4px; }
   .tag { display:inline-block; width:66px; height:62px; border-radius:10px; background:#E6E8EB; text-align:center; padding-top:6px; flex:none; }
   .tag b { display:block; font-size:19px; }
   .tag.hot { background:var(--ink); color:var(--y); }
@@ -445,7 +446,6 @@
     </div>
     <h2 style="display:flex; align-items:center; gap:8px">보관 위치<span id="i-locTag"></span></h2>
     <div id="i-loc"></div>
-    <div id="i-plan" style="display:none"></div>
     <div class="muted" id="i-hint" style="margin:6px 0 10px; color:var(--ok); font-weight:700"></div>
     <div class="muted" id="i-sum" style="text-align:center; margin:8px 0"></div>
     <button class="btn" id="i-save" onclick="saveIn()">입고 저장</button>
@@ -2479,31 +2479,45 @@ function renderIn(fromScan) {
     fillSelect($('i-maker'), S.quick['제지사'], '제지사', $('i-maker').value);
     if (!$('i-grade').dataset.hk) { $('i-grade').dataset.hk = 1; $('i-grade').addEventListener('change', function () { gradeMaker('i-grade', 'i-maker'); inHint(); }); $('i-maker').addEventListener('change', inHint); }
   }
-  if (I.loc) { I.locManual = true; locPicker($('i-loc'), I.loc, inPick); I.loc = null; }   // 지도에서 줄 선택 후 입고 = 그 줄 유지
-  else if (!$('i-loc').dataset.code) locPicker($('i-loc'), suggestLoc(), inPick);
+  if (I.loc) { I.locManual = true; I.parts = [{ loc: I.loc, qty: I.qty }]; I.loc = null; }   // 지도에서 줄 선택 후 입고 = 그 줄 유지
   inHint();
 }
 function curGrade() { var g = $('i-grade').value; return g === '__new' ? '' : g; }
-/* 보관 위치: 직접 선택 전까지 추천 위치 자동 반영 (규격 · 수량 · 지종 변경 시마다) */
+/* 보관 위치 = 줄 목록 I.parts [{loc, qty}] — 한 줄 입고 = 1개 · 분산 입고 = 여러 개 (같은 형식)
+   직접 고치기 전까지 추천(한 줄 · 분산) 자동 반영 · 고치면 유지 + [추천 위치로] */
 function inPick() { I.locManual = true; inHint(); }
 function autoLoc() {
-  I.plan = null;
-  if (I.locManual) return;
-  var sug = suggestLoc();
-  if (sug) { if (sug !== $('i-loc').dataset.code) locPicker($('i-loc'), sug, inPick); }
-  else I.plan = splitPlan();   // 한 줄에 전량 불가 → 분산 추천
+  if (I.locManual && I.parts && I.parts.length) { if (I.parts.length === 1) I.parts[0].qty = I.qty; return; }
+  var sug = suggestLoc(), prev = I.parts && I.parts[0] && I.parts[0].loc;
+  if (sug) I.parts = [{ loc: sug, qty: I.qty }];
+  else I.parts = splitPlan() || [{ loc: prev || null, qty: I.qty }];
 }
 function useSug() { I.locManual = false; inHint(); }
-function pickOwn() { I.locManual = true; inHint(); }   // 분산 추천 대신 한 줄 직접 선택
-/* 분산 추천 목록 (보관 위치 자리에 표시) */
-function planBox() {
-  var on = !!I.plan;
-  $('i-loc').style.display = on ? 'none' : '';
-  $('i-plan').style.display = on ? 'block' : 'none';
-  if (!on) return;
-  $('i-plan').innerHTML = '<div class="locbox">' + I.plan.map(function (x, k) {
-    return '<div class="row" style="padding:6px 2px;' + (k ? ' border-top:1px solid var(--line);' : '') + '"><b>' + esc(locLabel(x.loc)) + '</b><span style="font-weight:800">' + x.qty + '롤</span></div>';
-  }).join('') + '<button class="btn2" style="width:100%; margin-top:6px" onclick="pickOwn()">직접 선택 (한 줄)</button></div>';
+function partsSum() { return I.parts.reduce(function (a, x) { return a + (+x.qty || 0); }, 0); }
+function addPart() {
+  // 새 줄 위치 = 목록에 없는 다음 추천 후보 (자리 있는 줄) · 없으면 마지막 줄
+  var used = I.parts.map(function (x) { return x.loc; }), g = curGrade();
+  var next = (I.gsm && I.width ? sugCands() : []).filter(function (c) { return used.indexOf(c) < 0 && freeFor(c, I.gsm, I.width, g) > 0; })[0];
+  I.parts.push({ loc: next || I.parts[I.parts.length - 1].loc, qty: Math.max(1, I.qty - partsSum()) }); I.locManual = true; inHint();
+}
+function delPart(k) { I.parts.splice(k, 1); I.locManual = true; inHint(); }
+function setPartQty(k, v) {
+  v = Math.max(0, parseInt(v, 10) || 0);
+  if (I.parts.length === 1) { I.qty = Math.max(1, v); renderIn(); return; }   // 한 줄 = 전량 롤 수와 같음
+  I.parts[k].qty = v; I.locManual = true; inHint();
+}
+function renderParts() {
+  var multi = I.parts.length > 1;
+  $('i-loc').innerHTML = I.parts.map(function (x, k) {
+    return '<div class="prow"><div class="pl" id="i-p' + k + '"></div>' +
+      '<input class="mini pq" type="number" inputmode="numeric" value="' + x.qty + '" onchange="setPartQty(' + k + ', this.value)" aria-label="롤 수"><span class="muted" style="flex:none">롤</span>' +
+      (multi ? '<button class="xbtn" onclick="delPart(' + k + ')" aria-label="줄 삭제">×</button>' : '') + '</div>';
+  }).join('') + '<button class="btn2" style="width:100%; height:34px; font-size:13px" onclick="addPart()">+ 줄 추가</button>';
+  I.parts.forEach(function (x, k) {
+    var sub = $('i-p' + k);
+    locPicker(sub, x.loc, function (c) { I.parts[k].loc = c; inPick(); });
+    x.loc = sub.dataset.code;
+  });
 }
 /* 전용 제지사: 창고 only 목록 (빈 목록 = 전체 허용) */
 function mkKey(m) { return normMk(canonMaker(m || '')); }
@@ -2588,44 +2602,49 @@ function splitPlan() {
 }
 function inHint() {
   autoLoc();
-  planBox();
-  var code = $('i-loc').dataset.code;
-  var ri = rowInfo(code), g = curGrade();
-  var sameHere = ri.items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; });
-  var sug = suggestLoc();
-  var h = '';
-  if (ri.w && I.width) {
-    var free = freeFor(code, I.gsm, I.width, g), lv = levels(ri.w, I.width, ri.key);
-    h += '최대 적재 ' + lv + '단 · 빈 칸 ' + Math.max(0, ri.slots - ri.used) + '/' + ri.slots + ' · ' +
-      (I.qty > free ? '적재 공간 부족 (최대 ' + free + '롤)' : '추가 적재 가능 ' + free + '롤');
-  } else if (ri.w) {
-    h += '빈 칸 ' + Math.max(0, ri.slots - ri.used) + '/' + ri.slots;
+  renderParts();
+  var g = curGrade(), sug = suggestLoc(), multi = I.parts.length > 1, sum = partsSum(), h = '', bad = false;
+  var code = I.parts[0].loc, ri = rowInfo(code);
+  if (!multi) {
+    var sameHere = ri.items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; });
+    if (ri.w && I.width) {
+      var free = freeFor(code, I.gsm, I.width, g), lv = levels(ri.w, I.width, ri.key);
+      h += '최대 적재 ' + lv + '단 · 빈 칸 ' + Math.max(0, ri.slots - ri.used) + '/' + ri.slots + ' · ' +
+        (I.qty > free ? '적재 공간 부족 (최대 ' + free + '롤)' : '추가 적재 가능 ' + free + '롤');
+      if (I.qty > free) bad = true;
+    } else if (ri.w) h += '빈 칸 ' + Math.max(0, ri.slots - ri.used) + '/' + ri.slots;
+    if (ri.cfg.use && ri.cfg.use !== '원지') h += ' · [' + ri.cfg.use + '] 줄';
+    if (sameHere) h += ' · 같은 규격 있음';
+  } else {
+    var over = I.parts.filter(function (x) { return I.width && x.qty > freeFor(x.loc, I.gsm, I.width, g); }).map(function (x) { return keyOf(x.loc); });
+    h = '전량 ' + I.qty + '롤 · ' + I.parts.length + '줄 분산' + (sum !== I.qty ? ' · 합계 ' + sum + '롤 (불일치)' : '') + (over.length ? ' · 적재 공간 부족: ' + over.join(', ') : '');
+    if (sum !== I.qty || over.length) bad = true;
   }
-  if (ri.cfg.use && ri.cfg.use !== '원지') h += ' · [' + ri.cfg.use + '] 줄';
-  if (sameHere) h += ' · 같은 규격 있음';
-  var tail = '', auto = !I.locManual && I.gsm && I.width && (I.plan || sug === code);
-  if (I.plan) h = '전량 ' + I.qty + '롤 · ' + I.plan.length + '줄 분산 (한 줄 수용 불가)';
-  else if (!I.locManual && I.gsm && I.width && !sug) tail = ' · 전 창고 적재 공간 부족';
-  // 추천 표시: 칸 노란 테두리 + 제목 [추천] · 직접 선택 후 추천과 다르면 [추천 위치로] 버튼만
-  $('i-loc').classList.toggle('sug', !!auto && !I.plan);
-  $('i-plan').classList.toggle('sug', !!I.plan);
+  var auto = !I.locManual && I.gsm && I.width && (multi || sug === code);
+  if (!I.locManual && I.gsm && I.width && !sug && !multi) { h += ' · 전 창고 적재 공간 부족'; bad = true; }
+  // 추천 표시: 칸 노란 테두리 + 제목 [추천] · 직접 고친 뒤 추천과 다르면 [추천 위치로] 버튼만
+  $('i-loc').classList.toggle('sug', !!auto);
   $('i-locTag').innerHTML = auto ? '<span class="sugtag">추천</span>'
-    : (I.locManual && I.gsm && I.width && sug !== code) ? '<button class="btn2" style="height:26px; padding:0 10px; font-size:12px" onclick="useSug()">추천 위치로</button>' : '';
-  $('i-hint').innerHTML = esc(h) + tail;
-  $('i-hint').style.color = !I.plan && ((ri.w && I.width && I.qty > freeFor(code, I.gsm, I.width, g)) || (!I.locManual && I.gsm && I.width && !sug)) ? '#9A1C1C' : 'var(--ok)';
+    : (I.locManual && I.gsm && I.width && (multi || sug !== code)) ? '<button class="btn2" style="height:26px; padding:0 10px; font-size:12px" onclick="useSug()">추천 위치로</button>' : '';
+  $('i-hint').textContent = h;
+  $('i-hint').style.color = bad ? '#9A1C1C' : 'var(--ok)';
+  var where = multi ? '분산 ' + I.parts.length + '줄' : keyOf(code || '');
   var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
   hdrSum('in', sLine([P(imk, '제지사', 'i-maker', null, false), imk ? ' ' : '', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
-    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(I.plan ? '분산 ' + I.plan.length + '줄' : keyOf(code || ''), '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
+    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(where, '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
   $('i-sum').style.display = 'none';
-  $('i-sum').textContent = (I.rem ? '[잔량 반납] ' + (I.from || '호기?') + ' · ' : '') + (I.gsm || '?') + ' × ' + (I.width || '?') + ' · ' + I.qty + '롤 → ' + (I.plan ? '분산 ' + I.plan.length + '줄' : locLabel(code || ''));
+  $('i-sum').textContent = (I.rem ? '[잔량 반납] ' + (I.from || '호기?') + ' · ' : '') + (I.gsm || '?') + ' × ' + (I.width || '?') + ' · ' + I.qty + '롤 → ' + (multi ? where : locLabel(code || ''));
 }
 function saveIn() {
   var g = $('i-grade').value, mk = $('i-maker').value;
   if (!requireWorker()) return;
-  var p = { loc: $('i-loc').dataset.code, gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: mk === '__new' ? '' : mk, worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
+  var parts = I.parts.filter(function (x) { return x.qty > 0; });
+  var p = { loc: parts.length ? parts[0].loc : '', gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: mk === '__new' ? '' : mk, worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
-  if (I.plan) { p.parts = I.plan.map(function (x) { return { loc: x.loc, qty: x.qty }; }); p.loc = p.parts[0].loc; }
+  var sum = parts.reduce(function (a, x) { return a + x.qty; }, 0);
+  if (!parts.length || sum !== I.qty) { toast('보관 위치 롤 수 합계 불일치 (' + sum + ' / ' + I.qty + '롤)', true); return; }
+  if (parts.length > 1) p.parts = parts.map(function (x) { return { loc: x.loc, qty: x.qty }; });
   onlyOk(p.parts ? p.parts.map(function (x) { return x.loc; }) : [p.loc], p.maker, function () { saveInGo(p); });
 }
 function saveInGo(p) {
