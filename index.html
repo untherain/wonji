@@ -4073,6 +4073,7 @@ function renderQuick() {
     '출고처': ''
   }[QE.kind];
   var h = help ? '<div class="muted" style="margin:8px 2px">' + help + '</div>' : '';
+  h += qeCands();
   h += QE.items.length ? QE.items.map(qeRow).join('') : '<div class="muted" style="padding:8px 2px">등록된 값 없음</div>';
   h += '<button class="btn2" style="width:100%; margin-top:6px" onclick="qeAdd()">+ ' + qeLabel(QE.kind) + ' 추가</button>';
   if (qeNum()) {
@@ -4088,6 +4089,22 @@ function renderQuick() {
   h += '<div class="grid2" style="margin-top:10px"><button class="btn2" onclick="QE.items=null;renderQuick()"' + (QE.dirty ? '' : ' disabled') + '>되돌리기</button>' +
     '<button class="btn" style="height:46px; font-size:16px" onclick="qeSave()">' + qeLabel(QE.kind) + ' 저장</button></div>';
   $('set-quick').innerHTML = h;
+}
+/* 정리 후보: 표 머리글 같은 값 · 확인 필요 · 사용 1건 이하 (지종 · 제지사 · 출고처) → 누르면 삭제 · 처리 방법 선택 */
+var QE_HEADWORD = /^(지종|제지사|제지|완제|완제품|구분|원지명|원지|규격|원지규격|수량|비고|작업명|호기|품명|위치|날짜|일자|no|번호)$/i;
+function qeCands() {
+  if (qeNum() || !S.qusage || !QE.items) return '';
+  var c = [];
+  QE.items.forEach(function (it, i) {
+    if (!it.orig) return;
+    var u = qeUse(it) || { stock: 0, hist: 0 }, why = QE_HEADWORD.test(it.orig.replace(/\s/g, '')) ? '머리글 같은 값' : it.st === '확인' ? '확인 필요' : (u.stock + u.hist) <= 1 ? '사용 ' + (u.stock + u.hist) + '건' : '';
+    if (why) c.push({ i: i, v: it.orig, why: why });
+  });
+  if (!c.length) return '';
+  return '<details class="card" style="margin:8px 0; padding:8px 12px; background:#FFF8E1"' + (QE.candOpen ? ' open' : '') + ' ontoggle="QE.candOpen=this.open"><summary style="font-weight:800">정리 후보 ' + c.length + '</summary>' +
+    '<div class="cgf" style="margin-top:6px">' + c.map(function (x) {
+      return '<button class="chip opt" onclick="qeDel(' + x.i + ')"><b>' + esc(x.v) + '</b><small>' + esc(x.why) + '</small></button>';
+    }).join('') + '</div></details>';
 }
 function qeRow(it, i) {
   var u = qeUse(it), used = qeUsed(it), num = qeNum(), lock = num && used, n = QE.items.length;
@@ -4133,9 +4150,64 @@ function qeMove(i, d) {
 }
 function qeDel(i) {
   var it = QE.items[i];
-  if (qeUsed(it)) { toast('"' + it.orig + '" 재고·이력에 사용 중 — 삭제 대신 사용 중지', true); return; }
   if (it.orig && !S.qusage) { toast('사용 현황 확인 중 — 잠시 후 다시', true); return; }
+  if (qeUsed(it)) return qeDelUsed(i);
   QE.items.splice(i, 1); QE.dirty = true; renderQuick();
+}
+/* 사용 중인 값 삭제: 다른 값으로 바꾸고 삭제 · 빈칸으로 바꾸고 삭제 · 사용 중지 · 사용 중인 기록 보기 (평량 · 지폭은 숫자라 바꾸기 없음) */
+function qeDelUsed(i) {
+  var it = QE.items[i], u = qeUse(it) || {}, num = qeNum(), L = qeLabel(QE.kind), kind = QE.kind;
+  if (QE.dirty) { toast('변경 내용 먼저 저장 또는 되돌리기', true); return; }
+  var useTxt = (kind === '출고처' ? '' : '재고 ' + (u.stock || 0) + '롤 · ') + '이력 ' + (u.hist || 0) + '건';
+  var others = QE.items.filter(function (x) { return x.orig && x.orig !== it.orig && x.st !== '중지'; }).map(function (x) { return x.orig; });
+  var ch = [];
+  if (!num && others.length) ch.push({ v: 'to', t: '다른 ' + L + '로 바꾸고 삭제', sub: '재고 · 이력 명칭도 함께 변경' });
+  if (!num) ch.push({ v: 'blank', t: '빈칸으로 바꾸고 삭제', sub: kind === '제지사' ? '제지사 미상으로' : kind === '지종' ? '지종 없음으로' : '출고처 없음으로' });
+  if (it.st !== '중지') ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' });
+  ch.push({ v: 'see', t: '사용 중인 기록 보기', sub: useTxt });
+  ask({ title: '"' + it.orig + '" 삭제', msg: useTxt + '에서 사용 중', input: false, list: true, chips: ch }, function (v) {
+    if (v === 'stop') { qeSet(i, 'st', '중지'); toast('사용 중지 — [' + L + ' 저장] 눌러 반영'); }
+    else if (v === 'see') qeSeeUse(it.orig);
+    else if (v === 'blank') qeRemoveGo(it.orig, '');
+    else if (v === 'to') ask({ title: '"' + it.orig + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + it.orig + '"을 고른 값으로 바꾸고 삭제', choices: others, input: false, ok: '바꾸고 삭제', danger: true },
+      function (d) { if (d) qeRemoveGo(it.orig, d); });
+  });
+}
+function qeRemoveGo(from, to) {
+  var kind = QE.kind, L = qeLabel(kind);
+  if (!requireWorker()) return;
+  needPin(function (pin) {
+    call('quickRemove', { kind: kind, from: from, to: to, pin: pin, worker: worker() }).then(function (r) {
+      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; loadRecent();
+      quickUndoToast('"' + from + '" ' + (to ? '→ "' + to + '"' : '→ 빈칸') + ' 바꾸고 삭제 (재고 ' + r.res.stock + ' · 이력 ' + r.res.hist + '행) · 백업: ' + r.backupName, r.row);
+    }, function () {});
+  });
+}
+/* 기준정보 변경 되돌리기 안내 (입고 · 출고 되돌리기와 같은 모양) */
+function quickUndoToast(msg, row) {
+  toast(msg);
+  var t = $('toast'), b = document.createElement('button');
+  b.className = 'btn2 undo'; b.textContent = '되돌리기';
+  b.onclick = function () {
+    t.style.display = 'none';
+    call('undoQuickChange', { row: row, worker: worker() }).then(function (r) {
+      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = r.list; drawRecent(); toast('되돌리기 완료');
+    }, function () {});
+  };
+  t.appendChild(b); t.style.display = 'flex';
+  clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 10000);
+}
+/* 사용 중인 기록: 재고(누르면 지도에서 그 줄) + 이력 최근 50건 */
+function qeSeeUse(v) {
+  var kind = QE.kind, st = kind === '지종' ? S.stock.filter(function (s) { return s.grade === v; })
+    : kind === '제지사' ? S.stock.filter(function (s) { return makersOf(s).some(function (m) { return m.maker === v; }); }) : [];
+  call('quickUsageHist', kind, v, 50).then(function (hs) {
+    var ch = st.map(function (s) { return { v: 's:' + s.loc, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 누르면 지도에서 열기' }; })
+      .concat(hs.map(function (h) { return { v: '', t: '#' + h.no + ' ' + h.type + ' · ' + fmtItem({ maker: kind === '제지사' ? v : '', nomk: kind !== '제지사', gsm: h.gsm, width: h.width }, h.qty), sub: h.time + ' · ' + h.loc + (h.target ? ' · ' + h.target : '') }; }));
+    ask({ title: '"' + v + '" 사용 중인 기록', msg: ch.length ? '' : '기록 없음', input: false, list: true, chips: ch, ok: '닫기' }, function (x) {
+      if (x && /^s:/.test(x)) { var loc = x.slice(2); show('map'); M.wh = whOf(loc).id; renderMap(); openRow(loc); }
+    });
+  });
 }
 function qeAdd() {
   var num = qeNum();
@@ -4453,7 +4525,7 @@ function drawRecent() {
   if ($('rc-title')) $('rc-title').innerHTML = '최근 변경 · ' + esc(qeLabel(QE.kind)) + '<span>이름 고치기 · 합치기 · 숨기기</span>';
   el.innerHTML = l.length ? show.map(function (x, i) {
     var name = x.kind === '폭' ? '지폭' : x.kind;
-    var what = x.type === '숨기기' ? x.from + ' 숨김' : x.type === '되돌리기' ? x.from + ' → ' + x.to + ' (되돌리기)' :
+    var what = x.type === '숨기기' ? x.from + ' 숨김' : x.type === '되돌리기' ? x.from + ' → ' + x.to + ' (되돌리기)' : x.type === '삭제' ? x.from + ' → ' + x.to + ' (바꾸고 삭제)' :
       x.from + ' → ' + x.to + (x.type === '합치기' ? ' (합치기)' : x.type === '제지사 지정' ? ' (제지사 지정)' : '');
     return '<div class="wrow' + (x.done ? ' void' : '') + '"><b style="font-weight:700">' + esc(what) + '<div class="muted" style="font-weight:500">' + esc(x.time) + (x.who ? ' · ' + esc(x.who) : '') + (x.why ? ' · ' + esc(x.why) : '') + '</div></b>' +
       (x.can ? '<button class="btn2" onclick="undoRecent(' + all.indexOf(x) + ')">되돌리기</button>' : '') + '</div>';
@@ -4463,7 +4535,7 @@ function drawRecent() {
 function undoRecent(i) {
   var x = RC.list[i]; if (!x) return;
   var name = x.kind === '폭' ? '지폭' : x.kind;
-  ask({ title: '되돌리기', msg: x.type === '숨기기' ? name + ' ' + x.from + ' 다시 보이기' : name + ' ' + x.to + ' → ' + x.from + ' (원래 이름으로 · 재고 · 기록도 함께)', input: false, ok: '되돌리기' }, function (y) {
+  ask({ title: '되돌리기', msg: x.type === '삭제' ? name + ' "' + x.from + '" 다시 살리기 (재고 · 기록도 삭제 전으로)' : x.type === '숨기기' ? name + ' ' + x.from + ' 다시 보이기' : name + ' ' + x.to + ' → ' + x.from + ' (원래 이름으로 · 재고 · 기록도 함께)', input: false, ok: '되돌리기' }, function (y) {
     if (!y) return;
     if (!requireWorker()) return;
     call('undoQuickChange', { row: x.row, worker: worker() }).then(function (r) {
