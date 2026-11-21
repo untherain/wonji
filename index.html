@@ -1743,12 +1743,13 @@ function padRun(d) {
       var img = new Image();
       img.onload = function () { var c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); ok(c); };
       img.onerror = bad; img.src = d;
-    }).then(function (c) {
-      return svc.recognize(c, { flatten: true, noCache: true }).then(function (r) {
-        var items = (r.results || []).filter(function (x) { return x.box && x.text; });
-        return { c: c, items: items, text: padLines(items) || r.text || '' };
-      });
-    });
+    }).then(function (c) { return padRunC(svc, c); });
+  });
+}
+function padRunC(svc, c) {
+  return svc.recognize(c, { flatten: true, noCache: true }).then(function (r) {
+    var items = (r.results || []).filter(function (x) { return x.box && x.text; });
+    return { c: c, items: items, text: padLines(items) || r.text || '' };
   });
 }
 
@@ -1829,12 +1830,22 @@ function ocrCall(kind, d) {
   if (ocrEng() === 'drive') return call(kind, d);
   var t0 = Date.now(), blk = kind === 'ocrPlan';
   busy(true, blk);
-  return padRun(d).then(function (o) {
-    var t1 = Date.now();
-    // 계획서 = 표 구조 인식 먼저 · 표로 못 읽으면 글자 순서 해석(서버)
+  // 못 읽으면 90° · 270° 돌려 다시 (옆으로 누운 계획서 · 라벨)
+  function readRot(o0, k) {
     var table = kind !== 'ocrPlan' ? Promise.resolve(null) :
-      tsrReady().then(function (det) { return tsrCells(det, o.c, o.items); }).then(function (t) { return tsrPlan(t, o.text); }, function () { return null; });
+      tsrReady().then(function (det) { return tsrCells(det, o0.c, o0.items); }).then(function (t) { return tsrPlan(t, o0.text); }, function () { return null; });
     return table.then(function (r) {
+      var good = kind === 'ocrPlan' ? !!r : (function (x) { return !!(x.gsm && x.width); })(labelParse(o0.text));
+      if (good || k >= 2) return { o: k ? o0 : o0, r: r, first: o0 };
+      var c = lvRot(o0.c); if (k === 1) c = lvRot(lvRot(c));   // 1번째 = 90° · 2번째 = 270°
+      return padReady().then(function (svc) { return padRunC(svc, c); }).then(function (o1) {
+        return readRot(o1, k + 1).then(function (x) { return x.r || (kind !== 'ocrPlan' && labelParse(x.o.text).gsm) ? x : { o: o0, r: null }; });
+      });
+    });
+  }
+  return padRun(d).then(function (o) { return readRot(o, 0); }).then(function (x) {
+    var o = x.o, t1 = Date.now();
+    return Promise.resolve(x.r).then(function (r) {
       busy(false);
       var t2 = Date.now();
       if (r) { toast('표 인식 ' + r.items.length + '건 · 글자 ' + ((t1 - t0) / 1000).toFixed(1) + '초 · 표 ' + ((t2 - t1) / 1000).toFixed(1) + '초'); return r; }
@@ -2015,13 +2026,9 @@ function itemFix(s, done) {
     if (c === '지종 바꾸기') return pickFix(s, '지종', 'newGrade', 'grade', done);
   });
 }
-/* 공통 부품: 빠른값(제지사/지종) 선택 팝업 — 지종은 '(지종 없음)' 포함, 빈값 정규화, 현재값과 같으면 무시 */
+/* 공통 부품: 품목 수정 · 제지사 지정용 선택 — 공통 선택 창(valPick) 사용 · 지종은 '(지종 없음)' 포함 · 현재값과 같으면 무시 */
 function pickQuick(kind, s, title, cur, cb) {
-  var list = (S.quick[kind] || []).slice();
-  if (kind === '지종') list.push('(지종 없음)');
-  ask({ title: title, msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty), chips: list }, function (v) {
-    if (v == null) return;
-    if (v === '(지종 없음)') v = '';
+  valPick(kind, { cur: cur, title: title, msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty), empty: kind === '지종' ? '(지종 없음)' : '' }, function (v) {
     if (cur != null && v === (cur || '')) return;
     cb(v);
   });
@@ -2615,26 +2622,35 @@ function inSumText(where) {
    선택칸(aria-label 지종 · 제지사)을 누르면 열림 · 검색 · 자주 쓰는 순 + 가나다순 · ✎ / 길게 누르기 = 편집
    고르면 원래 선택칸 값을 바꾸고 change 이벤트 → 화면마다 붙어 있던 처리(자동 제지사 · 추천 위치 등) 그대로 ===== */
 function pickSel(sel) {
-  var kind = sel.getAttribute('aria-label'), cur = sel.value, opts = [].map.call(sel.options, function (o) { return o.value; });
-  var first = sel.options[0] ? sel.options[0].textContent : kind + ' (선택)';
-  var list = (S.quick[kind] || []).slice();
-  opts.forEach(function (v) { if (v && v !== '__new' && list.indexOf(v) < 0) list.push(v); });   // 목록에 없는 현재 값 등
+  var kind = sel.getAttribute('aria-label'), first = sel.options[0] ? sel.options[0].textContent : '';
+  var opts = [].map.call(sel.options, function (o) { return o.value; }).filter(function (v) { return v && v !== '__new'; });
+  valPick(kind, { cur: sel.value, more: opts, empty: /전체/.test(first) ? first : '선택 안 함', rawNew: true }, function (v) {
+    if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
+    sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+/* 공통 부품: 지종 · 제지사 선택 창 본체 — 선택칸(pickSel) · 품목 수정/제지사 지정(pickQuick) 공통
+   o: { cur, more(목록에 더할 값), empty(빈값 선택지 제목 · 없으면 안 보임), title, msg, rawNew(true면 '__new' 그대로 반환) }
+   cb(값) — 빈값 = '' */
+function valPick(kind, o, cb) {
+  var cur = o.cur || '', list = (S.quick[kind] || []).slice();
+  (o.more || []).forEach(function (v) { if (v && list.indexOf(v) < 0) list.push(v); });   // 목록에 없는 현재 값 등
   var f = list.length > 6 ? freqSplit(kind, list) : { top: [], rest: list };
   function item(v) {
     var q = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v === v; })[0] || {};
-    return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v === cur ? '선택됨' : '', edit: !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
+    return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v && v === cur ? '선택됨' : '', edit: !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
   }
-  var ch = [{ v: '\u0002', t: /전체/.test(first) ? first : '선택 안 함', keep: 1 }];
+  var ch = o.empty ? [{ v: '', t: o.empty, keep: 1 }] : [];
   if (f.top.length) ch.push({ h: '자주 쓰는' });
   ch = ch.concat(f.top.map(item));
   if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
   ch = ch.concat(f.rest.map(item));
   ch.push({ v: '__new', t: '+ 직접 입력', keep: 1 });
-  ask({ title: kind + ' 선택', list: true, search: true, chips: ch, onEdit: function (v) { valEdit(kind, v); } }, function (v) {
+  ask({ title: o.title || kind + ' 선택', msg: o.msg, list: true, search: true, chips: ch, onEdit: function (v) { valEdit(kind, v); } }, function (v) {
     if (v == null) return;
-    v = v === '\u0002' ? '' : v;
-    if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
-    sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    if (v === '') return cb('');
+    if (v === '__new' && !o.rawNew) return ask({ title: kind + ' 입력' }, function (x) { if (x) cb(x); });
+    cb(v);
   });
 }
 /* 선택칸은 화면에 그대로 두고 누름만 가로챔 (운영체제 목록 안 뜸) */
@@ -2655,8 +2671,8 @@ function valEdit(kind, v) {
     if (a === 'name') ask({ title: v + ' 이름 고치기', value: v, ok: '이름 저장' }, function (r) { if (r && r !== v) quickSave({ kind: kind, from: v, to: r }, kind + ' ' + v + ' → ' + r); });
     else if (a === 'more') valMore(kind, v);
     else if (a === 'mk') {
-      var mk = (S.quick['제지사'] || []).slice();
-      ask({ title: v + ' 기본 제지사', msg: '이 지종을 고르면 자동 선택', choices: ['없음'].concat(mk), input: false, ok: '저장' }, function (d) { if (d) quickSave({ kind: '지종', from: v, maker: d === '없음' ? '' : d }, v + ' 기본 제지사 저장'); });
+      var dm = ((S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === v; })[0] || {}).maker || '';
+      valPick('제지사', { cur: dm, title: v + ' 기본 제지사', msg: '이 지종을 고르면 자동 선택', empty: '없음' }, function (d) { quickSave({ kind: '지종', from: v, maker: d }, v + ' 기본 제지사 저장'); });
     }
     else if (a === 'stop') quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지');
     else if (a === 'del') call('quickUsage').then(function (u) { S.qusage = u; delFlow(kind, v, (u[kind] || {})[v] || { stock: 0, hist: 0 }, function () { quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지'); }); });
@@ -2819,7 +2835,7 @@ function labelParse(text) {
 var LV = null;
 function liveOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && ocrEng() !== 'drive'; }
 var LV_SHAPES = [{ k: '가로', w: 0.88, h: 0.30 }, { k: '네모', w: 0.80, h: 0.50 }, { k: '세로', w: 0.55, h: 0.62 }];
-function liveScan(o) {
+function lvBuild() {
   var el = $('live');
   if (!el) {
     el = document.createElement('div'); el.id = 'live';
@@ -2830,6 +2846,11 @@ function liveScan(o) {
       '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn" id="lv-shot">찍기</button></div>';
     document.body.appendChild(el);
   }
+  return el;
+}
+function liveScan(o) {
+  var el = lvBuild();
+  $('lv-frame').style.display = ''; $('lv-shape').style.display = '';
   LV = { o: o, run: true, busy: false, last: '', cnt: 0, hold: '', seen: {}, t0: Date.now(), z: 1, hz: false, shape: +(lsGet('lvShape') || 0) % LV_SHAPES.length, rot: false, torch: false };
   $('lv-title').textContent = o.title || '라벨 비추기';
   el.style.display = 'flex'; document.body.classList.add('cropopen');
@@ -2843,6 +2864,11 @@ function liveScan(o) {
   $('lv-st').onclick = function () { if (LV && LV.cand) lvConfirm(LV.cand.r, LV.cand.d); };
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   padReady();
+  lvCam(function () { lvSay('라벨을 틀 안에 비춰 주세요'); setTimeout(lvTick, 600); });
+}
+/* 카메라 켜기 (후면 · 확대 · 플래시 확인) → ready() · 실패 시 사진 찍기로 */
+function lvCam(ready) {
+  var o = LV.o;
   navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(function (st) {
     if (!LV || !LV.run) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
     LV.stream = st; LV.track = st.getVideoTracks()[0];
@@ -2850,8 +2876,7 @@ function liveScan(o) {
     var cap = LV.track.getCapabilities ? LV.track.getCapabilities() : {};
     if (cap.torch) $('lv-torch').style.display = '';
     if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; }
-    lvSay('라벨을 틀 안에 비춰 주세요');
-    setTimeout(lvTick, 600);
+    ready();
   }, function (e) {
     liveClose();
     toast('카메라를 켤 수 없음 (' + ((e && e.name) || e) + ') → 사진 찍기로', true);
@@ -2972,6 +2997,104 @@ function lvConfirm(r, d) {
   clearTimeout(lvConfirm.h); lvConfirm.h = setTimeout(function () { if ($('lv-card')) $('lv-card').style.display = 'none'; }, 3500);
   lvProg();
   if (o.done && o.done()) setTimeout(function () { toast('피킹 완료'); liveClose(); }, 1200);
+}
+/* ===== 문서 스캔 (계획서) — jscanify (OpenCV.js) 로 종이 테두리 찾기 · 원근 보정
+   비추면 테두리를 초록으로 표시 → 약 1초 흔들림 없으면 자동 찍기(가능하면 카메라 최대 해상도) → 반듯하게 편 사진 → 영역 확인 → cb(사진) ===== */
+var DOCS = { p: null };
+function docReady() {
+  if (DOCS.p) return DOCS.p;
+  function load(src) { return new Promise(function (ok, bad) { var sc = document.createElement('script'); sc.src = src; sc.async = true; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); }); }
+  DOCS.p = load('https://cdn.jsdelivr.net/npm/jscanify@1.4.3/src/opencv.js').then(function () {
+    return new Promise(function (ok, bad) {
+      var t0 = Date.now();
+      (function wait() {
+        var c = window.cv;
+        if (c && typeof c.then === 'function' && !c.Mat) { c.then(function (m) { window.cv = m; wait(); }); return; }
+        if (c && c.Mat) return ok();
+        if (Date.now() - t0 > 60000) return bad(new Error('OpenCV 준비 시간 초과'));
+        setTimeout(wait, 150);
+      })();
+    });
+  }).then(function () { return load('https://cdn.jsdelivr.net/npm/jscanify@1.4.3/src/jscanify.js'); })
+    .then(function () { DOCS.sc = new window.jscanify(); return DOCS.sc; });
+  DOCS.p.catch(function () { DOCS.p = null; });
+  return DOCS.p;
+}
+function docOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+/* 계획서 사진: 카메라 = 문서 스캔 · 앨범 = 기존 (영역 지정) */
+function docPhoto(cb, cam) { if (cam && docOK()) docScan({ title: '계획서 스캔', shot: cb }); else pickPhoto(cb, cam); }
+function docScan(o) {
+  lvBuild();
+  LV = { o: o, run: true, doc: true, z: 1, hz: false, torch: false, stable: 0, prev: null };
+  $('lv-title').textContent = o.title; $('lv-prog').textContent = '';
+  $('live').style.display = 'flex'; document.body.classList.add('cropopen');
+  $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none';
+  $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null;
+  $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
+  $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
+  lvSay('문서 인식 준비 중… (처음 한 번 약 9MB)');
+  try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  var ready = docReady();
+  lvCam(function () {
+    ready.then(function () { if (LV && LV.doc) { lvSay('계획서 전체가 보이게 비춰 주세요 (단색 바닥 위)'); docTick(); } },
+      function () { lvSay('문서 인식을 불러오지 못함 — [찍기]로 찍어 주세요', 'warn'); });
+  });
+}
+function docTick() {
+  if (!LV || !LV.run || !LV.doc) return;
+  var v = $('lv-v'); if (!v.videoWidth || document.hidden) return setTimeout(docTick, 300);
+  var W = 480, H = Math.round(v.videoHeight * W / v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = H;
+  c.getContext('2d').drawImage(v, 0, 0, W, H);
+  var cn = null, mat = null, ct = null;
+  try {
+    mat = cv.imread(c); ct = DOCS.sc.findPaperContour(mat);
+    if (ct) { var k = DOCS.sc.getCornerPoints(ct, mat); if (k.topLeftCorner && k.topRightCorner && k.bottomLeftCorner && k.bottomRightCorner) cn = k; }
+  } catch (e) {}
+  try { mat && mat.delete(); ct && ct.delete(); } catch (e) {}
+  var pts = cn ? [cn.topLeftCorner, cn.topRightCorner, cn.bottomRightCorner, cn.bottomLeftCorner] : null, area = 0;
+  if (pts) for (var i = 0; i < 4; i++) { var a = pts[i], b = pts[(i + 1) % 4]; area += a.x * b.y - b.x * a.y; }
+  area = Math.abs(area) / 2;
+  var ok = pts && area > W * H * 0.18;
+  // 테두리 그리기 (작은 화면 좌표 → 영상 → 화면)
+  var m = lvMap(), ov = $('lv-ov'); ov.width = m.W; ov.height = m.H;
+  var x = ov.getContext('2d'); x.clearRect(0, 0, m.W, m.H);
+  if (ok) {
+    var r = v.videoWidth / W;
+    x.strokeStyle = LV.stable >= 2 ? '#22C55E' : '#F2B705'; x.lineWidth = 4; x.beginPath();
+    pts.forEach(function (pt, j) { var sx = ((pt.x * r) * m.s + m.ox - m.W / 2) * m.z + m.W / 2, sy = ((pt.y * r) * m.s + m.oy - m.H / 2) * m.z + m.H / 2; if (j) x.lineTo(sx, sy); else x.moveTo(sx, sy); });
+    x.closePath(); x.stroke();
+    var mv = LV.prev ? Math.max.apply(null, pts.map(function (pt, j) { return Math.hypot(pt.x - LV.prev[j].x, pt.y - LV.prev[j].y); })) : 999;
+    LV.stable = mv < W * 0.02 ? LV.stable + 1 : 0; LV.prev = pts;
+    var q = lvQuality(c);
+    if (q.sharp < 12) { LV.stable = 0; lvSay('흔들림 — 잠시 멈춰 주세요', 'warn'); }
+    else lvSay(LV.stable >= 2 ? '그대로 잠시… 곧 자동으로 찍습니다' : '테두리 찾음 — 움직이지 말고 잠시', 'cand');
+    if (LV.stable >= 4) return docCapture(pts.map(function (pt) { return { x: pt.x * r, y: pt.y * r }; }));
+  } else {
+    LV.stable = 0; LV.prev = null;
+    lvSay('종이 테두리를 찾는 중 — 계획서 전체가 보이게 · 단색 바닥 위 · 안 되면 [찍기]');
+  }
+  setTimeout(docTick, 250);
+}
+/* 자동 찍기: 가능하면 카메라 최대 해상도(ImageCapture) · 모서리 비율 맞춰 원근 보정 → 영역 확인(전체 선택) → shot */
+function docCapture(pts) {
+  var v = $('lv-v'), o = LV.o, vw = v.videoWidth, vh = v.videoHeight, track = LV.track;
+  lvSay('찍는 중…', 'cand'); lvBeep(true); LV.run = false;
+  var frame = document.createElement('canvas'); frame.width = vw; frame.height = vh; frame.getContext('2d').drawImage(v, 0, 0);
+  var hi = (window.ImageCapture && track) ? new ImageCapture(track).takePhoto().then(createImageBitmap).catch(function () { return null; }) : Promise.resolve(null);
+  hi.then(function (bm) {
+    var src = frame, sc = 1;
+    if (bm && Math.abs(bm.width / bm.height - vw / vh) < 0.03) { src = document.createElement('canvas'); src.width = bm.width; src.height = bm.height; src.getContext('2d').drawImage(bm, 0, 0); sc = bm.width / vw; }
+    var P = pts.map(function (pt) { return { x: pt.x * sc, y: pt.y * sc }; });
+    var w = Math.max(Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y), Math.hypot(P[2].x - P[3].x, P[2].y - P[3].y));
+    var h = Math.max(Math.hypot(P[3].x - P[0].x, P[3].y - P[0].y), Math.hypot(P[2].x - P[1].x, P[2].y - P[1].y));
+    var k = Math.min(1, 2200 / Math.max(w, h)); w = Math.round(w * k); h = Math.round(h * k);
+    var out = null;
+    try { out = DOCS.sc.extractPaper(src, w, h, { topLeftCorner: P[0], topRightCorner: P[1], bottomRightCorner: P[2], bottomLeftCorner: P[3] }); } catch (e) {}
+    liveClose();
+    if (!out) { toast('보정 실패 → 영역 지정', true); out = frame; }
+    cropPhoto(out, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); o.shot(cc.toDataURL('image/jpeg', 0.92)); });
+    if (CROP) { CROP.r = { x: 0, y: 0, w: out.width, h: out.height }; crLayout(); }   // 이미 반듯하게 폈으니 전체 선택 상태로
+  });
 }
 /* [찍기]: 지금 화면 전체 → 영역 지정 → 기존 사진 처리 */
 function lvShot() {
@@ -3810,6 +3933,7 @@ function allocPlan() {
 function renderPlan() {
   var el = $('f-plan');
   if (ocrEng() !== 'drive' && !TSR.p) setTimeout(tsrReady, 3000);
+  if (PL.stage !== 'pick' && !DOCS.p && docOK()) setTimeout(docReady, 6000);
   PL.items.forEach(function (it) { var m = !it.maker && it.grade && makerOf(it.grade); if (m) { it.maker = m; it.grade = ''; delete it.weak; } });
   seg($('p-seg'), [['edit', '계획 입력'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
     if (v === 'pick') { makePick(); if (PL.stage !== 'pick') renderPlan(); }
@@ -3984,8 +4108,8 @@ function planPhoto(cam) {
       });
     };
   }
-  if (PL.items.length) ask({ title: '계획서 사진', msg: '현재 품목 ' + PL.items.length + '건', chips: ['전부 교체', '뒤에 추가'] }, function (v) { if (v) pickPhoto(run(v === '뒤에 추가'), cam); });
-  else pickPhoto(run(false), cam);
+  if (PL.items.length) ask({ title: '계획서 사진', msg: '현재 품목 ' + PL.items.length + '건', chips: ['전부 교체', '뒤에 추가'] }, function (v) { if (v) docPhoto(run(v === '뒤에 추가'), cam); });
+  else docPhoto(run(false), cam);
 }
 function makePick() {
   var bad = PL.items.filter(function (it) { return it.line !== '기타' && !(it.gsm && it.width && (it.all || it.qty)); });
@@ -4189,8 +4313,7 @@ function renderWh() {
       '<div class="sub" id="whsec-only"><h3>전용 제지사</h3><div class="muted" style="margin:-4px 0 6px">비움 = 전체 허용</div>' +
       '<div class="row" style="gap:6px; flex-wrap:wrap; justify-content:flex-start">' +
       (w.only || []).map(function (m, k) { return '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px" onclick="onlyDel(' + i + ',' + k + ')">' + esc(m) + ' ✕</button>'; }).join('') +
-      '<select class="mini" style="width:130px; flex:none; padding:0 6px" onchange="onlyAdd(' + i + ', this.value)" aria-label="전용 제지사 추가"><option value="">+ 제지사</option>' +
-      (S.quick['제지사'] || []).filter(function (m) { return (w.only || []).indexOf(m) < 0; }).map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
+      '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px" onclick="onlyPick(' + i + ')">+ 제지사</button></div></div>' +
       '<div class="sub" id="whsec-zone"><h3>구역 (별칭 · 줄 수)</h3>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span style="font-size:13px; font-weight:700">01번 줄 위치</span>' +
       '<select class="mini" style="width:120px; flex:none; padding:0 6px" onchange="setEntrance(' + i + ', this.value)" aria-label="01번 줄 위치">' +
@@ -4220,7 +4343,8 @@ function whPrev(i) {
     return (j === w.rule.length - 1 ? lastLabel(w) : r.max + ' mm 이하') + ' ' + s * (+r.lv || 0) + '롤';
   }).join(' / ');
 }
-function onlyAdd(i, m) { if (!m) return; W[i].only = (W[i].only || []).concat([m]); renderWh(); toast('전용 제지사 추가 · [창고 설정 저장] 시 반영'); }
+function onlyPick(i) { valPick('제지사', { title: '전용 제지사 추가', msg: W[i].name }, function (m) { onlyAdd(i, m); }); }   // 공통 선택 창
+function onlyAdd(i, m) { if (!m || (W[i].only || []).indexOf(m) >= 0) return; W[i].only = (W[i].only || []).concat([m]); renderWh(); toast('전용 제지사 추가 · [창고 설정 저장] 시 반영'); }
 function onlyDel(i, k) { W[i].only.splice(k, 1); renderWh(); toast('전용 제지사 삭제 · [창고 설정 저장] 시 반영'); }
 function addWh() {
   var max = W.reduce(function (m, w) { return Math.max(m, +w.id || 0); }, 0);
