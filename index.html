@@ -1224,7 +1224,7 @@ function sheetDist() {
     whIds.map(function (id) { return '<button class="chip' + (sel[id] ? ' on' : '') + '" onclick="distWh(' + id + ')">' + esc(whName(id)) + ' ' + whQ[id] + '롤</button>'; }).join('') + '</div>' : '';
   var partial = whIds.length > 1 && d.whs.length < whIds.length;
   var job = MJ && MJ.sig === sig;
-  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '모으기 작업 목록 (' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ')' : '한곳으로 모으기' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
+  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '모으기 작업 목록 · ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' 완료' : '한곳으로 모으기' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
   $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true);
 }
 function distWh(id) {
@@ -1273,21 +1273,21 @@ function mergePlan(recs, mix) {
 function consolidate(enc) {
   var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
   var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
-  if (recs.length < 2) { toast('모을 위치 없음'); return; }
+  if (recs.length < 2) { toast('모으기 대상 없음'); return; }
   var ids = recs.map(function (s) { return String(s.wh); }), empty = 0;
   S.whs.forEach(function (w) { if (ids.indexOf(String(w.id)) >= 0) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
   var mix = empty <= 3, P = mergePlan(recs, mix);   // 빈 줄 3줄 이하 = 자리 부족
-  var rule = mix ? '자리 부족 (빈 줄 ' + empty + '줄) → 입고일 섞어서 정리' : '자리 여유 (빈 줄 ' + empty + '줄) → 입고일 같은 줄끼리만';
+  var rule = mix ? '빈 줄 ' + empty + '줄 · 입고일 혼합 허용' : '빈 줄 ' + empty + '줄 · 동일 입고일만 통합';
   if (!P.moves.length) {
     var P2 = mix ? null : mergePlan(recs, true);
-    ask({ title: '한곳으로 모으기', input: false, chips: [], msg: P.before + '줄 · 줄일 수 있는 줄 없음\n' + rule +
-      (P2 && P2.moves.length ? '\n(입고일 섞으면 ' + P2.before + '줄 → ' + P2.after + '줄 가능)' : '') }, function () {});
+    ask({ title: '한곳으로 모으기', input: false, chips: [], msg: '보관 ' + P.before + '줄 · 감소 불가\n' + rule +
+      (P2 && P2.moves.length ? '\n입고일 혼합 시 ' + P2.before + '줄 → ' + P2.after + '줄 가능' : '') }, function () {});
     return;
   }
-  var lines = P.moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(m.to) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : ''); });
-  ask({ title: '한곳으로 모으기', input: false, ok: '작업 목록 만들기',
-    msg: P.before + '줄 → ' + P.after + '줄 · ' + P.rolls + '롤 이동 · ' + P.moves.length + '건\n' + rule + '\n\n' + lines.join('\n') +
-      '\n\n비는 줄: ' + P.emptied.map(keyOf).join(', ') + '\n전산 반영은 줄마다 완료 누를 때' },
+  var lines = P.moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(m.to) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 상이' : ''); });
+  ask({ title: '한곳으로 모으기', input: false, ok: '작업 목록 생성',
+    msg: '보관 ' + P.before + '줄 → ' + P.after + '줄 · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤\n' + rule + '\n\n' + lines.join('\n') +
+      '\n\n비움 예정: ' + P.emptied.map(keyOf).join(', ') + '\n재고 반영: 건별 이동 완료 시' },
     function (y) {
       if (!y) return;
       MJ = { sig: sig, before: P.before, after: P.after, rule: rule,
@@ -1305,7 +1305,7 @@ function startMerge(enc) {
   var sig = decodeURIComponent(enc);
   if (MJ && MJ.sig === sig) return openMerge();
   if (MJ && mjLeft()) {
-    ask({ title: '진행 중 작업 목록 있음', msg: distTitle(MJ.sig) + ' · 남은 ' + mjLeft() + '건\n새 목록으로 교체 (완료된 이동은 그대로)', input: false, ok: '교체' },
+    ask({ title: '진행 중 작업 목록', msg: distTitle(MJ.sig) + ' · 잔여 ' + mjLeft() + '건\n신규 목록으로 교체 (완료분 유지)', input: false, ok: '교체' },
       function (y) { if (y) { MJ = null; mjSave(); consolidate(enc); } });
     return;
   }
@@ -1314,14 +1314,14 @@ function startMerge(enc) {
 function sheetMerge() {
   var j = MJ; if (!j) { SH = null; return closeSheet(); }
   var n = j.moves.length - mjLeft();
-  var h = shHead(esc(distTitle(j.sig)) + ' 모으기', j.before + '줄 → ' + j.after + '줄 · <b>' + n + '/' + j.moves.length + ' 완료</b><br>' + esc(j.rule), false);
-  h += '<div class="muted" style="margin:8px 0">실제로 옮긴 뒤 <b>완료</b> · 그때 전산 반영</div>';
+  var h = shHead(esc(distTitle(j.sig)) + ' 모으기', '보관 ' + j.before + '줄 → ' + j.after + '줄 · <b>이동 ' + n + '/' + j.moves.length + ' 완료</b><br>' + esc(j.rule), false);
+  h += '<div class="muted" style="margin:8px 0">실물 이동 후 <b>이동 완료</b> 선택 · 선택 시 재고 반영</div>';
   h += j.moves.map(function (m, i) {
     return '<div class="card" style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin:0 0 6px' + (m.done ? '; opacity:.5' : '') + '">' +
       '<div style="flex:1; min-width:0"><b style="font-size:18px">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b>' +
-      '<div class="muted">' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : '') + '</div></div>' +
-      (m.done ? '<button class="btn2" style="flex:none; width:auto; height:44px; padding:0 12px" onclick="mjUndo(' + i + ')">✓ 완료 · 취소</button>'
-              : '<button class="btn" style="flex:none; width:auto; height:44px; padding:0 20px" onclick="mjDone(' + i + ')">완료</button>') + '</div>';
+      '<div class="muted">' + m.qty + '롤' + (m.mix ? ' · 입고일 상이' : '') + '</div></div>' +
+      (m.done ? '<button class="btn2" style="flex:none; width:auto; height:44px; padding:0 12px" onclick="mjUndo(' + i + ')">완료 취소</button>'
+              : '<button class="btn" style="flex:none; width:auto; height:44px; padding:0 20px" onclick="mjDone(' + i + ')">이동 완료</button>') + '</div>';
   }).join('');
   h += '<button class="' + (mjLeft() ? 'btn2' : 'btn') + '" style="width:100%; margin-top:8px" onclick="mjEnd()">' + (mjLeft() ? '목록 삭제' : '작업 종료') + '</button>';
   $('detail').innerHTML = h;
@@ -1342,24 +1342,24 @@ function mergeHere(i) {
       else skip.push(x);
     });
     var before = src.length + 1, after = before - moves.length;
-    var tail = skip.length ? '\n\n자리 부족으로 제외: ' + skip.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(', ') : '';
+    var tail = skip.length ? '\n\n이동 불가 (자리 부족): ' + skip.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(', ') : '';
     if (!moves.length) {
-      ask({ title: '여기로 모으기', input: false, chips: [], msg: keyOf(here) + ' 빈 자리 ' + freeFor(here, s.gsm, s.width, s.grade) + '롤 · 통째로 옮길 수 있는 곳 없음' + tail }, function () {});
+      ask({ title: '모으기 · ' + keyOf(here), input: false, chips: [], msg: keyOf(here) + ' 잔여 자리 ' + freeFor(here, s.gsm, s.width, s.grade) + '롤 · 전량 이동 가능 위치 없음' + tail }, function () {});
       return;
     }
     var rolls = moves.reduce(function (a, m) { return a + m.qty; }, 0);
-    ask({ title: '여기로 모으기', input: false, ok: '작업 목록 만들기',
-      msg: keyOf(here) + '로 ' + moves.length + '곳 · ' + rolls + '롤 이동\n' + before + '곳 → ' + after + '곳\n\n' +
-        moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(here) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : ''); }).join('\n') + tail +
-        '\n\n전산 반영은 줄마다 완료 누를 때' },
+    ask({ title: '모으기 · ' + keyOf(here), input: false, ok: '작업 목록 생성',
+      msg: '도착 ' + keyOf(here) + ' · 이동 ' + moves.length + '건 · ' + rolls + '롤\n보관 ' + before + '줄 → ' + after + '줄\n\n' +
+        moves.map(function (m) { return keyOf(m.from) + ' → ' + keyOf(here) + '   ' + m.qty + '롤' + (m.mix ? ' · 입고일 상이' : ''); }).join('\n') + tail +
+        '\n\n재고 반영: 건별 이동 완료 시' },
       function (y) {
         if (!y) return;
-        MJ = { sig: sig, here: here, before: before, after: after, rule: keyOf(here) + '로 모으기', moves: moves };
+        MJ = { sig: sig, here: here, before: before, after: after, rule: '도착 위치 ' + keyOf(here), moves: moves };
         mjSave(); openMerge();
       });
   };
   if (MJ && mjLeft()) {
-    ask({ title: '진행 중 작업 목록 있음', msg: distTitle(MJ.sig) + ' · 남은 ' + mjLeft() + '건\n새 목록으로 교체 (완료된 이동은 그대로)', input: false, ok: '교체' },
+    ask({ title: '진행 중 작업 목록', msg: distTitle(MJ.sig) + ' · 잔여 ' + mjLeft() + '건\n신규 목록으로 교체 (완료분 유지)', input: false, ok: '교체' },
       function (y) { if (y) { MJ = null; mjSave(); go(); } });
     return;
   }
@@ -1373,13 +1373,13 @@ function mjDone(i) {
   var q = Math.min(m.qty, cur.qty);
   call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '모으기' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; mjSave();
-    renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 완료');
+    renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
 }
 function mjUndo(i) {
   var m = MJ && MJ.moves[i]; if (!m || !m.done) return;
-  if (!m.nos.length) { toast('취소할 기록 없음 · 기록 탭에서 취소', true); return; }
-  ask({ title: '완료 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n전산 이동 취소 (재고 원복)', input: false, ok: '완료 취소', danger: true }, function (y) {
+  if (!m.nos.length) { toast('취소 대상 기록 없음 · 기록 탭에서 취소', true); return; }
+  ask({ title: '완료 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n이동 취소 · 재고 원복', input: false, ok: '완료 취소', danger: true }, function (y) {
     if (!y || !requireWorker()) return;
     call('undoTx', { nos: m.nos, worker: worker(), test: isTest() }).then(function (st) {
       setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('완료 취소');
@@ -1390,7 +1390,7 @@ function mjEnd() {
   var left = mjLeft();
   var fin = function () { MJ = null; mjSave(); SH = null; closeSheet(); };
   if (!left) return fin();
-  ask({ title: '목록 삭제', msg: '남은 ' + left + '건 미진행 · 완료된 이동은 그대로', input: false, ok: '삭제', danger: true }, function (y) { if (y) fin(); });
+  ask({ title: '목록 삭제', msg: '미완료 ' + left + '건 · 완료분 유지', input: false, ok: '삭제', danger: true }, function (y) { if (y) fin(); });
 }
 /* 기록 탭이 열려 있으면 다시 불러옴 (이력 · 보고서) */
 function refreshLog() { if (TAB !== 'log') return; if (LG.mode === '보고서') renderRep(); else loadHist(); }
@@ -1587,7 +1587,7 @@ function itemBlock(s, i, ri) {
   var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + (s.maker ? esc(s.maker) + ' ' : '') + esc(spec(s)) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.grade ? ' <span class="muted">' + esc(s.grade) + '</span>' : '') +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
-    '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 다른 위치 ' + othersOf(s).length + '곳' : '') + '</span></span>' +
+    '<br><span class="muted">' + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 타 위치 ' + othersOf(s).length + '줄' : '') + '</span></span>' +
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
@@ -2669,9 +2669,9 @@ function distCard() {
   h += A.length ? A.map(function (e, i) {
     var c = Object.keys(e.locs).length, frag = e.qty <= c * 2;   // 평균 2롤 이하 = 조각 많음
     return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin:0 0 6px; padding:8px 10px; cursor:pointer" onclick="distAllGo(' + i + ')">' +
-      '<span class="tag' + (frag ? ' hot' : '') + '"><small>' + c + '곳</small><b>' + e.qty + '롤</b></span>' +
+      '<span class="tag' + (frag ? ' hot' : '') + '"><small>' + c + '줄</small><b>' + e.qty + '롤</b></span>' +
       '<div style="flex:1; min-width:0; font-weight:700">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</div><span class="muted">›</span></div>';
-  }).join('') : '<div class="muted" style="padding:6px 0">여러 곳에 분산된 원지 없음</div>';
+  }).join('') : '<div class="muted" style="padding:6px 0">분산 원지 없음</div>';
   return h + '</div>';
 }
 function repCsv(key) {
