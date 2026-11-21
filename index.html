@@ -119,6 +119,9 @@
   .locbox { display:flex; flex-direction:column; gap:6px; }
   .sugtag { font-size:12px; font-weight:800; color:var(--ink); background:var(--y); border-radius:6px; padding:2px 8px; }
   #i-loc.sug select, #i-loc.sug .pq { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
+  .locwait { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:12px; border:1.5px dashed #C9CDD3; border-radius:12px; color:var(--sub); font-size:14px; font-weight:700; }
+  .locwait .btn2 { height:32px; padding:0 12px; font-size:13px; color:#9A1C1C; }
+  .locwait span { width:100%; }
   .prow { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .prow .pl { flex:1; min-width:0; } .prow .pq { width:62px; flex:none; text-align:center; padding:0 4px; }
   .tag { display:inline-block; width:66px; height:62px; border-radius:10px; background:#E6E8EB; text-align:center; padding-top:6px; flex:none; }
@@ -436,14 +439,15 @@
       </details>
     </div>
     <div id="i-fromWrap" style="display:none"><h2>반납 호기</h2><div class="grid2" id="i-from" data-qk="출고처"></div></div>
+    <h2>지종 · 제지사</h2>
+    <div class="grid2">
+      <select id="i-grade" aria-label="지종"></select>
+      <select id="i-maker" aria-label="제지사"></select>
+    </div>
     <h2>평량 (g/m²)</h2><div class="grid4" id="i-gsm"></div>
     <h2>지폭 (mm)</h2><div class="grid4" id="i-width"></div>
     <div class="card row" style="margin-top:12px"><b>롤 수</b>
       <div id="i-step"></div>
-    </div>
-    <div class="grid2">
-      <select id="i-grade" aria-label="지종"></select>
-      <select id="i-maker" aria-label="제지사"></select>
     </div>
     <h2 style="display:flex; align-items:center; gap:8px">보관 위치<span id="i-locTag"></span></h2>
     <div id="i-loc"></div>
@@ -2265,6 +2269,7 @@ function fillSelect(el, list, label, cur) {
     if (el.value !== '__new') { el.dataset.prev = el.value; return; }
     ask({ title: label + ' 이름 입력' }, function (v) {
       if (v) setSel(el.id, v); else el.value = el.dataset.prev || '';
+      el.dispatchEvent(new Event('change'));   // 입력 결과 반영 (추천 위치 등 다시 계산)
     });
   };
 }
@@ -2495,7 +2500,7 @@ function renderIn(fromScan) {
   $('i-qty').textContent = I.qty;
   if (!fromScan || !$('i-grade').options.length) {
     fillSelect($('i-grade'), S.quick['지종'], '지종', $('i-grade').value);
-    fillSelect($('i-maker'), S.quick['제지사'], '제지사', $('i-maker').value);
+    fillMakerSel();
     if (!$('i-grade').dataset.hk) { $('i-grade').dataset.hk = 1; $('i-grade').addEventListener('change', function () { gradeMaker('i-grade', 'i-maker'); inHint(); }); $('i-maker').addEventListener('change', inHint); }
   }
   if (I.loc) { I.locManual = true; I.parts = [{ loc: I.loc, qty: I.qty }]; I.loc = null; }   // 지도에서 줄 선택 후 입고 = 그 줄 유지
@@ -2573,7 +2578,34 @@ function sugCands() {
   var mk = curMaker(), ok = out.filter(function (c) { return whAllows(whOf(c), mk); });
   return ok.filter(function (c) { return whDedicated(whOf(c), mk); }).concat(ok.filter(function (c) { return !whDedicated(whOf(c), mk); }));
 }
-function curMaker() { var m = $('i-maker').value; return m === '__new' ? '' : m; }
+function curMaker() { var m = $('i-maker').value; return m === '__new' || m === MK_UNK ? '' : m; }
+/* 입고 제지사 선택칸: 기준정보 목록 + [제지사 미상] (모를 때 · 저장 값 = 빈칸 · 전용 창고 제외 추천) */
+var MK_UNK = '__unk';
+function fillMakerSel() {
+  var el = $('i-maker'), cur = el.value;
+  fillSelect(el, S.quick['제지사'], '제지사', cur === MK_UNK ? '' : cur);
+  var o = document.createElement('option'); o.value = MK_UNK; o.textContent = '제지사 미상';
+  el.insertBefore(o, el.querySelector('option[value="__new"]'));
+  if (cur === MK_UNK) { el.value = MK_UNK; el.dataset.prev = MK_UNK; }
+}
+/* 같은 규격 재고의 제지사가 하나뿐 → 자동 선택 (제지사 비어 있을 때 · 규격당 한 번) */
+function specMaker() {
+  if (!I.gsm || !I.width || $('i-maker').value) return;
+  var key = I.gsm + 'x' + I.width; if (I.mkAuto === key) return; I.mkAuto = key;
+  var ms = {};
+  S.stock.filter(function (s) { return s.gsm == I.gsm && s.width == I.width; })
+    .forEach(function (s) { makersOf(s).forEach(function (m) { var c = canonMaker(m.maker || ''); if (c) ms[c] = 1; }); });
+  ms = Object.keys(ms);
+  if (ms.length === 1) { setSel('i-maker', ms[0]); toast('같은 규격 제지사 자동 선택: ' + ms[0]); }
+}
+/* 보관 위치 추천 전 필수 항목 (평량 · 지폭 · 제지사) 중 빈 것 */
+function inMissing() {
+  var m = $('i-maker').value, out = [];
+  if (!I.gsm) out.push(['평량', 'i-gsm']);
+  if (!I.width) out.push(['지폭', 'i-width']);
+  if (!m || m === '__new') out.push(['제지사', 'i-maker']);
+  return out;
+}
 /* 추천 위치: 전량 수용 가능한 첫 후보 */
 function suggestLoc() {
   if (!I.gsm || !I.width) return null;
@@ -2620,6 +2652,19 @@ function splitPlan() {
   return rows.filter(function (c) { return qty[c] > 0; }).map(function (c) { return { loc: c, qty: qty[c] }; });
 }
 function inHint() {
+  specMaker();
+  var miss = inMissing();
+  $('i-loc').classList.toggle('lock', miss.length > 0);
+  if (miss.length) {   // 잠금: 위치 칸 대신 선택 필요 항목 (누르면 그 칸으로)
+    $('i-loc').classList.remove('sug'); $('i-locTag').innerHTML = '';
+    $('i-loc').innerHTML = '<div class="locwait">' + miss.map(function (x) {
+      return '<button class="btn2" onclick="jumpTo(\'' + x[1] + '\')">' + x[0] + '</button>'; }).join('') +
+      '<span>선택 필요 · 선택 후 보관 위치 추천</span>' +
+      (miss.some(function (x) { return x[0] === '제지사'; }) ? '<span class="muted">제지사 모름 = [제지사 미상] 선택</span>' : '') + '</div>';
+    $('i-hint').textContent = ''; delete $('i-hint').dataset.lp;
+    hdrIn(null);
+    return;
+  }
   autoLoc();
   renderParts();
   var g = curGrade(), sug = suggestLoc(), multi = I.parts.length > 1, sum = partsSum(), h = '', bad = false;
@@ -2640,7 +2685,10 @@ function inHint() {
     if (sum !== I.qty || over.length) bad = true;
   }
   var auto = !I.locManual && I.gsm && I.width && (multi || sug === code);
-  if (!I.locManual && I.gsm && I.width && !sug && !multi) { h += ' · 전 창고 적재 공간 부족'; bad = true; }
+  if (!I.locManual && I.gsm && I.width && !sug && !multi) {
+    var exc = !curMaker() && S.whs.some(function (w) { return (w.only || []).length; });
+    h += ' · 전 창고 적재 공간 부족' + (exc ? ' (제지사 미상 → 전용 창고 제외)' : ''); bad = true;
+  }
   // 추천 표시: 칸 노란 테두리 + 제목 [추천] · 직접 고친 뒤 추천과 다르면 [추천 위치로] 버튼만
   $('i-loc').classList.toggle('sug', !!auto);
   $('i-locTag').innerHTML = auto ? '<span class="sugtag">추천</span>'
@@ -2649,17 +2697,23 @@ function inHint() {
   if (!multi && code) $('i-hint').dataset.lp = 'row:' + code; else delete $('i-hint').dataset.lp;   // 길게 누르기 = 그 줄 설정
   $('i-hint').style.color = bad ? '#9A1C1C' : 'var(--ok)';
   var where = multi ? '분산 ' + I.parts.length + '줄' : keyOf(code || '');
-  var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
-  hdrSum('in', sLine([P(imk, '제지사', 'i-maker', null, false), imk ? ' ' : '', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
-    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(where, '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
+  hdrIn(where);
   $('i-sum').style.display = 'none';
   $('i-sum').textContent = (I.rem ? '[잔량 반납] ' + (I.from || '호기?') + ' · ' : '') + (I.gsm || '?') + ' × ' + (I.width || '?') + ' · ' + I.qty + '롤 → ' + (multi ? where : locLabel(code || ''));
+}
+/* 상단 요약 한 줄 (where = 위치 · null = 잠금) */
+function hdrIn(where) {
+  var mv = $('i-maker').value, imk = mv === MK_UNK ? '제지사 미상' : mv === '__new' ? '' : mv;
+  hdrSum('in', sLine([P(imk, '제지사', 'i-maker'), ' ', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
+    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(where, '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
 }
 function saveIn() {
   var g = $('i-grade').value, mk = $('i-maker').value;
   if (!requireWorker()) return;
-  var parts = I.parts.filter(function (x) { return x.qty > 0; });
-  var p = { loc: parts.length ? parts[0].loc : '', gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: mk === '__new' ? '' : mk, worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
+  var parts = (I.parts || []).filter(function (x) { return x.qty > 0; });
+  var miss = inMissing();
+  if (miss.length) { toast(miss.map(function (x) { return x[0]; }).join('·') + ' 선택 필요' + (miss.some(function (x) { return x[0] === '제지사'; }) ? ' (모르면 [제지사 미상])' : ''), true); jumpTo(miss[0][1]); return; }
+  var p = { loc: parts.length ? parts[0].loc : '', gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: curMaker(), worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
   var sum = parts.reduce(function (a, x) { return a + x.qty; }, 0);
@@ -2677,7 +2731,7 @@ function saveInGo(p) {
         return q.k === x[0] && (q.v === x[1] || (x[0] === '제지사' && canonMaker(x[1]) !== x[1].replace(/\s+/g, '').replace(/제지$/, '')));
       })) { S.quickAll.push({ k: x[0], v: x[1], st: '확인', alias: '', maker: '' }); navBadge(); }
     }); toast((p.rem ? '잔량 반납 저장: ' : '입고 저장: ') + p.gsm + '×' + p.width + ' ' + p.qty + '롤 → ' + (p.parts ? p.parts.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(' · ') : locLabel(p.loc)));
-    $('i-scan').value = ''; I.qty = 1; I.memo = ''; I.locManual = false; $('i-ocr').style.display = 'none'; renderIn();
+    $('i-scan').value = ''; I.qty = 1; I.memo = ''; I.locManual = false; I.mkAuto = null; $('i-ocr').style.display = 'none'; renderIn();
   });
 }
 
