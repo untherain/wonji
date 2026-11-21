@@ -550,7 +550,7 @@
 <nav id="nav">
   <button data-t="map" class="on">재고</button>
   <button data-t="in">입고</button>
-  <button data-t="plan">계획</button>
+  <button data-t="plan">출고</button>
   <button data-t="log">기록</button>
   <button data-t="set">설정</button>
 </nav>
@@ -582,7 +582,7 @@ var I = { gsm: null, width: null, qty: 1, rem: false, from: null, locManual: fal
 var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
 var LG = { mode: '이력' };   // 기록 (이력 · 보고서)
 var TAB = 'map';
-var TITLES = { map: '재고 · 위치 현황', in: '입고', plan: '생산계획', log: '기록', set: '설정' };
+var TITLES = { map: '재고 · 위치 현황', in: '입고', plan: '출고 · 생산계획', log: '기록', set: '설정' };
 
 /* ===== 공통 ===== */
 function $(id) { return document.getElementById(id); }
