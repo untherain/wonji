@@ -180,11 +180,12 @@
   .t-이동 { background:#E6E8EB; } .t-반납 { background:#EDE5FF; color:#4B2BB0; } .t-기초 { background:#FFF1D6; color:#7A4B00; }
   .rem { font-size:11px; font-weight:900; background:#6741D9; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px; vertical-align:2px; }
   .old { font-size:11px; font-weight:900; background:#9A1C1C; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px; vertical-align:2px; }
-  #syncBtn { position:absolute; right:max(12px, calc((100% - 640px) / 2 + 12px)); top:12px; background:#2E3339; border:1px solid #555B63; color:#fff; border-radius:10px; font:inherit; font-size:14px; font-weight:700; height:38px; padding:0 12px; }
+  #syncBtn { display:block; width:100%; margin-top:10px; height:36px; border:0; border-radius:10px; background:var(--y); color:var(--ink); font:inherit; font-size:14px; font-weight:900; }
+  header { padding-top:6px; }
+  .srchin { display:block; width:100%; height:42px; border:0; border-radius:10px; padding:0 12px; margin-top:8px; font:inherit; font-size:15px; }
   #ptr { height:0; overflow:hidden; text-align:center; font-size:13px; font-weight:700; color:var(--sub); transition:height .15s; }
   #newVer { display:none; }   /* 새 버전 열기용 숨은 링크 (버튼은 #syncBtn 하나) */
   /* 새 버전 있음: 버튼 오른쪽 위 노란 점(↑) + 노란 테두리 */
-  #syncBtn.upd { border-color:var(--y); background:var(--y); color:var(--ink); }
   .rt { width:100%; border-collapse:collapse; font-size:13px; }
   .rt th, .rt td { border-bottom:1px solid #E6E8EB; padding:5px 4px; text-align:right; white-space:nowrap; }
   .rt th:first-child, .rt td:first-child, .rt .l { text-align:left; }
@@ -384,11 +385,13 @@
 </head>
 <body>
 <header>
-  <h1 id="title">재고</h1>
-  <button id="syncBtn" onclick="topTap()" aria-label="검색" style="display:none">🔍 검색</button>
+  <h1 id="title" style="display:none">재고</h1>
+  <button id="syncBtn" onclick="topTap()" aria-label="새 버전 적용" style="display:none">↑ 새 버전 적용</button>
   <a id="newVer" target="_top" href="#" aria-hidden="true"></a>
   <span id="testBar" data-lp="test" onclick="lpAct('test')" role="button" aria-label="테스트 모드 끄기" style="display:none">테스트</span>
+  <div id="hdrTab"></div>
   <div id="hdrExtra"></div>
+  <div id="hdrSrch"></div>
 </header>
 
 <div id="ptr">↓ 당겨서 새로고침</div>
@@ -408,7 +411,7 @@
 
   <!-- 3. 입고 -->
   <section id="s-in">
-    <div class="seg" id="i-kind" style="background:#E6E8EB; margin:0 0 10px"></div>
+    <div class="seg" id="i-kind" data-t="in"></div>
     <div style="font-size:14px; font-weight:700; margin-bottom:6px">라벨 · 손글씨 사진으로 읽기</div>
     <div class="grid2">
       <button class="btn" onclick="photoOCR(true)" style="background:var(--y); color:var(--ink); display:flex; align-items:center; justify-content:center; gap:8px; font-size:17px">
@@ -472,14 +475,14 @@
 
   <!-- 5. 기록 (이력 · 보고서) -->
   <section id="s-log">
-    <div class="seg" id="l-seg" style="background:#E6E8EB; margin-top:0"></div>
+    <div class="seg" id="l-seg" data-t="log"></div>
     <div id="g-hist"></div>
     <div id="g-rep"></div>
   </section>
 
   <!-- 6. 설정 -->
   <section id="s-set">
-    <div class="seg" id="set-seg" style="background:#E6E8EB; margin-top:0"></div>
+    <div class="seg" id="set-seg" data-t="set"></div>
     <div class="stab" data-k="me">
     <h2>작업자 로그인</h2>
     <div id="set-workerBox"></div>
@@ -658,17 +661,19 @@ function checkVer(v) {
   $('newVer').href = S.appUrl || '#';
   topBtn();
 }
+/* 머리글 (모든 탭 같은 구성): [새 버전 · 테스트 (해당 시)] + [탭 안 선택 버튼] + [요약 · 작업 줄] + [검색창]
+   제목 줄 없음 (하단 탭으로 구분) · 내용 없으면 머리글 숨김 */
 function topBtn() {
-  var b = $('syncBtn'); if (!b) return;
-  b.classList.toggle('upd', NEWVER);
-  b.textContent = NEWVER ? '↑ 새 버전' : '🔍 검색';
-  b.setAttribute('aria-label', NEWVER ? '새 버전 적용' : '검색');
-  b.style.display = NEWVER || TAB === 'map' ? '' : 'none';
+  var b = $('syncBtn'); if (b) b.style.display = NEWVER ? '' : 'none';
+  [].forEach.call($('hdrTab').children, function (el) { el.style.display = el.dataset.t === TAB ? '' : 'none'; });
+  hdrFit();
 }
-function topTap() {
-  if (NEWVER) return $('newVer').click();   // 구글 화면에선 바깥 창 전체를 새 주소로 (target=_top 링크)
-  if (TAB === 'map' && !MV) openFilter();
+function hdrFit() {
+  var tabSeg = [].some.call($('hdrTab').children, function (el) { return el.dataset.t === TAB; });
+  var on = NEWVER || isTest() || tabSeg || $('hdrExtra').innerHTML.trim() || $('hdrSrch').innerHTML.trim();
+  document.querySelector('header').style.display = on ? '' : 'none';
 }
+function topTap() { if (NEWVER) $('newVer').click(); }   // 구글 화면에선 바깥 창 전체를 새 주소로 (target=_top 링크)
 function syncTap() {   // 당겨서 새로고침
   if (NEWVER) return $('newVer').click();
   refreshStock(true);
@@ -806,6 +811,7 @@ function openUrl(u) { window.open(u, '_blank'); }
 /* 공통 부품: 탭 버튼 (items = [값, 표시 글자(HTML)] 또는 문자열). dark = 상단 검은 띠 안 */
 function seg(el, items, cur, onPick, dark) {
   el.innerHTML = '';
+  if (el.closest && el.closest('header')) dark = true;   // 머리글(어두운 배경) 안 = 흰 글자
   items.forEach(function (x) {
     var v = Array.isArray(x) ? x[0] : x, b = document.createElement('button');
     b.className = String(v) === String(cur) ? 'on' : '';
@@ -916,14 +922,18 @@ function show(t) {
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
   $('title').textContent = TITLES[t];
   $('testBar').style.display = isTest() ? 'inline-block' : 'none';
-  $('hdrExtra').innerHTML = '';
+  $('hdrExtra').innerHTML = ''; $('hdrSrch').innerHTML = '';
   topBtn();
   SH = null; MV = null; ST = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
   ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
+  hdrFit();
   window.scrollTo(0, 0);
   refreshStock(false);
 }
 [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.onclick = function () { show(b.dataset.t); }; });
+['i-kind', 'l-seg', 'set-seg'].forEach(function (id) { $('hdrTab').appendChild($(id)); });
+new MutationObserver(function () { hdrFit(); }).observe($('hdrExtra'), { childList: true });
+new MutationObserver(function () { hdrFit(); }).observe($('hdrSrch'), { childList: true });
 $('i-step').outerHTML = stepper(1, 'I.qty=Math.max(1,I.qty-1);renderIn()', 'I.qty++;renderIn()', '롤 수', 'i-qty');
 $('g-step').outerHTML = stepper(1, 'G.qty=Math.max(0,G.qty-1);renderG()', 'G.qty++;renderG()', '롤 수', 'g-qty');
 
@@ -1249,7 +1259,7 @@ function saveRowEditor(code) {
 }
 function goIn(code) { I.loc = code; show('in'); }
 function searchBar() {
-  if (!fOn()) return '';   // 평소 숨김 (위쪽 [🔍 검색] 버튼) · 검색 중일 때만 조건 · 결과 수 · ✕
+  if (!fOn()) return '<button class="srch" onclick="openFilter()">🔍 검색 (규격 · 제지사 · 문구)</button>';
   var fh = fHits(), hits = fh.list, locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
   var lab = [F.maker, (F.gsm || F.width) ? (F.gsm || '전체') + ' × ' + (F.width || '전체') : '', F.grade, F.q ? '"' + F.q + '"' : ''].filter(Boolean).join(' ');
   return '<div class="srch" role="button" onclick="openFilter()"><b>' + esc(lab) + '</b><span class="cnt">' +
@@ -2694,6 +2704,8 @@ function renderMng() {
 function renderLog() {
   seg($('l-seg'), ['이력', '보고서'], LG.mode, function (m) { LG.mode = m; E = null; renderLog(); });
   var hist = LG.mode === '이력';
+  // 이력: 머리글 검색창 (재고 검색창과 같은 모양) · 보고서: 없음
+  $('hdrSrch').innerHTML = hist ? '<input class="srchin" id="hf-q" type="search" placeholder="🔍 검색 (규격 · 위치 · 작업자)" value="' + esc(HF.q) + '" oninput="HF.q=this.value;clearTimeout(histBar.t);histBar.t=setTimeout(loadHist,500)">' : '';
   $('g-hist').style.display = hist ? 'block' : 'none';
   $('g-rep').style.display = hist ? 'none' : 'block';
   if (hist) loadHist(); else renderRep();
@@ -2801,9 +2813,9 @@ function histBar() {
   var types = ['', '입고', '반납', '기초', '출고', '이동', '실사', '취소'];
   $('g-hist').innerHTML =
     '<div class="seg" id="hf-period" style="background:#E6E8EB; margin-top:10px"></div>' +
-    '<div class="grid2" style="grid-template-columns:110px 1fr; margin-top:8px">' +
+    '<div style="margin-top:8px">' +
     '<select id="hf-type" aria-label="유형" onchange="HF.type=this.value;loadHist()">' + types.map(function (t) { return '<option value="' + t + '"' + (HF.type === t ? ' selected' : '') + '>' + (t || '전체 유형') + '</option>'; }).join('') + '</select>' +
-    '<input id="hf-q" placeholder="규격·위치·작업자" value="' + esc(HF.q) + '" oninput="HF.q=this.value;clearTimeout(histBar.t);histBar.t=setTimeout(loadHist,500)"></div>' +
+    '</div>' +
     '<div class="muted" style="padding:8px 2px 4px">잘못 입력한 건: [수정] 수량·위치·규격 정정 · [취소] 입력 자체 무효 · 원래 기록은 "수정됨/취소됨"으로 남음</div>' +
     '<div id="g-hlist"></div>';
   seg($('hf-period'), periods, HF.period, function (v) { HF.period = v; histBar(); loadHist(); });
