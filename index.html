@@ -585,7 +585,7 @@ function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(fu
 /* 문구 검색칸: 재고 검색 (글자 칠 때 결과만 갱신 · 입력칸은 그대로) */
 function fQ(v) { F.q = v; renderMap(); var c = $('fq-cnt'), h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); }
 var M = { wh: null };                               // 위치 현황 창고
-var I = { gsm: null, width: null, qty: 1, rem: false, from: null }; // 입고 (rem = 잔량 반납)
+var I = { gsm: null, width: null, qty: 1, rem: false, from: null, locManual: false }; // 입고 (rem = 잔량 반납 · locManual = 보관 위치 직접 선택)
 var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
 var LG = { mode: '이력' };   // 기록 (이력 · 보고서)
 var TAB = 'map';
@@ -2472,10 +2472,19 @@ function renderIn(fromScan) {
     fillSelect($('i-maker'), S.quick['제지사'], '제지사', $('i-maker').value);
     if (!$('i-grade').dataset.hk) { $('i-grade').dataset.hk = 1; $('i-grade').addEventListener('change', function () { gradeMaker('i-grade', 'i-maker'); inHint(); }); $('i-maker').addEventListener('change', inHint); }
   }
-  if (!$('i-loc').dataset.code || I.loc) { locPicker($('i-loc'), I.loc || suggestLoc(), inHint); I.loc = null; }
+  if (I.loc) { I.locManual = true; locPicker($('i-loc'), I.loc, inPick); I.loc = null; }   // 지도에서 줄 선택 후 입고 = 그 줄 유지
+  else if (!$('i-loc').dataset.code) locPicker($('i-loc'), suggestLoc(), inPick);
   inHint();
 }
 function curGrade() { var g = $('i-grade').value; return g === '__new' ? '' : g; }
+/* 보관 위치: 직접 선택 전까지 추천 위치 자동 반영 (규격 · 수량 · 지종 변경 시마다) */
+function inPick() { I.locManual = true; inHint(); }
+function autoLoc() {
+  if (I.locManual) return;
+  var sug = suggestLoc();
+  if (sug && sug !== $('i-loc').dataset.code) locPicker($('i-loc'), sug, inPick);
+}
+function useSug() { I.locManual = false; inHint(); }
 /* 추천: ① 같은 규격이 있고 자리가 남은 줄 → ② 빈 줄 */
 function suggestLoc() {
   if (!I.gsm || !I.width) return null;
@@ -2504,6 +2513,7 @@ function suggestLoc() {
   return found;
 }
 function inHint() {
+  autoLoc();
   var code = $('i-loc').dataset.code;
   var ri = rowInfo(code), g = curGrade();
   var sameHere = ri.items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; });
@@ -2518,8 +2528,13 @@ function inHint() {
   }
   if (ri.cfg.use && ri.cfg.use !== '원지') h += ' · [' + ri.cfg.use + '] 줄';
   if (sameHere) h += ' · 같은 규격 있음';
-  else if (sug && sug !== code) h += ' · 추천 위치: ' + locLabel(sug);
-  $('i-hint').textContent = h;
+  var tail = '';
+  if (I.gsm && I.width) {
+    if (!sug) tail = ' · 전량 수용 위치 없음 (분할 입고 필요)';
+    else if (sug === code) tail = I.locManual ? '' : ' · 추천 위치 적용';
+    else tail = ' · 추천 위치: ' + esc(locLabel(sug)) + ' <button class="btn2" style="height:26px; padding:0 8px; font-size:12px; margin-left:4px" onclick="useSug()">추천 적용</button>';
+  }
+  $('i-hint').innerHTML = esc(h) + tail;
   $('i-hint').style.color = (ri.w && I.width && I.qty > freeFor(code, I.gsm, I.width, g)) ? '#9A1C1C' : 'var(--ok)';
   var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
   hdrSum('in', sLine([P(imk, '제지사', 'i-maker', null, false), imk ? ' ' : '', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
@@ -2542,7 +2557,7 @@ function saveIn() {
         return q.k === x[0] && (q.v === x[1] || (x[0] === '제지사' && canonMaker(x[1]) !== x[1].replace(/\s+/g, '').replace(/제지$/, '')));
       })) { S.quickAll.push({ k: x[0], v: x[1], st: '확인', alias: '', maker: '' }); navBadge(); }
     }); toast((p.rem ? '잔량 반납 저장: ' : '입고 저장: ') + p.gsm + '×' + p.width + ' ' + p.qty + '롤 → ' + locLabel(p.loc));
-    $('i-scan').value = ''; I.qty = 1; I.memo = ''; $('i-ocr').style.display = 'none'; renderIn();
+    $('i-scan').value = ''; I.qty = 1; I.memo = ''; I.locManual = false; $('i-ocr').style.display = 'none'; renderIn();
   });
 }
 
