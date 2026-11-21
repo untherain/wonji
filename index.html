@@ -179,6 +179,10 @@
   .hlnk { background:none; border:none; color:#163A7D; font:inherit; font-weight:900; text-decoration:underline; cursor:pointer; padding:0; }
   .bar { height:4px; border-radius:2px; background:#D5D8DC; overflow:hidden; margin-top:2px; }
   .bar i { display:block; height:100%; background:var(--ink); }
+  .stiles { display:grid; gap:6px; margin-top:8px; }
+  .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
+  .stile.done .bar i { background:var(--ok); } .stile.done .sv { color:var(--ok); }
+  .lchip { display:inline-block; background:#F3F4F1; border-radius:6px; padding:2px 8px; margin:3px 4px 0 0; font-size:14px; font-weight:700; white-space:nowrap; }
   .pill { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
   .t-입고 { background:#DDEBFF; color:#163A7D; } .t-출고 { background:var(--ink); color:var(--y); }
   .t-이동 { background:#E6E8EB; } .t-반납 { background:#EDE5FF; color:#4B2BB0; } .t-기초 { background:#FFF1D6; color:#7A4B00; }
@@ -2998,13 +3002,13 @@ function saveInGo(p) {
 
 /* ===== 4. 작업 (출고 · 이동 · 실사) ===== */
 function renderMng() {
-  $('g-summary').innerHTML = '<div class="grid3">' + S.whs.map(function (w) {
+  $('g-summary').innerHTML = statTiles(S.whs.map(function (w) {
     var n = S.stock.filter(function (s) { return s.wh == w.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
     var slots = 0, used = 0;
     eachRow(w, function (z, key, code) { var ri = rowInfo(code); if (!ri.cfg.off) slots += ri.slots; used += ri.used; });
     var pct = slots ? Math.round(used / slots * 100) : 0;
-    return '<div class="card" data-lp="wh:' + w.id + '" style="padding:8px 10px; margin:0"><b>' + esc(w.name) + '</b> <span class="muted">' + n + '롤</span><div class="bar" style="height:6px; margin-top:6px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:11px">적재율 ' + pct + '%</div></div>';
-  }).join('') + '</div>';
+    return { name: w.name, val: n + '롤', pct: pct, sub: '적재율 ' + pct + '%', lp: 'wh:' + w.id };
+  }));
   if (['출고', '이동', '실사'].indexOf(G.mode) < 0) G.mode = '출고';
   seg($('g-seg'), ['출고', '이동', '실사'], G.mode, function (m) { G.mode = m; G.item = null; G.cnt = null; renderMng(); });
   $('g-fromLabel').textContent = G.mode === '실사' ? '실사 위치' : '출발 위치';
@@ -3621,12 +3625,14 @@ function makePick() {
 }
 
 function renderPick(el) {
-  var A = allocPlan(), ps = [];
+  var A = allocPlan(), tiles = [];
   LINES.slice(0, 3).forEach(function (line) {
-    var pend = PL.items.filter(function (it) { return it.line === line && !PL.done[it.id]; });
-    if (pend.length) ps.push(P(line + ' ' + pend.filter(function (it) { return PL.picked[it.id]; }).length + '/' + pend.length, line, 'pk-' + line, null, true, ps.length ? ' · ' : ''));
+    var its = PL.items.filter(function (it) { return it.line === line; }); if (!its.length) return;
+    var pend = its.filter(function (it) { return !PL.done[it.id]; }), n = pend.filter(function (it) { return PL.picked[it.id]; }).length;
+    tiles.push(pend.length ? { name: line, val: n + '/' + pend.length, pct: n / pend.length * 100, tap: 'jumpTo(\'pk-' + line + '\')' }
+      : { name: line, val: '확정', pct: 100, done: true, tap: 'jumpTo(\'pk-' + line + '\')' });
   });
-  hdrSum('plan', '<div class="insumw"><div class="srchin insum ro">' + esc([PL.date, ps.map(function (x) { return x.v; }).join(' · ') || '피킹 완료'].filter(Boolean).join(' · ')) + '</div></div>');
+  hdrSum('plan', tiles.length ? statTiles(tiles) : '');
   var h = photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '');
   LINES.slice(0, 3).forEach(function (line) {
     var its = PL.items.filter(function (it) { return it.line === line; }).sort(function (a, b) { return b.planNo - a.planNo; });
@@ -3634,8 +3640,8 @@ function renderPick(el) {
     var pend = its.filter(function (it) { return !PL.done[it.id]; });
     var pickedN = pend.filter(function (it) { return PL.picked[it.id]; }).length;
     h += '<div class="card" id="pk-' + line + '" style="padding:0; overflow:hidden; margin-top:10px">' +
-      '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + line + '</b>' +
-      '<span style="font-size:12px; color:#C9CDD3">적치 순서: 계획 ' + its.map(function (it) { return it.planNo; }).join(' → ') + '</span></div>' +
+      '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + line + (PL.date && line === LINES.filter(function (l) { return PL.items.some(function (it) { return it.line === l; }); })[0] ? ' <span style="font-weight:500; font-size:13px; color:#C9CDD3">· ' + esc(PL.date) + '</span>' : '') + '</b>' +
+      '<span style="font-size:12px; color:#C9CDD3">적치 ' + its.map(function (it) { return it.planNo; }).join('→') + '</span></div>' +
       its.map(function (it, k) { return pickRow(it, k + 1, A[it.id]); }).join('') +
       (pend.length ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB"><button class="btn" style="height:48px; font-size:16px" onclick="confirmLine(\'' + line + '\')">' +
         line + ' 출고 확정</button></div>' : '<div class="muted" style="padding:8px 12px">출고 확정 완료</div>') +
@@ -3643,35 +3649,42 @@ function renderPick(el) {
   });
   el.innerHTML = h;
 }
-/* 공통 번호 행: 왼쪽 번호 원(완료 = 초록) + 보조 라벨 · 가운데 내용 · 오른쪽 버튼 (피킹 리스트 · 병합 작업 목록) */
+/* 공통 부품: 상태 칸 한 줄 — 같은 너비 칸에 이름 · 값 · 진행 막대 · 보조 글 (창고 적재율 · 피킹 진행)
+   t = [{ name, val, pct, sub, done, tap(onclick 코드), lp(길게 누르기) }] */
+function statTiles(t) {
+  return '<div class="stiles" style="grid-template-columns:repeat(' + Math.min(Math.max(t.length, 1), 4) + ',1fr)">' + t.map(function (x) {
+    return '<div class="card stile' + (x.done ? ' done' : '') + '"' + (x.lp ? ' data-lp="' + x.lp + '"' : '') + (x.tap ? ' role="button" onclick="' + x.tap + '"' : '') + '>' +
+      '<div class="row" style="gap:4px"><b>' + esc(x.name) + '</b><span class="sv">' + esc(x.val) + (x.done ? ' ✓' : '') + '</span></div>' +
+      '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, x.pct || 0)) + '%"></i></div>' +
+      (x.sub ? '<div class="muted" style="font-size:11px">' + esc(x.sub) + '</div>' : '') + '</div>';
+  }).join('') + '</div>';
+}
+/* 공통 번호 행: 왼쪽 번호 원(완료 = 초록 · 체크 = 초록 ✓) + 보조 라벨 · 가운데 내용 · 오른쪽(선택)
+   o.tap = 줄 누름 동작 (접기 칸 누름은 제외) · o.check = 체크됨 · o.off = 누를 수 없음 */
 function seqRow(o) {
-  return '<div style="display:flex; gap:10px; padding:9px 12px; border-top:1px solid #E6E8EB; background:' + (o.bg || '#fff') + '">' +
-    '<div style="width:40px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (o.done ? '#1E6B3A' : 'var(--y)') +
-    '; color:' + (o.done ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center">' + o.seq + '</div>' +
+  var green = o.done || o.check, tap = o.tap && !o.off ? ' role="button" onclick="if(!event.target.closest(\'details,button,a\')){' + o.tap + '}" style="cursor:pointer;' : ' style="';
+  return '<div' + tap + 'display:flex; gap:10px; padding:9px 12px; border-top:1px solid #E6E8EB; background:' + (o.bg || '#fff') + '">' +
+    '<div style="width:' + (o.label ? 40 : 30) + 'px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (green ? '#1E6B3A' : o.off ? '#D5D8DC' : 'var(--y)') +
+    '; color:' + (green ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center">' + (o.check || o.done ? '✓' : o.seq) + '</div>' +
     (o.label ? '<div class="muted" style="font-size:10px">' + o.label + '</div>' : '') + '</div>' +
     '<div style="flex:1; min-width:0">' + o.body + '</div><div style="flex:none; display:flex; align-items:center">' + (o.side || '') + '</div></div>';
 }
 function pickRow(it, seq, a) {
-  var done = PL.done[it.id], picked = PL.picked[it.id];
-  var bg = done ? '#F2FAF4' : a && a.lack ? '#FDF1F1' : '#fff';
-  var h = '<div class="row"><b style="font-size:16px">' + esc(it.gsm + '×' + it.width) +
-    '</b><b style="white-space:nowrap; flex:none">' + (it.all ? '전량' : it.qty + '롤') + '</b></div>' +
-    (function () { var p = planMk(it), t = [p.maker || '제지사 미지정', p.grade].filter(String).join(' · '); return '<div class="muted">' + esc(t) + '</div>'; })() +
-    noteHtml(it.note);
-  if (done) h += '<div class="muted">출고 확정 완료</div>';
+  var done = PL.done[it.id], picked = PL.picked[it.id], pm = planMk(it);
+  var bg = done ? '#F2FAF4' : picked ? '#EEF7F1' : a && a.lack ? '#FDF1F1' : '#fff';
+  // 1줄: 규격 · 수량 / 2줄: 제지사 · 지종 · 계획 번호 / 3줄: 위치 칩 · 부족 / 주의 · 비고 · 대체 후보(접기)
+  var h = '<div class="row"><b style="font-size:16px">' + esc(it.gsm + '×' + it.width) + '</b><b style="white-space:nowrap; flex:none">' + (it.all ? '전량' + (a && !done ? ' ' + a.got + '롤' : '') : it.qty + '롤') + '</b></div>' +
+    '<div class="muted" style="font-size:13px">' + esc([pm.maker || '제지사 미지정', pm.grade, '계획 ' + it.planNo].filter(String).join(' · ')) + '</div>';
+  if (done) h += '<div class="muted" style="font-size:13px">출고 확정 완료</div>';
   else if (a) {
-    h += a.locs.map(function (l) {
-      return '<div class="row" style="background:#F3F4F1; border-radius:6px; padding:3px 8px; margin-top:3px; font-size:14px; flex-wrap:wrap; row-gap:2px"><b style="white-space:nowrap">' + esc(locLabel(l.loc)) + '</b><span style="white-space:nowrap">' + (a.locs.length > 1 || l.qty != it.qty ? l.qty + '롤' : '') +
-        (l.check ? ' <span class="tt" style="background:#9A6700">제지사 확인</span>' : '') + '</span></div>';
-    }).join('');
-    if (it.all) h += '<div class="muted">전량: ' + a.got + '롤 배정</div>';
-    if (a.lack) h += '<div style="font-size:12px; font-weight:900; color:#9A1C1C; margin-top:2px">재고 부족 ' + a.lack + '롤 — 보유 ' + a.got + ' / 필요 ' + it.qty + '</div>';
-    if (a.alts.length && (a.lack || !a.got)) h += '<div class="muted" style="font-size:12px">대체 후보 (제지사 다름): ' +
-      a.alts.map(function (x) { return esc(locLabel(x.loc)) + ' ' + esc(x.maker) + ' ' + x.qty + '롤'; }).join(', ') + '</div>';
+    h += '<div>' + a.locs.map(function (l) {
+      return '<span class="lchip">' + esc(locLabel(l.loc)) + (a.locs.length > 1 || l.qty != it.qty ? ' · ' + l.qty + '롤' : '') + (l.check ? ' <span class="tt" style="background:#9A6700">제지사 확인</span>' : '') + '</span>';
+    }).join('') + (a.lack ? '<span style="font-size:13px; font-weight:900; color:#9A1C1C; white-space:nowrap">부족 ' + a.lack + '롤' + (a.got ? '' : ' · 재고 없음') + '</span>' : '') + '</div>';
   }
-  return seqRow({ seq: seq, done: done, label: '계획 ' + it.planNo, bg: bg, body: h, side: (done ? '<span class="pill" style="background:#E3F2E7; color:#1E5A33">✓</span>' :
-    '<button class="btn2" style="height:40px; padding:0 10px;' + (picked ? ' background:#1E6B3A; color:#fff; border-color:#1E6B3A' : '') + '" onclick="togglePick(\'' + it.id + '\')"' +
-    (a && a.got ? '' : ' disabled') + '>' + (picked ? '✓ 피킹' : '피킹') + '</button>') });
+  h += noteHtml(it.note);
+  if (!done && a && a.alts.length && (a.lack || !a.got)) h += '<details class="note"><summary>대체 후보 ' + a.alts.length + ' (제지사 다름)</summary><div class="muted" style="font-size:12px">' +
+    a.alts.map(function (x) { return esc(locLabel(x.loc)) + ' ' + esc(x.maker) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></details>';
+  return seqRow({ seq: seq, done: done, check: picked, off: !done && !(a && a.got), bg: bg, body: h, tap: done ? '' : 'togglePick(\'' + it.id + '\')' });
 }
 /* 공통 부품: 비고 접기 — 평소 접힘 · 펼친 상태는 다시 그려도 유지 (key별) · 내용 있으면 제목 옆 ● */
 var NOTE_OPEN = {};
