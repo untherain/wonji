@@ -346,6 +346,9 @@
   .shtop .sg.miss { background:#FDECEC; color:#9A1C1C; }
   .phnote.bad { color:#9A1C1C; font-weight:700; }
   .chip[data-qk], [data-lp], span[data-qv] { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
+  /* 앱 화면: 여러 번 누르기 · 길게 누르기로 글자가 파랗게 선택되지 않게 (입력칸 · 인식 원문 · 이력 문구는 선택 가능) */
+  body { -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  input, textarea, select, pre, [contenteditable], .seltext { -webkit-user-select:text; user-select:text; }
   /* 사진 영역 지정 (인식 전) */
   #crop { position:fixed; inset:0; z-index:40; background:#111; display:none; flex-direction:column; }
   body.cropopen { overflow:hidden; }
