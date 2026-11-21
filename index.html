@@ -3210,7 +3210,7 @@ function renderWh() {
         '<select class="mini" style="width:74px; flex:none; padding:0 2px" onchange="moveZoneTo(' + i + ',' + j + ',+this.value)" aria-label="위치">' + opts + '</select>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
     }).join('') +
-      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치를 고르면 그 자리 구역과 <b>맞바뀜</b> · 저장해야 지도 반영</div>' +
+      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치 선택 시 해당 자리 구역과 <b>교체</b> · 별칭(좌·우)은 <b>자리 고정</b> · 코드(A·B)와 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
       zonePrev(w);
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
@@ -3288,9 +3288,9 @@ function moveZoneTo(i, j, to) {
   var zs = W[i].zones, z = zs[j], from = z.slot != null ? z.slot - 1 : j;
   if (to === from) { renderWh(); return; }
   var occ = zs.filter(function (x) { return x !== z && (x.slot != null ? x.slot - 1 : zs.indexOf(x)) === to; })[0];
-  if (occ) occ.slot = from + 1;   // 맞바꿈: 그 자리 구역은 내 자리로
+  if (occ) { occ.slot = from + 1; var tn = occ.name; occ.name = z.name; z.name = tn; }   // 맞바꿈: 구역(코드·재고)만 이동 · 별칭(좌·우)은 자리 고정
   z.slot = to + 1;
-  renderWh(); toast('위치 바뀜 — [창고 설정 저장]을 눌러야 반영');
+  renderWh(); toast('구역 위치 변경 · 별칭은 자리 고정 · [창고 설정 저장] 시 반영');
 }
 /* 배치 미리보기: 지도와 같은 좌|우 묶음 (표시 이름 = 지도에 나오는 그대로, 빈칸 표시) */
 function zonePrev(w) {
