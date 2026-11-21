@@ -186,6 +186,11 @@
   .old { font-size:11px; font-weight:900; background:#9A1C1C; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px; vertical-align:2px; }
   #syncBtn { display:block; width:100%; margin-top:10px; height:36px; border:0; border-radius:10px; background:var(--y); color:var(--ink); font:inherit; font-size:14px; font-weight:900; }
   header { padding-top:6px; }
+  .insumw { position:relative; }
+  .srchin.insum { font-size:17px; font-weight:900; color:var(--ink); padding-right:44px; border:2px solid transparent; }
+  .srchin.insum.miss { border-color:#E0402A; }
+  .srchin.insum::placeholder { font-weight:700; color:#8A9098; }
+  .insx { position:absolute; right:4px; top:50%; margin-top:-13px; transform:translateY(4px); width:36px; height:34px; border:0; background:none; font-size:22px; font-weight:900; color:#8A9098; }
   .srchin { display:block; width:100%; height:42px; border:0; border-radius:10px; padding:0 12px; margin-top:8px; font:inherit; font-size:15px; }
   #ptr { height:0; overflow:hidden; text-align:center; font-size:13px; font-weight:700; color:var(--sub); transition:height .15s; }
   #newVer { display:none; }   /* 새 버전 열기용 숨은 링크 (버튼은 #syncBtn 하나) */
@@ -418,9 +423,6 @@
     <div class="seg" id="i-kind" data-t="in"></div>
     <div id="i-photo"></div>   <!-- 공통 부품 photoBar (renderIn) -->
     <div id="i-ocr" class="card" style="display:none; margin-top:8px"></div>
-    <div class="scan" id="i-scanbox" style="margin-top:10px">
-      <input id="i-scan" aria-label="직접 입력" placeholder="예시: 230-1210 20롤" autocomplete="off">
-    </div>
     <div id="i-fromWrap" style="display:none"><h2>반납 호기</h2><div class="grid2" id="i-from" data-qk="출고처"></div></div>
     <h2>지종 · 제지사</h2>
     <div class="grid2">
@@ -478,11 +480,6 @@
       <label class="radio"><input type="radio" name="ocrEng" value="ko5" onchange="saveLocal()"> <span><b>PaddleOCR</b> (폰)</span></label>
       <label class="radio"><input type="radio" name="ocrEng" value="drive" onchange="saveLocal()"> <span><b>구글 드라이브</b> (서버)</span></label>
       <div class="muted" id="ocr-st" style="margin-top:4px"></div>
-    </div>
-    <h2>입고 직접 입력 칸</h2>
-    <div class="card">
-      <label class="radio"><input type="radio" name="hand" value="scan" onchange="saveLocal()"> <span><b>표시</b></span></label>
-      <label class="radio"><input type="radio" name="hand" value="btn" onchange="saveLocal()"> <span><b>숨김</b></span></label>
     </div>
     </div>
     <div class="stab" data-k="admin">
@@ -2298,13 +2295,33 @@ function parseHand(t) {
   var r = t.match(/(\d{1,3})\s*(R\s*\/?\s*L|롤|R(?![A-Za-z]))/i);
   return { gsm: m ? m[1] : null, width: m ? m[2] : null, qty: r ? Number(r[1]) : null };
 }
-$('i-scan').addEventListener('input', function () {
-  var p = parseHand(this.value);
+/* 입고 상단 입력 겸 요약 줄: 입력 = 평량 · 지폭 · 롤 수 반영 (텍스트 스캔 가능) · 입력 중이 아닐 때 = 현재 요약 */
+function inType(v) {
+  var p = parseHand(v);
   if (p.gsm) I.gsm = p.gsm;
   if (p.width) I.width = p.width;
   if (p.qty) I.qty = p.qty;
+  // 제지사: 숫자 없는 낱말 중 기준정보 제지사(다른 이름 포함)와 같은 것
+  var list = S.quick['제지사'] || [];
+  String(v).split(/[\s·→,]+/).some(function (w) {
+    if (!w || /\d/.test(w)) return false;
+    var c = normMk(canonMaker(w)), hit = list.filter(function (m) { return normMk(m) === c; })[0];
+    if (hit) { setSel('i-maker', hit); return true; }
+    return false;
+  });
   renderIn(true);
-});
+}
+function inClear() {
+  I.gsm = I.width = null; I.qty = 1; I.mkAuto = null; I.memo = '';
+  $('i-maker').value = ''; $('i-maker').dataset.prev = '';
+  renderIn();
+}
+function inSumText(where) {
+  if (!I.gsm && !I.width) return '';   // 빈 칸 = 예시 표시
+  var mv = $('i-maker').value, imk = mv === MK_UNK ? '제지사 미상' : mv === '__new' ? '' : mv;
+  return (imk ? imk + ' ' : '') + (I.gsm || '평량') + '×' + (I.width || '지폭') + ' · ' + I.qty + '롤' +
+    (where ? ' → ' + where : '') + (I.rem ? ' · 반납 ' + (I.from || '호기?') : '');
+}
 function fillSelect(el, list, label, cur) {
   list = (list || []).slice();
   if (cur && cur !== '__new' && list.indexOf(cur) < 0) list.push(cur);
@@ -2543,7 +2560,6 @@ function renderIn(fromScan) {
   $('i-fromWrap').style.display = I.rem ? 'block' : 'none';
   if (I.rem) chips($('i-from'), (S.quick['출고처'] || []).filter(function (d) { return d.indexOf('외부') < 0; }), I.from, function (v) { I.from = v; renderIn(); });
   $('i-save').textContent = I.rem ? '잔량 반납 저장' : '입고 저장';
-  $('i-scanbox').style.display = localStorage.getItem('hand') === 'btn' ? 'none' : 'block';
   specChips($('i-gsm'), '평량', I.gsm, function (v) { I.gsm = v; renderIn(); });
   specChips($('i-width'), '폭', I.width, function (v) { I.width = v; renderIn(); });
   $('i-qty').textContent = I.qty;
@@ -2751,9 +2767,19 @@ function inHint() {
 }
 /* 상단 요약 한 줄 (where = 위치 · null = 잠금) */
 function hdrIn(where) {
-  var mv = $('i-maker').value, imk = mv === MK_UNK ? '제지사 미상' : mv === '__new' ? '' : mv;
-  hdrSum('in', sLine([P(imk, '제지사', 'i-maker'), ' ', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
-    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(where, '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
+  I.where = where;
+  var el = $('i-scan');
+  if (!el && TAB === 'in') {
+    hdrSum('in', '<div class="insumw"><input class="srchin insum" id="i-scan" aria-label="입력 · 요약" placeholder="예시: 230-1210 20롤" autocomplete="off" enterkeyhint="done"' +
+      ' oninput="inType(this.value)" onfocus="this.select()" onblur="hdrIn(I.where)" onkeydown="if(event.key===\'Enter\')this.blur()">' +
+      '<button class="insx" id="i-scanx" onclick="inClear()" aria-label="입력 지우기">×</button></div>');
+    el = $('i-scan');
+  }
+  if (!el) return;
+  if (document.activeElement !== el) el.value = inSumText(where);
+  // 값이 일부만 있을 때 = 빨간 테두리 (평량 · 지폭 · 제지사 중 빠짐) · 빈 칸이면 [×] 숨김
+  el.classList.toggle('miss', !!el.value && inMissing().length > 0);
+  $('i-scanx').style.display = el.value ? 'block' : 'none';
 }
 function saveIn() {
   var g = $('i-grade').value, mk = $('i-maker').value;
@@ -2779,7 +2805,7 @@ function saveInGo(p) {
         return q.k === x[0] && (q.v === x[1] || (x[0] === '제지사' && canonMaker(x[1]) !== x[1].replace(/\s+/g, '').replace(/제지$/, '')));
       })) { S.quickAll.push({ k: x[0], v: x[1], st: '확인', alias: '', maker: '' }); navBadge(); }
     }); toast((p.rem ? '잔량 반납 저장: ' : '입고 저장: ') + p.gsm + '×' + p.width + ' ' + p.qty + '롤 → ' + (p.parts ? p.parts.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(' · ') : locLabel(p.loc)));
-    $('i-scan').value = ''; I.qty = 1; I.memo = ''; I.locManual = false; I.mkAuto = null; $('i-ocr').style.display = 'none'; renderIn();
+    I.qty = 1; I.memo = ''; I.locManual = false; I.mkAuto = null; $('i-ocr').style.display = 'none'; renderIn();
   });
 }
 
@@ -4198,8 +4224,6 @@ function renderSet() {
   $('set-aging').value = agingDays();
   if (!$('op-base').value) $('op-base').value = todayStr();
   renderWorkerBox(); renderWorkers();
-  var hand = localStorage.getItem('hand') || 'scan';
-  [].forEach.call(document.querySelectorAll('input[name=hand]'), function (r) { r.checked = r.value === hand; });
   [].forEach.call(document.querySelectorAll('input[name=ocrEng]'), function (r) { r.checked = r.value === ocrEng(); });
   padStatus();
 }
@@ -4269,7 +4293,6 @@ function agingEdit() {
 }
 function saveLocal() {
   if ($('set-worker')) lsSet('worker', $('set-worker').value.trim().replace(/\s+/g, ' '));   // 처음 도입용 직접 입력
-  var r = document.querySelector('input[name=hand]:checked'); if (r) lsSet('hand', r.value);
   var e = document.querySelector('input[name=ocrEng]:checked');
   if (e && e.value !== ocrEng()) { lsSet('ocrEng', e.value); padStatus(); if (e.value !== 'drive') padReady(); }
   toast('저장됨');
