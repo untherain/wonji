@@ -141,6 +141,7 @@
   .map > .cell { height:auto; align-self:stretch; display:flex; flex-direction:column; }
   .map > .cell .bar { margin-top:auto; } .map > .cell .bar::before { content:none; }
   .map > .cell > .sl:last-of-type, .map > .cell > .s { margin-bottom:4px; }
+  .sub.flash { outline:3px solid var(--y); outline-offset:2px; border-radius:10px; transition:outline-color .3s; }
   .onlybar { margin:8px 0 0; padding:6px 10px; border-radius:8px; background:#FFF6D6; border:1px solid var(--y); font-weight:900; font-size:13px; }
   .mainent { margin:4px 0 0; padding:6px 0; text-align:center; font-weight:900; font-size:13px; color:var(--ink); border-top:3px solid var(--y); }
   .bstrip { margin:4px 0 8px; }
@@ -1099,7 +1100,7 @@ function renderMap() {
     }
     function brCell(b, z, i) {
       var mid = Math.floor((b.lo + b.hi) / 2) === i;   // 묶음 가운데 줄에만 글자
-      return '<div class="cell brcell"><span>' + (mid ? '가지 통로 · ' + esc(keyOf(w.id + '-' + z.code + '-' + pad(b.lo))) + (b.hi > b.lo ? '~' + pad(b.hi) : '') : '') + '</span></div>';
+      return '<div class="cell brcell"' + (MV || ST ? '' : ' data-lp="row:' + w.id + '-' + z.code + '-' + pad(i) + '"') + '><span>' + (mid ? '가지 통로 · ' + esc(keyOf(w.id + '-' + z.code + '-' + pad(b.lo))) + (b.hi > b.lo ? '~' + pad(b.hi) : '') : '') + '</span></div>';
     }
     // 상하 바꾸기(역순): 끝 번호 줄이 위
     for (var j = 1; j <= n; j++) {
@@ -1113,11 +1114,11 @@ function renderMap() {
     flush();
     return out || '<div class="map"></div>';
   }
-  var html = (w.only || []).length ? '<div class="onlybar">' + esc(w.only.join(' · ')) + ' 전용 창고</div>' : '';
+  var html = (w.only || []).length ? '<div class="onlybar" data-lp="whs:' + w.id + ':only">' + esc(w.only.join(' · ')) + ' 전용 창고</div>' : '';
   bandsOf(w).forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 좌 | 통로 | 우 (빈칸 가능)
     html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' + pairRows(pair[0], pair[1]);
   });
-  html += '<div class="mainent">▲ 주 출입구</div>';   // 지도 = 주 출입구(상차 공간)에서 들어가며 본 평면도 · 주 출입구 항상 아래
+  html += '<div class="mainent" data-lp="whs:' + w.id + ':zone">▲ 주 출입구</div>';   // 지도 = 주 출입구(상차 공간)에서 들어가며 본 평면도 · 주 출입구 항상 아래
   $('m-body').innerHTML = html;
   // 창고를 처음 보여 줄 때(앱 시작 · 창고 변경): 주 출입구(아래)에 맞춰 시작 · 다시 그릴 때는 현재 위치 유지
   if (renderMap.shownWh !== M.wh && !(fo && fh.length)) {
@@ -1965,10 +1966,12 @@ function spInput(k) {
 }
 /* 공통: 길게 누르기 = 그 자리에서 설정 수정 (설정 탭에 들어가지 않음)
    data-qk/qv = 값 버튼(평량 · 지폭 · 지종 · 제지사 · 출고처) → qEdit
-   data-lp = 'wh:창고번호'(창고 버튼 · 구역 머리말) · 'row:위치'(지도 줄) · 'aging'(장기 재고 기준일) · 'test'(테스트 모드) → lpAct */
+   data-lp = 'wh:창고번호'(창고 버튼 · 구역 머리말 · 작업 탭 창고 카드) · 'whs:창고번호:항목'(전용 창고 표시 → only · 주 출입구 표시 → zone)
+           · 'row:위치'(지도 줄 · 가지 통로 칸 · 입고 적재 안내) · 'aging'(장기 재고 기준일) · 'test'(테스트 모드) → lpAct */
 function lpAct(s) {
   var p = String(s).split(':'), k = p[0], v = p.slice(1).join(':');
   if (k === 'wh') return openWhCfg(v);
+  if (k === 'whs') { var q = v.split(':'); return openWhCfg(q[0], q[1]); }   // 창고 설정 특정 항목 (only · zone · rule)
   if (k === 'row') { if (MV) return; openRow(v, 'cfg'); return; }
   if (k === 'aging') return agingEdit();
   if (k === 'test') return ask({ title: '테스트 모드 끄기', msg: '이후 입력 건은 실제 기록', input: false, ok: '끄기' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
@@ -2627,6 +2630,7 @@ function inHint() {
   $('i-locTag').innerHTML = auto ? '<span class="sugtag">추천</span>'
     : (I.locManual && I.gsm && I.width && (multi || sug !== code)) ? '<button class="btn2" style="height:26px; padding:0 10px; font-size:12px" onclick="useSug()">추천 위치로</button>' : '';
   $('i-hint').textContent = h;
+  if (!multi && code) $('i-hint').dataset.lp = 'row:' + code; else delete $('i-hint').dataset.lp;   // 길게 누르기 = 그 줄 설정
   $('i-hint').style.color = bad ? '#9A1C1C' : 'var(--ok)';
   var where = multi ? '분산 ' + I.parts.length + '줄' : keyOf(code || '');
   var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
@@ -2668,7 +2672,7 @@ function renderMng() {
     var slots = 0, used = 0;
     eachRow(w, function (z, key, code) { var ri = rowInfo(code); if (!ri.cfg.off) slots += ri.slots; used += ri.used; });
     var pct = slots ? Math.round(used / slots * 100) : 0;
-    return '<div class="card" style="padding:8px 10px; margin:0"><b>' + esc(w.name) + '</b> <span class="muted">' + n + '롤</span><div class="bar" style="height:6px; margin-top:6px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:11px">적재율 ' + pct + '%</div></div>';
+    return '<div class="card" data-lp="wh:' + w.id + '" style="padding:8px 10px; margin:0"><b>' + esc(w.name) + '</b> <span class="muted">' + n + '롤</span><div class="bar" style="height:6px; margin-top:6px"><i style="width:' + pct + '%"></i></div><div class="muted" style="font-size:11px">적재율 ' + pct + '%</div></div>';
   }).join('') + '</div>';
   if (['출고', '이동', '실사'].indexOf(G.mode) < 0) G.mode = '출고';
   seg($('g-seg'), ['출고', '이동', '실사'], G.mode, function (m) { G.mode = m; G.item = null; G.cnt = null; renderMng(); });
@@ -3436,18 +3440,18 @@ function renderWh() {
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
-      '<div class="sub"><h3>전용 제지사</h3><div class="muted" style="margin:-4px 0 6px">비움 = 전체 허용 · 지정 시 추천은 해당 제지사만 · 다른 제지사 입고 · 이동은 확인 후 진행</div>' +
+      '<div class="sub" id="whsec-only"><h3>전용 제지사</h3><div class="muted" style="margin:-4px 0 6px">비움 = 전체 허용 · 지정 시 추천은 해당 제지사만 · 다른 제지사 입고 · 이동은 확인 후 진행</div>' +
       '<div class="row" style="gap:6px; flex-wrap:wrap; justify-content:flex-start">' +
       (w.only || []).map(function (m, k) { return '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px" onclick="onlyDel(' + i + ',' + k + ')">' + esc(m) + ' ✕</button>'; }).join('') +
       '<select class="mini" style="width:130px; flex:none; padding:0 6px" onchange="onlyAdd(' + i + ', this.value)" aria-label="전용 제지사 추가"><option value="">+ 제지사</option>' +
       (S.quick['제지사'] || []).filter(function (m) { return (w.only || []).indexOf(m) < 0; }).map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
-      '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 1-01 · 2상-13) · 별칭 필수 · 구역마다 위치(통로 · 면) 지정</div>' + zones +
+      '<div class="sub" id="whsec-zone"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 1-01 · 2상-13) · 별칭 필수 · 구역마다 위치(통로 · 면) 지정</div>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span style="font-size:13px; font-weight:700">01번 줄 위치</span>' +
       '<select class="mini" style="width:120px; flex:none; padding:0 6px" onchange="setEntrance(' + i + ', this.value)" aria-label="01번 줄 위치">' +
       '<option value="in"' + (w.rev ? ' selected' : '') + '>입구 쪽</option><option value="far"' + (w.rev ? '' : ' selected') + '>안쪽</option></select></div>' +
       '<div class="muted" style="font-size:12px; margin:-4px 0 8px">지도: 주 출입구 아래 고정 · 열 번호 = 주 출입구에서 왼쪽부터 1·2·3</div>' +
       '<button class="btn2" style="height:38px" onclick="addZone(' + i + ')">+ 구역 추가</button></div>' +
-      '<div class="sub"><h3>적재 기준 (지폭 → 최대 적재 단수)</h3>' +
+      '<div class="sub" id="whsec-rule"><h3>적재 기준 (지폭 → 최대 적재 단수)</h3>' +
       '<div class="row" style="margin-bottom:6px"><span>줄당 칸 수 (기본)</span>' + inp(i + '.slots', w.slots, true, ' style="width:52px; flex:none; text-align:center; padding:0 4px" aria-label="줄당 칸 수"') + '</div>' + rule +
       '<button class="btn2" style="height:38px" onclick="addRule(' + i + ')">+ 지폭 구간 추가</button></div>' +
       '<div class="sub"><h3>줄 개별 설정</h3><div class="muted" style="margin:-4px 0 4px">보관 용도 · 칸 수 · 최대 단수 · 사용 상태</div>' + (ex || '<div class="muted">없음 — 위치 현황에서 줄 선택 후 [줄 설정]으로도 추가 가능</div>') +
@@ -3612,12 +3616,17 @@ function saveWh() {
   });
 }
 /* 지도에서 창고 설정 열기 (창고 버튼 · 구역 머리말 길게 누르기): 설정 탭과 같은 편집기 · 같은 저장 */
-function openWhCfg(id) {
+function openWhCfg(id, sec) {
   if (MV) return;
   W = cloneWhs();
   WI = Math.max(0, W.map(function (w) { return String(w.id); }).indexOf(String(id)));
   SH = { code: null, mode: 'wh' };
   renderSheet();
+  if (sec) setTimeout(function () {   // 해당 항목으로 이동 + 잠깐 강조
+    var el = document.getElementById('whsec-' + sec); if (!el) return;
+    try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+    el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1400);
+  }, 60);
 }
 function sheetWh() {
   var w = W[WI];
