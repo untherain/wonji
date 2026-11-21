@@ -142,7 +142,6 @@
   .map > .cell .bar { margin-top:auto; } .map > .cell .bar::before { content:none; }
   .map > .cell > .sl:last-of-type, .map > .cell > .s { margin-bottom:4px; }
   .sub.flash { outline:3px solid var(--y); outline-offset:2px; border-radius:10px; transition:outline-color .3s; }
-  .onlybar { margin:8px 0 0; padding:5px 10px; border-radius:8px; background:#FFF6D6; border:1px solid var(--y); color:var(--ink); font-weight:900; font-size:13px; }
   .mainent { margin:4px 0 0; padding:6px 0; text-align:center; font-weight:900; font-size:13px; color:var(--ink); border-top:3px solid var(--y); }
   .bstrip { margin:4px 0 8px; }
   .bhead { font-weight:900; font-size:14px; margin-bottom:4px; }
@@ -997,7 +996,7 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
-  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div><div id="m-only"></div>' + (MV ? moveBand() :
+  $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() :
     searchBar() + progLine() + (ST ? '<div class="ehint">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
@@ -1114,8 +1113,6 @@ function renderMap() {
     flush();
     return out || '<div class="map"></div>';
   }
-  // 전용 창고 표시: 상단 고정 영역 (지도를 주 출입구 쪽으로 스크롤해도 항상 보임) · 길게 누르기 = 전용 제지사 설정
-  $('m-only').innerHTML = (w.only || []).length ? '<div class="onlybar" data-lp="whs:' + w.id + ':only">' + esc(w.only.join(' · ')) + ' 전용 창고</div>' : '';
   var html = '';
   bandsOf(w).forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 좌 | 통로 | 우 (빈칸 가능)
     html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' + pairRows(pair[0], pair[1]);
@@ -1968,7 +1965,7 @@ function spInput(k) {
 }
 /* 공통: 길게 누르기 = 그 자리에서 설정 수정 (설정 탭에 들어가지 않음)
    data-qk/qv = 값 버튼(평량 · 지폭 · 지종 · 제지사 · 출고처) → qEdit
-   data-lp = 'wh:창고번호'(창고 버튼 · 구역 머리말 · 작업 탭 창고 카드) · 'whs:창고번호:항목'(전용 창고 표시 → only · 주 출입구 표시 → zone)
+   data-lp = 'wh:창고번호'(창고 버튼 · 구역 머리말 · 작업 탭 창고 카드) · 'whs:창고번호:항목'(주 출입구 표시 → zone)
            · 'row:위치'(지도 줄 · 가지 통로 칸 · 입고 적재 안내) · 'aging'(장기 재고 기준일) · 'test'(테스트 모드) → lpAct */
 function lpAct(s) {
   var p = String(s).split(':'), k = p[0], v = p.slice(1).join(':');
