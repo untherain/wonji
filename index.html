@@ -1294,12 +1294,23 @@ try { MJ = JSON.parse(localStorage.getItem('mergeJob') || 'null'); } catch (e) {
 function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
 function mjLeft() { return MJ ? MJ.moves.filter(function (m) { return !m.done; }).length : 0; }
 function openMerge() { SH = { code: null, mode: 'merge' }; renderSheet(); }
+/* 미완료 모으기 작업이 있을 때: 기존 작업 계속 / 신규 작업 시작(잔여분 삭제) 선택 (작업 목록은 한 번에 1개) */
+function mjBusy(startNew) {
+  var left = mjLeft();
+  ask({ title: '미완료 모으기 작업 존재', input: false, list: true,
+    msg: distTitle(MJ.sig) + (MJ.here ? ' · 도착 ' + keyOf(MJ.here) : '') + ' · 잔여 ' + left + '건',
+    chips: [{ v: 'go', t: '기존 작업 계속', sub: distTitle(MJ.sig) + ' 이동 화면' },
+            { v: 'new', t: '신규 작업 시작', sub: '잔여 ' + left + '건 삭제 · 완료분 재고 유지' }] },
+    function (v) {
+      if (v === 'go') openMerge();
+      else if (v === 'new') { MJ = null; mjSave(); startNew(); }
+    });
+}
 function startMerge(enc) {
   var sig = decodeURIComponent(enc);
   if (MJ && MJ.sig === sig) return openMerge();
   if (MJ && mjLeft()) {
-    ask({ title: '진행 중 작업 목록', msg: distTitle(MJ.sig) + ' · 잔여 ' + mjLeft() + '건\n신규 목록으로 교체 (완료분 유지)', input: false, ok: '교체' },
-      function (y) { if (y) { MJ = null; mjSave(); consolidate(enc); } });
+    mjBusy(function () { consolidate(enc); });
     return;
   }
   consolidate(enc);
@@ -1389,8 +1400,7 @@ function mergeHere(i) {
     MJ = J; mjSave(); openMerge();
   };
   if (MJ && mjLeft()) {
-    ask({ title: '진행 중 작업 목록', msg: distTitle(MJ.sig) + ' · 잔여 ' + mjLeft() + '건\n신규 목록으로 교체 (완료분 유지)', input: false, ok: '교체' },
-      function (y) { if (y) { MJ = null; mjSave(); go(); } });
+    mjBusy(go);
     return;
   }
   go();
