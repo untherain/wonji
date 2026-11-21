@@ -2523,16 +2523,42 @@ function suggestLoc() {
   var g = curGrade();
   return sugCands().filter(function (c) { return freeFor(c, I.gsm, I.width, g) >= I.qty; })[0] || null;
 }
-/* 분산 추천: 한 줄에 전량 불가 → 후보 순서대로 남은 자리만큼 채움. 전 창고 자리 부족이면 null */
+/* 분산 추천: 한 줄에 전량 불가 → 여러 줄로 분할. 전 창고 자리 부족이면 null
+   ① 붙어 있는 줄 묶음(같은 구역 · 연속 번호 · 후보 줄만) 중 줄 수 최소 → 같은 규격 줄 많은 묶음 → 입구 쪽(추천 순서 앞)
+   ② 묶음으로 불가 → 빈 자리 큰 줄부터 (줄 수 최소)
+   ③ 고른 줄 안 채우는 순서 = 추천 순서 (같은 규격 줄 먼저) */
 function splitPlan() {
   if (!I.gsm || !I.width) return null;
-  var g = curGrade(), left = I.qty, out = [];
-  sugCands().forEach(function (c) {
-    if (left <= 0) return;
-    var n = Math.min(freeFor(c, I.gsm, I.width, g), left);
-    if (n > 0) { out.push({ loc: c, qty: n }); left -= n; }
+  var g = curGrade(), cands = sugCands(), rank = {}, free = {}, same = {};
+  cands.forEach(function (c, i) {
+    rank[c] = i; free[c] = freeFor(c, I.gsm, I.width, g);
+    same[c] = rowInfo(c).items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; }) ? 1 : 0;
   });
-  return left > 0 ? null : out;
+  var use = cands.filter(function (c) { return free[c] > 0; });
+  if (use.reduce(function (a, c) { return a + free[c]; }, 0) < I.qty) return null;
+  var best = null;
+  use.forEach(function (start) {
+    var p = start.split('-'), n = +p[2], rows = [], sum = 0;
+    while (sum < I.qty) {
+      var c = p[0] + '-' + p[1] + '-' + pad(n);
+      if (!(free[c] > 0)) break;
+      rows.push(c); sum += free[c]; n++;
+    }
+    if (sum < I.qty) return;
+    var sc = [rows.length, -rows.reduce(function (a, c) { return a + same[c]; }, 0), rows.reduce(function (a, c) { return a + rank[c]; }, 0)];
+    if (!best || sc[0] < best.sc[0] || (sc[0] === best.sc[0] && (sc[1] < best.sc[1] || (sc[1] === best.sc[1] && sc[2] < best.sc[2])))) best = { rows: rows, sc: sc };
+  });
+  var rows;
+  if (best) rows = best.rows;
+  else {
+    rows = []; var sum = 0;
+    use.slice().sort(function (a, b) { return free[b] - free[a] || rank[a] - rank[b]; })
+      .forEach(function (c) { if (sum < I.qty) { rows.push(c); sum += free[c]; } });
+  }
+  var left = I.qty, qty = {};
+  rows.slice().sort(function (a, b) { return rank[a] - rank[b]; })
+    .forEach(function (c) { var q = Math.min(free[c], left); qty[c] = q; left -= q; });
+  return rows.filter(function (c) { return qty[c] > 0; }).map(function (c) { return { loc: c, qty: qty[c] }; });
 }
 function inHint() {
   autoLoc();
