@@ -441,6 +441,7 @@
     </div>
     <h2>보관 위치</h2>
     <div id="i-loc"></div>
+    <div id="i-plan" style="display:none"></div>
     <div class="muted" id="i-hint" style="margin:6px 0 10px; color:var(--ok); font-weight:700"></div>
     <div class="muted" id="i-sum" style="text-align:center; margin:8px 0"></div>
     <button class="btn" id="i-save" onclick="saveIn()">입고 저장</button>
@@ -2480,40 +2481,62 @@ function curGrade() { var g = $('i-grade').value; return g === '__new' ? '' : g;
 /* 보관 위치: 직접 선택 전까지 추천 위치 자동 반영 (규격 · 수량 · 지종 변경 시마다) */
 function inPick() { I.locManual = true; inHint(); }
 function autoLoc() {
+  I.plan = null;
   if (I.locManual) return;
   var sug = suggestLoc();
-  if (sug && sug !== $('i-loc').dataset.code) locPicker($('i-loc'), sug, inPick);
+  if (sug) { if (sug !== $('i-loc').dataset.code) locPicker($('i-loc'), sug, inPick); }
+  else I.plan = splitPlan();   // 한 줄에 전량 불가 → 분산 추천
 }
 function useSug() { I.locManual = false; inHint(); }
-/* 추천: ① 같은 규격이 있고 자리가 남은 줄 → ② 빈 줄 */
-function suggestLoc() {
-  if (!I.gsm || !I.width) return null;
-  var g = curGrade(), seen = {};
-  if (I.rem) {   // 잔량: 같은 규격 잔량이 있는 잔량 전용 줄 → 자리 있는 잔량 전용 줄 → 일반 추천
+function pickOwn() { I.locManual = true; inHint(); }   // 분산 추천 대신 한 줄 직접 선택
+/* 분산 추천 목록 (보관 위치 자리에 표시) */
+function planBox() {
+  var on = !!I.plan;
+  $('i-loc').style.display = on ? 'none' : '';
+  $('i-plan').style.display = on ? 'block' : 'none';
+  if (!on) return;
+  $('i-plan').innerHTML = '<div class="locbox">' + I.plan.map(function (x, k) {
+    return '<div class="row" style="padding:6px 2px;' + (k ? ' border-top:1px solid var(--line);' : '') + '"><b>' + esc(locLabel(x.loc)) + '</b><span style="font-weight:800">' + x.qty + '롤</span></div>';
+  }).join('') + '<button class="btn2" style="width:100%; margin-top:6px" onclick="pickOwn()">직접 선택 (한 줄)</button></div>';
+}
+/* 추천 후보 순서: (잔량) 같은 규격 잔량 있는 잔량 전용 줄 → 잔량 전용 줄 → 같은 규격 줄(오래된 입고 순) → 빈 줄(01번 = 입구 쪽부터)
+   잔량 전용 · 출하 대기 등 다른 용도 줄과 다른 규격이 있는 줄은 제외 */
+function sugCands() {
+  var out = [], seen = {};
+  function add(c) { if (!seen[c]) { seen[c] = 1; out.push(c); } }
+  if (I.rem) {
     var remRows = [];
     S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { var c = rowInfo(code).cfg; if (!c.off && c.use === '잔량 전용') remRows.push(code); }); });
-    var fit = function (c) { return freeFor(c, I.gsm, I.width, g) >= I.qty; };
-    var hit = remRows.filter(function (c) { return fit(c) && S.stock.some(function (s) { return s.loc === c && s.rem && s.gsm == I.gsm && s.width == I.width; }); })[0] || remRows.filter(fit)[0];
-    if (hit) return hit;
+    remRows.filter(function (c) { return S.stock.some(function (s) { return s.loc === c && s.rem && s.gsm == I.gsm && s.width == I.width; }); }).forEach(add);
+    remRows.forEach(add);
   }
-  var same = S.stock.filter(function (s) { return s.gsm == I.gsm && s.width == I.width; })
-    .sort(function (a, b) { return a.date.localeCompare(b.date); });
-  function normalRow(code) { var c = rowInfo(code).cfg; return !c.off && (!c.use || c.use === '원지'); }  // 잔량 전용·출하 대기 등은 추천 안 함
-  for (var i = 0; i < same.length; i++) {
-    var c = same[i].loc; if (seen[c]) continue; seen[c] = 1;
-    if (normalRow(c) && freeFor(c, I.gsm, I.width, g) >= I.qty) return c;
-  }
-  var found = null;
-  S.whs.some(function (w) {
-    eachRow(w, function (z, key, code) {
-      if (!found && normalRow(code) && rowInfo(code).rolls === 0 && freeFor(code, I.gsm, I.width, g) >= I.qty) found = code;
-    });
-    return !!found;
+  function normalRow(code) { var c = rowInfo(code).cfg; return !c.off && (!c.use || c.use === '원지'); }
+  S.stock.filter(function (s) { return s.gsm == I.gsm && s.width == I.width; })
+    .sort(function (a, b) { return a.date.localeCompare(b.date); })
+    .forEach(function (s) { if (normalRow(s.loc)) add(s.loc); });
+  S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (normalRow(code) && rowInfo(code).rolls === 0) add(code); }); });
+  return out;
+}
+/* 추천 위치: 전량 수용 가능한 첫 후보 */
+function suggestLoc() {
+  if (!I.gsm || !I.width) return null;
+  var g = curGrade();
+  return sugCands().filter(function (c) { return freeFor(c, I.gsm, I.width, g) >= I.qty; })[0] || null;
+}
+/* 분산 추천: 한 줄에 전량 불가 → 후보 순서대로 남은 자리만큼 채움. 전 창고 자리 부족이면 null */
+function splitPlan() {
+  if (!I.gsm || !I.width) return null;
+  var g = curGrade(), left = I.qty, out = [];
+  sugCands().forEach(function (c) {
+    if (left <= 0) return;
+    var n = Math.min(freeFor(c, I.gsm, I.width, g), left);
+    if (n > 0) { out.push({ loc: c, qty: n }); left -= n; }
   });
-  return found;
+  return left > 0 ? null : out;
 }
 function inHint() {
   autoLoc();
+  planBox();
   var code = $('i-loc').dataset.code;
   var ri = rowInfo(code), g = curGrade();
   var sameHere = ri.items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; });
@@ -2530,17 +2553,19 @@ function inHint() {
   if (sameHere) h += ' · 같은 규격 있음';
   var tail = '';
   if (I.gsm && I.width) {
-    if (!sug) tail = ' · 전량 수용 위치 없음 (분할 입고 필요)';
+    if (!sug) tail = I.locManual ? ' · 전량 수용 위치 없음 <button class="btn2" style="height:26px; padding:0 8px; font-size:12px; margin-left:4px" onclick="useSug()">분산 추천</button>' : '';
     else if (sug === code) tail = I.locManual ? '' : ' · 추천 위치 적용';
     else tail = ' · 추천 위치: ' + esc(locLabel(sug)) + ' <button class="btn2" style="height:26px; padding:0 8px; font-size:12px; margin-left:4px" onclick="useSug()">추천 적용</button>';
   }
+  if (I.plan) { h = '분산 추천 ' + I.plan.length + '줄 · 전량 ' + I.qty + '롤 (한 줄 수용 불가)'; tail = ''; }
+  else if (!I.locManual && I.gsm && I.width && !sug) tail = ' · 전 창고 적재 공간 부족';
   $('i-hint').innerHTML = esc(h) + tail;
-  $('i-hint').style.color = (ri.w && I.width && I.qty > freeFor(code, I.gsm, I.width, g)) ? '#9A1C1C' : 'var(--ok)';
+  $('i-hint').style.color = !I.plan && ((ri.w && I.width && I.qty > freeFor(code, I.gsm, I.width, g)) || (!I.locManual && I.gsm && I.width && !sug)) ? '#9A1C1C' : 'var(--ok)';
   var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
   hdrSum('in', sLine([P(imk, '제지사', 'i-maker', null, false), imk ? ' ' : '', P(I.gsm, '평량', 'i-gsm'), P(I.width, '지폭', 'i-width', null, true, '×'),
-    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(keyOf(code || ''), '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
+    P(I.qty + '롤', '롤 수', 'i-qty', null, true, ' · '), P(curGrade(), '지종', 'i-grade', null, false, ' · '), P(I.plan ? '분산 ' + I.plan.length + '줄' : keyOf(code || ''), '위치', 'i-loc', null, true, ' → ')].concat(I.rem ? [P(I.from ? '반납 ' + I.from : '', '반납 호기', 'i-from', null, true, ' · ')] : [])));
   $('i-sum').style.display = 'none';
-  $('i-sum').textContent = (I.rem ? '[잔량 반납] ' + (I.from || '호기?') + ' · ' : '') + (I.gsm || '?') + ' × ' + (I.width || '?') + ' · ' + I.qty + '롤 → ' + locLabel(code || '');
+  $('i-sum').textContent = (I.rem ? '[잔량 반납] ' + (I.from || '호기?') + ' · ' : '') + (I.gsm || '?') + ' × ' + (I.width || '?') + ' · ' + I.qty + '롤 → ' + (I.plan ? '분산 ' + I.plan.length + '줄' : locLabel(code || ''));
 }
 function saveIn() {
   var g = $('i-grade').value, mk = $('i-maker').value;
@@ -2548,6 +2573,7 @@ function saveIn() {
   var p = { loc: $('i-loc').dataset.code, gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: mk === '__new' ? '' : mk, worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
+  if (I.plan) { p.parts = I.plan.map(function (x) { return { loc: x.loc, qty: x.qty }; }); p.loc = p.parts[0].loc; }
   call('intake', p).then(function (stock) {
     setStock(stock);
     [['지종', p.grade], ['제지사', p.maker]].forEach(function (x) {
@@ -2556,7 +2582,7 @@ function saveIn() {
       if (x[1] && !(S.quickAll || []).some(function (q) {
         return q.k === x[0] && (q.v === x[1] || (x[0] === '제지사' && canonMaker(x[1]) !== x[1].replace(/\s+/g, '').replace(/제지$/, '')));
       })) { S.quickAll.push({ k: x[0], v: x[1], st: '확인', alias: '', maker: '' }); navBadge(); }
-    }); toast((p.rem ? '잔량 반납 저장: ' : '입고 저장: ') + p.gsm + '×' + p.width + ' ' + p.qty + '롤 → ' + locLabel(p.loc));
+    }); toast((p.rem ? '잔량 반납 저장: ' : '입고 저장: ') + p.gsm + '×' + p.width + ' ' + p.qty + '롤 → ' + (p.parts ? p.parts.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(' · ') : locLabel(p.loc)));
     $('i-scan').value = ''; I.qty = 1; I.memo = ''; I.locManual = false; $('i-ocr').style.display = 'none'; renderIn();
   });
 }
