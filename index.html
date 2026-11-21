@@ -472,6 +472,13 @@
     <div class="stab" data-k="me">
     <h2>작업자 로그인</h2>
     <div id="set-workerBox"></div>
+    <h2>사진 글자 인식</h2>
+    <div class="card">
+      <label class="radio"><input type="radio" name="ocrEng" value="drive" onchange="saveLocal()"> <span><b>구글 드라이브</b> (서버)</span></label>
+      <label class="radio"><input type="radio" name="ocrEng" value="ko5" onchange="saveLocal()"> <span><b>PaddleOCR 한국어</b> (폰 · 시험)</span></label>
+      <label class="radio"><input type="radio" name="ocrEng" value="v6" onchange="saveLocal()"> <span><b>PaddleOCR 다국어</b> (폰 · 시험 · 한글 약함)</span></label>
+      <div class="muted" id="ocr-st" style="margin-top:4px"></div>
+    </div>
     <h2>입고 직접 입력 칸</h2>
     <div class="card">
       <label class="radio"><input type="radio" name="hand" value="scan" onchange="saveLocal()"> <span><b>표시</b></span></label>
@@ -695,7 +702,7 @@ document.addEventListener('click', function (e) {
   var b = e.target && e.target.closest ? e.target.closest('button') : null;
   if (b) { lastBtn = b; lastBtnAt = Date.now(); }
 }, true);
-var NO_BLOCK = { ocrPhoto: 1, getHistory: 1, getStock: 1, getReport: 1 };
+var NO_BLOCK = { ocrPhoto: 1, ocrPhotoText: 1, getHistory: 1, getStock: 1, getReport: 1 };
 function busy(on, block) {
   BUSY = Math.max(0, BUSY + (on ? 1 : -1));
   $('busy').style.display = BUSY ? 'block' : 'none';
@@ -1613,11 +1620,73 @@ function photoBar(fn, note) {
   return '<div class="phbar"><div class="grid2"><button class="btn2 cam" onclick="' + fn + '(true)">' + ICON_CAM + '카메라</button>' +
     '<button class="btn2" onclick="' + fn + '(false)">' + ICON_ALB + '앨범</button></div>' + (note ? '<div class="phnote' + (bad ? ' bad' : '') + '">' + note + '</div>' : '') + '</div>';
 }
+/* ===== 공통 부품: 사진 글자 인식 — 설정 엔진 (구글 드라이브 = 서버 · PaddleOCR = 폰 안에서 읽고 서버는 해석만)
+   ocrCall('ocrPhoto' | 'ocrPlan', 사진) → 서버 결과와 같은 모양 · PaddleOCR 실패 시 구글 드라이브로 자동 전환 ===== */
+var PAD = { svc: null, p: null, st: '' };
+function ocrEng() { return lsGet('ocrEng') || 'drive'; }
+function padStatus(t) { if (t != null) PAD.st = t; var el = $('ocr-st'); if (el) el.textContent = ocrEng() === 'drive' ? '' : PAD.st; }
+function padReady() {
+  if (PAD.p) return PAD.p;
+  if (!document.querySelector('script[type=importmap]')) {
+    var m = document.createElement('script'); m.type = 'importmap';
+    m.textContent = JSON.stringify({ imports: {
+      'onnxruntime-web': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.all.bundle.min.mjs',
+      'ppu-ocv/web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.web.js',
+      'ppu-ocv/canvas-web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.canvas-web.js' } });
+    document.head.appendChild(m);
+  }
+  var t0 = Date.now(), eng = ocrEng();
+  padStatus('모델 준비 중 (처음 한 번 10~20MB)');
+  PAD.p = import('https://cdn.jsdelivr.net/npm/ppu-paddle-ocr@6.7.1/web/index.js').then(function (mod) {
+    var svc = new mod.PaddleOcrService({ model: mod[eng === 'ko5' ? 'V5_KOREAN_MOBILE_MODEL' : 'V6_SMALL_MODEL'] });
+    return svc.initialize().then(function () { PAD.svc = svc; padStatus('준비 완료 (' + ((Date.now() - t0) / 1000).toFixed(1) + '초)'); return svc; });
+  });
+  PAD.p.catch(function (e) { PAD.p = null; padStatus('모델 준비 실패: ' + ((e && e.message) || e)); });
+  return PAD.p;
+}
+/* 글자 상자 → 줄 단위 글자 (위→아래, 같은 줄은 왼→오른) */
+function padLines(items) {
+  var L = [];
+  items.filter(function (x) { return x.box && x.text; }).sort(function (a, b) { return a.box.y - b.box.y; }).forEach(function (x) {
+    var cy = x.box.y + x.box.height / 2, ln = L.filter(function (l) { return Math.abs(l.cy - cy) < Math.max(l.h, x.box.height) * 0.5; })[0];
+    if (ln) ln.items.push(x); else L.push({ cy: cy, h: x.box.height, items: [x] });
+  });
+  return L.sort(function (a, b) { return a.cy - b.cy; })
+    .map(function (l) { return l.items.sort(function (a, b) { return a.box.x - b.box.x; }).map(function (x) { return x.text; }).join(' '); }).join('\n');
+}
+function padRead(d) {
+  return padReady().then(function (svc) {
+    return new Promise(function (ok, bad) {
+      var img = new Image();
+      img.onload = function () { var c = document.createElement('canvas'); c.width = img.width; c.height = img.height; c.getContext('2d').drawImage(img, 0, 0); ok(c); };
+      img.onerror = bad; img.src = d;
+    }).then(function (c) { return svc.recognize(c, { flatten: true, noCache: true }); })
+      .then(function (r) { return padLines(r.results || []) || r.text || ''; });
+  });
+}
+function ocrCall(kind, d) {
+  if (ocrEng() === 'drive') return call(kind, d);
+  var t0 = Date.now(), blk = kind === 'ocrPlan';
+  busy(true, blk);
+  return padRead(d).then(function (text) {
+    busy(false);
+    var t1 = Date.now();
+    return call(kind + 'Text', text).then(function (r) {
+      toast('PaddleOCR ' + ((t1 - t0) / 1000).toFixed(1) + '초 · 해석 ' + ((Date.now() - t1) / 1000).toFixed(1) + '초');
+      return r;
+    });
+  }, function (e) {
+    busy(false);
+    toast('PaddleOCR 실패 → 구글 드라이브로 읽기 (' + ((e && e.message) || e) + ')', true);
+    return call(kind, d);
+  });
+}
+if (ocrEng() !== 'drive') setTimeout(padReady, 4000);   // 앱 열 때 미리 모델 준비 (첫 촬영 대기 줄임)
 /* 라벨 사진 읽기 (공통): 평량 · 지폭 · 제지사 · 지종 · 롤 수 · 롤번호 등 → cb(r) · 나중에 고른 사진 결과만 반영 */
 function readLabel(cam, cb) {
   pickPhoto(function (d) {
     var my = ++ocrSeq;
-    call('ocrPhoto', d).then(function (r) { if (my === ocrSeq) cb(r || {}); });
+    ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) cb(r || {}); });
   }, cam);
 }
 function labelMemo(r) { return [r.rollNo ? '롤번호 ' + r.rollNo : '', r.weight ? r.weight + 'kg' : '', r.length ? r.length + 'm' : ''].filter(String).join(', '); }
@@ -2442,7 +2511,7 @@ function photoOCR(useCamera) {
     var box = $('i-ocr');
     box.style.display = 'block';
     box.innerHTML = '<img src="' + d + '" alt="찍은 사진" style="width:100%; max-height:170px; object-fit:cover; border-radius:8px"><div class="muted" style="padding:8px 0">글자 읽는 중... (5~15초)</div>';
-    call('ocrPhoto', d).then(function (r) { if (my === ocrSeq) applyOCR(r, d); },
+    ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) applyOCR(r, d); },
       function () { if (my === ocrSeq) box.querySelector('.muted').textContent = '읽기 실패 — 다시 촬영하거나 버튼으로 입력'; });
   }, useCamera);
 }
@@ -3282,7 +3351,7 @@ function planPhoto(cam) {
   function run(add) {
     return function (d) {
       var my = ++planSeq;
-      call('ocrPlan', d).then(function (r) {
+      ocrCall('ocrPlan', d).then(function (r) {
         if (my !== planSeq) return;
         if (!r.items.length) { PL.msg = '규격 못 읽음 — 다시 촬영 또는 빠른 입력'; PL.msgBad = true; renderPlan(); return; }
         if (!PL.date && r.date) PL.date = r.date;
@@ -4125,6 +4194,8 @@ function renderSet() {
   renderWorkerBox(); renderWorkers();
   var hand = localStorage.getItem('hand') || 'scan';
   [].forEach.call(document.querySelectorAll('input[name=hand]'), function (r) { r.checked = r.value === hand; });
+  [].forEach.call(document.querySelectorAll('input[name=ocrEng]'), function (r) { r.checked = r.value === ocrEng(); });
+  padStatus();
 }
 /* ===== 기초재고 일괄 등록 ===== */
 function opBase() { return $('op-base').value || todayStr(); }
@@ -4193,6 +4264,8 @@ function agingEdit() {
 function saveLocal() {
   if ($('set-worker')) lsSet('worker', $('set-worker').value.trim().replace(/\s+/g, ' '));   // 처음 도입용 직접 입력
   var r = document.querySelector('input[name=hand]:checked'); if (r) lsSet('hand', r.value);
+  var e = document.querySelector('input[name=ocrEng]:checked');
+  if (e && e.value !== ocrEng()) { lsSet('ocrEng', e.value); PAD.svc = null; PAD.p = null; if (e.value !== 'drive') padReady(); }
   toast('저장됨');
 }
 
