@@ -474,9 +474,8 @@
     <div id="set-workerBox"></div>
     <h2>사진 글자 인식</h2>
     <div class="card">
+      <label class="radio"><input type="radio" name="ocrEng" value="ko5" onchange="saveLocal()"> <span><b>PaddleOCR</b> (폰)</span></label>
       <label class="radio"><input type="radio" name="ocrEng" value="drive" onchange="saveLocal()"> <span><b>구글 드라이브</b> (서버)</span></label>
-      <label class="radio"><input type="radio" name="ocrEng" value="ko5" onchange="saveLocal()"> <span><b>PaddleOCR 한국어</b> (폰 · 시험)</span></label>
-      <label class="radio"><input type="radio" name="ocrEng" value="v6" onchange="saveLocal()"> <span><b>PaddleOCR 다국어</b> (폰 · 시험 · 한글 약함)</span></label>
       <div class="muted" id="ocr-st" style="margin-top:4px"></div>
     </div>
     <h2>입고 직접 입력 칸</h2>
@@ -1620,10 +1619,10 @@ function photoBar(fn, note) {
   return '<div class="phbar"><div class="grid2"><button class="btn2 cam" onclick="' + fn + '(true)">' + ICON_CAM + '카메라</button>' +
     '<button class="btn2" onclick="' + fn + '(false)">' + ICON_ALB + '앨범</button></div>' + (note ? '<div class="phnote' + (bad ? ' bad' : '') + '">' + note + '</div>' : '') + '</div>';
 }
-/* ===== 공통 부품: 사진 글자 인식 — 설정 엔진 (구글 드라이브 = 서버 · PaddleOCR = 폰 안에서 읽고 서버는 해석만)
+/* ===== 공통 부품: 사진 글자 인식 — PaddleOCR 한국어 (폰 안에서 읽고 서버는 해석만)
    ocrCall('ocrPhoto' | 'ocrPlan', 사진) → 서버 결과와 같은 모양 · PaddleOCR 실패 시 구글 드라이브로 자동 전환 ===== */
 var PAD = { svc: null, p: null, st: '' };
-function ocrEng() { return lsGet('ocrEng') || 'drive'; }
+function ocrEng() { return lsGet('ocrEng') === 'drive' ? 'drive' : 'ko5'; }   // 기본 = PaddleOCR 한국어 · 실패 시 구글 드라이브
 function padStatus(t) { if (t != null) PAD.st = t; var el = $('ocr-st'); if (el) el.textContent = ocrEng() === 'drive' ? '' : PAD.st; }
 function padReady() {
   if (PAD.p) return PAD.p;
@@ -4265,7 +4264,7 @@ function saveLocal() {
   if ($('set-worker')) lsSet('worker', $('set-worker').value.trim().replace(/\s+/g, ' '));   // 처음 도입용 직접 입력
   var r = document.querySelector('input[name=hand]:checked'); if (r) lsSet('hand', r.value);
   var e = document.querySelector('input[name=ocrEng]:checked');
-  if (e && e.value !== ocrEng()) { lsSet('ocrEng', e.value); PAD.svc = null; PAD.p = null; if (e.value !== 'drive') padReady(); }
+  if (e && e.value !== ocrEng()) { lsSet('ocrEng', e.value); padStatus(); if (e.value !== 'drive') padReady(); }
   toast('저장됨');
 }
 
