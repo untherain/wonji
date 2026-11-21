@@ -396,6 +396,13 @@
   #toast .undo { margin-left:auto; flex:none; height:40px; }
   #md-chips { grid-template-columns:repeat(2,1fr); gap:7px; }
   #md-chips.list { grid-template-columns:1fr; max-height:55vh; overflow-y:auto; }
+  #md-chips.pk { gap:4px; }
+  #modal #md-chips.pk .chip.opt { min-height:46px; padding:6px 44px 6px 14px; position:relative; }
+  #md-chips.pk .chip.opt b { font-size:17px; }
+  .mdh { font-size:13px; font-weight:800; color:var(--sub); padding:6px 2px 0; }
+  .mded { position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--sub); border-radius:8px; }
+  #md-search { height:48px; font-size:17px; }
+  select[aria-label="지종"], select[aria-label="제지사"] { pointer-events:none; }   /* 운영체제 목록 대신 앱 선택 창 (누름은 문서에서 받음) */
   #modal .chip.opt { height:auto; min-height:58px; padding:8px 14px; text-align:left; white-space:normal; display:flex; flex-direction:column; justify-content:center; gap:2px; }
   .chip.opt b { font-size:18px; font-weight:900; }
   .chip.opt i { font-style:normal; font-size:12px; font-weight:800; background:var(--y); border-radius:6px; padding:1px 6px; vertical-align:2px; }
@@ -752,7 +759,12 @@ function ask(o, cb) {
   inp.type = o.type || 'text'; inp.value = o.value == null ? '' : o.value; inp.placeholder = o.placeholder || '';
   inp.setAttribute('inputmode', o.numeric ? 'numeric' : 'text');
   var chs = $('md-chips'); chs.innerHTML = ''; chs.style.display = o.chips ? 'grid' : 'none';
-  chs.className = o.list ? 'list' : '';   // list: 1열 (제목+보조줄 선택지)
+  chs.className = (o.list ? 'list' : '') + (o.search ? ' pk' : '');   // list: 1열 (제목+보조줄 선택지) · pk: 선택 목록(촘촘)
+  // 검색칸 (o.search): 글자를 치면 항목 · 묶음 제목을 거름 · Enter = 하나 남았을 때 선택
+  var srch = $('md-search');
+  if (!srch) { srch = document.createElement('input'); srch.id = 'md-search'; srch.type = 'search'; srch.autocomplete = 'off'; srch.placeholder = '🔍 검색'; }
+  srch.value = ''; srch.style.display = o.search ? 'block' : 'none';
+  m.querySelector('.mbox').insertBefore(srch, chs);
   if (o.chips) { inp.style.display = 'none'; ok.style.display = 'none'; }
   else ok.style.display = '';
   ok.parentNode.style.gridTemplateColumns = o.chips ? '1fr' : '';   // 확인 버튼 없으면 취소 전체 폭
@@ -764,22 +776,48 @@ function ask(o, cb) {
     b.onclick = function () { close('\u0001' + x); }; chs.appendChild(b);
   }); }
   (o.chips || []).forEach(function (c) {
+    if (c && c.h) { var hd = document.createElement('div'); hd.className = 'mdh'; hd.textContent = c.h; chs.appendChild(hd); return; }   // 묶음 제목
     var b = document.createElement('button'); b.className = 'chip';
     if (typeof c === 'string') { b.textContent = c; b.onclick = function () { close(c); }; }
-    else {   // { v: 반환값, t: 제목, tag: 배지, sub: 보조줄, off: 비활성 }
+    else {   // { v: 반환값, t: 제목, tag: 배지, sub: 보조줄, off: 비활성, edit: ✎ 편집(o.onEdit) }
       b.className = 'chip opt' + (c.off ? ' off' : '') + (c.tag ? ' rec' : ''); b.disabled = !!c.off;
-      b.innerHTML = '<b>' + esc(c.t) + (c.tag ? ' <i>' + esc(c.tag) + '</i>' : '') + '</b>' + (c.sub ? '<small>' + esc(c.sub) + '</small>' : '');
-      b.onclick = function () { close(c.v); };
+      b.innerHTML = '<b>' + esc(c.t) + (c.tag ? ' <i>' + esc(c.tag) + '</i>' : '') + '</b>' + (c.sub ? '<small>' + esc(c.sub) + '</small>' : '') +
+        (c.edit && o.onEdit ? '<span class="mded" data-ed="1" aria-label="편집">✎</span>' : '');
+      var lp = null, fired = false;
+      if (c.edit && o.onEdit) {   // 길게 누르기 = 편집
+        b.addEventListener('pointerdown', function () { fired = false; lp = setTimeout(function () { fired = true; close(null); o.onEdit(c.v); }, 550); });
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(lp); }); });
+      }
+      b.onclick = function (e) {
+        if (fired) return;
+        if (e.target.closest('[data-ed]')) { close(null); return o.onEdit(c.v); }
+        close(c.v);
+      };
     }
+    b.dataset.s = typeof c === 'string' ? c : (c.t || '') + ' ' + (c.s || '');
+    if (c && c.keep) b.dataset.keep = 1;   // 검색해도 항상 보임 (선택 안 함 · 직접 입력)
     chs.appendChild(b);
   });
+  srch.oninput = function () {
+    var q = normMk(srch.value), kids = [].slice.call(chs.children), lastH = null, shown = 0;
+    kids.forEach(function (el) {
+      if (el.classList.contains('mdh')) { if (lastH) lastH.style.display = shown ? '' : 'none'; lastH = el; shown = 0; return; }
+      var hit = !q || normMk(el.dataset.s).indexOf(q) >= 0 || el.dataset.keep; el.style.display = hit ? '' : 'none'; if (hit) shown++;
+    });
+    if (lastH) lastH.style.display = shown ? '' : 'none';
+  };
+  srch.onkeydown = function (e) {
+    if (e.key !== 'Enter') return;
+    var vis = [].filter.call(chs.querySelectorAll('.chip'), function (el) { return el.style.display !== 'none' && !el.dataset.keep; });
+    if (vis.length === 1) vis[0].click();
+  };
   ok.textContent = o.ok || '확인';
   ok.style.background = o.danger ? '#9A1C1C' : ''; ok.style.color = o.danger ? '#fff' : '';
   m.style.display = 'flex';
   m.onclick = function (e) { if (e.target === m && o.dismiss !== false) close(null); };   // 바깥(배경) 클릭 → 취소 (특별한 경우만 dismiss:false)
   // 터치 처리 안에서 바로 포커스해야 모바일 키보드가 같이 뜸 (setTimeout을 거치면 iOS가 키보드를 막음)
   if (o.input !== false && !o.chips) { inp.focus(); if (inp.value) try { inp.select(); } catch (e) {} }
-  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = inp.onkeydown = m.onclick = null; cb(v); }
+  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = inp.onkeydown = m.onclick = srch.oninput = srch.onkeydown = null; cb(v); }
   ok.onclick = function () {
     if (o.choices) { var d = o.input === false ? '' : inp.value.trim(); return close(sel.value + (d ? ' — ' + d : '')); }
     close(o.input === false ? true : inp.value.trim());
@@ -2234,9 +2272,16 @@ function quickSave(p, msg) {
     applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = null;
     var key = { '평량': 'gsm', '폭': 'width', '제지사': 'maker' }[p.kind];
     [SH && SH.sp, PQ, F, E].forEach(function (o) { if (o && key && p.to && String(o[key]) === String(p.from)) o[key] = p.to; });
-    if (TAB === 'map') { renderMap(); if (SH) renderSheet(); } else if (PKT) PKT.render();
+    pkRefresh();
     toast(msg + ' 완료');
   }, function () {});   // 오류 안내는 call()이 표시
+}
+/* 기준정보가 바뀐 뒤 지금 보이는 화면 다시 그리기 */
+function pkRefresh() {
+  if (TAB === 'map') { renderMap(); if (SH) renderSheet(); }
+  else if (TAB === 'in') renderIn();
+  else if (TAB === 'plan') renderPlan();
+  else if (PKT) PKT.render();
 }
 function quickAddVal(kind, v, done) { call('quickAdd', { kind: kind, v: v }).then(function (qa) { applyQuick(qa); done(); }, function () {}); }
 
@@ -2539,6 +2584,57 @@ function inSumText(where) {
   var mv = $('i-maker').value, imk = mv === MK_UNK ? '제지사 미상' : mv === '__new' ? '' : mv;
   return (imk ? imk + ' ' : '') + (I.gsm || '평량') + '×' + (I.width || '지폭') + ' · ' + I.qty + '롤' +
     (where ? ' → ' + where : '') + (I.rem ? ' · 반납 ' + (I.from || '호기?') : '');
+}
+/* ===== 공통 부품: 지종 · 제지사 선택 창 (운영체제 목록 대신)
+   선택칸(aria-label 지종 · 제지사)을 누르면 열림 · 검색 · 자주 쓰는 순 + 가나다순 · ✎ / 길게 누르기 = 편집
+   고르면 원래 선택칸 값을 바꾸고 change 이벤트 → 화면마다 붙어 있던 처리(자동 제지사 · 추천 위치 등) 그대로 ===== */
+function pickSel(sel) {
+  var kind = sel.getAttribute('aria-label'), cur = sel.value, opts = [].map.call(sel.options, function (o) { return o.value; });
+  var first = sel.options[0] ? sel.options[0].textContent : kind + ' (선택)';
+  var list = (S.quick[kind] || []).slice();
+  opts.forEach(function (v) { if (v && v !== '__new' && list.indexOf(v) < 0) list.push(v); });   // 목록에 없는 현재 값 등
+  var f = list.length > 6 ? freqSplit(kind, list) : { top: [], rest: list };
+  function item(v) {
+    var q = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v === v; })[0] || {};
+    return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v === cur ? '선택됨' : '', edit: !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
+  }
+  var ch = [{ v: '\u0002', t: /전체/.test(first) ? first : '선택 안 함', keep: 1 }];
+  if (f.top.length) ch.push({ h: '자주 쓰는' });
+  ch = ch.concat(f.top.map(item));
+  if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
+  ch = ch.concat(f.rest.map(item));
+  ch.push({ v: '__new', t: '+ 직접 입력', keep: 1 });
+  ask({ title: kind + ' 선택', list: true, search: true, chips: ch, onEdit: function (v) { valEdit(kind, v); } }, function (v) {
+    if (v == null) return;
+    v = v === '\u0002' ? '' : v;
+    if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
+    sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+/* 선택칸은 화면에 그대로 두고 누름만 가로챔 (운영체제 목록 안 뜸) */
+document.addEventListener('click', function (e) {
+  var hit = [].filter.call(document.querySelectorAll('select[aria-label="지종"], select[aria-label="제지사"]'), function (s) {
+    if (!s.offsetParent || s.disabled) return false;
+    var r = s.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  })[0];
+  if (!hit) return;
+  e.preventDefault(); e.stopPropagation(); pickSel(hit);
+}, true);
+/* 값 편집 (선택 창 ✎ · 길게 누르기): 이름 고치기(있는 이름이면 합치기) · 약칭 · 다른 이름 · 기본 제지사(지종) · 사용 중지 · 삭제 */
+function valEdit(kind, v) {
+  var ch = [{ v: 'name', t: '이름 고치기', sub: '재고 · 기록도 함께 · 있는 이름이면 합치기' }, { v: 'more', t: '약칭 · 다른 이름' }];
+  if (kind === '지종') ch.push({ v: 'mk', t: '기본 제지사', sub: ((S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === v; })[0] || {}).maker || '없음' });
+  ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' }, { v: 'del', t: '삭제', sub: '쓰는 중이면 바꾸기 · 빈칸 선택' });
+  ask({ title: kind + ' ' + v, input: false, list: true, chips: ch }, function (a) {
+    if (a === 'name') ask({ title: v + ' 이름 고치기', value: v, ok: '이름 저장' }, function (r) { if (r && r !== v) quickSave({ kind: kind, from: v, to: r }, kind + ' ' + v + ' → ' + r); });
+    else if (a === 'more') valMore(kind, v);
+    else if (a === 'mk') {
+      var mk = (S.quick['제지사'] || []).slice();
+      ask({ title: v + ' 기본 제지사', msg: '이 지종을 고르면 자동 선택', choices: ['없음'].concat(mk), input: false, ok: '저장' }, function (d) { if (d) quickSave({ kind: '지종', from: v, maker: d === '없음' ? '' : d }, v + ' 기본 제지사 저장'); });
+    }
+    else if (a === 'stop') quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지');
+    else if (a === 'del') call('quickUsage').then(function (u) { S.qusage = u; delFlow(kind, v, (u[kind] || {})[v] || { stock: 0, hist: 0 }, function () { quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지'); }); });
+  });
 }
 /* 공통 부품: 선택칸 목록 — 첫 줄(빈 값) · 기준정보 목록 · 현재 값(목록에 없으면 추가) · [+ 직접 입력] */
 function selOpts(list, label, cur, first) {
@@ -4162,29 +4258,34 @@ function qeDel(i) {
 }
 /* 사용 중인 값 삭제: 다른 값으로 바꾸고 삭제 · 빈칸으로 바꾸고 삭제 · 사용 중지 · 사용 중인 기록 보기 (평량 · 지폭은 숫자라 바꾸기 없음) */
 function qeDelUsed(i) {
-  var it = QE.items[i], u = qeUse(it) || {}, num = qeNum(), L = qeLabel(QE.kind), kind = QE.kind;
+  var it = QE.items[i];
   if (QE.dirty) { toast('변경 내용 먼저 저장 또는 되돌리기', true); return; }
+  delFlow(QE.kind, it.orig, qeUse(it) || {}, function () { qeSet(i, 'st', '중지'); toast('사용 중지 — [' + qeLabel(QE.kind) + ' 저장] 눌러 반영'); });
+}
+/* 삭제 창 (공통): 다른 값으로 바꾸고 삭제 · 빈칸으로 바꾸고 삭제 · 사용 중지(stopFn) · 사용 중인 기록 보기 */
+function delFlow(kind, v, u, stopFn) {
+  var num = kind === '평량' || kind === '폭', L = qeLabel(kind);
   var useTxt = (kind === '출고처' ? '' : '재고 ' + (u.stock || 0) + '롤 · ') + '이력 ' + (u.hist || 0) + '건';
-  var others = QE.items.filter(function (x) { return x.orig && x.orig !== it.orig && x.st !== '중지'; }).map(function (x) { return x.orig; });
+  var others = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v !== v && x.st !== '중지'; }).map(function (x) { return x.v; });
   var ch = [];
   if (!num && others.length) ch.push({ v: 'to', t: '다른 ' + L + '로 바꾸고 삭제', sub: '재고 · 이력 명칭도 함께 변경' });
-  if (!num) ch.push({ v: 'blank', t: '빈칸으로 바꾸고 삭제', sub: kind === '제지사' ? '제지사 미상으로' : kind === '지종' ? '지종 없음으로' : '출고처 없음으로' });
-  if (it.st !== '중지') ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' });
-  ch.push({ v: 'see', t: '사용 중인 기록 보기', sub: useTxt });
-  ask({ title: '"' + it.orig + '" 삭제', msg: useTxt + '에서 사용 중', input: false, list: true, chips: ch }, function (v) {
-    if (v === 'stop') { qeSet(i, 'st', '중지'); toast('사용 중지 — [' + L + ' 저장] 눌러 반영'); }
-    else if (v === 'see') qeSeeUse(it.orig);
-    else if (v === 'blank') qeRemoveGo(it.orig, '');
-    else if (v === 'to') ask({ title: '"' + it.orig + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + it.orig + '"을 고른 값으로 바꾸고 삭제', choices: others, input: false, ok: '바꾸고 삭제', danger: true },
-      function (d) { if (d) qeRemoveGo(it.orig, d); });
+  if (!num) ch.push({ v: 'blank', t: (u.stock || u.hist ? '빈칸으로 바꾸고 삭제' : '삭제'), sub: u.stock || u.hist ? (kind === '제지사' ? '제지사 미상으로' : kind === '지종' ? '지종 없음으로' : '출고처 없음으로') : '사용 기록 없음' });
+  ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' });
+  if (u.stock || u.hist) ch.push({ v: 'see', t: '사용 중인 기록 보기', sub: useTxt });
+  ask({ title: '"' + v + '" 삭제', msg: u.stock || u.hist ? useTxt + '에서 사용 중' : '', input: false, list: true, chips: ch }, function (a) {
+    if (a === 'stop') stopFn();
+    else if (a === 'see') qeSeeUse(v, kind);
+    else if (a === 'blank') qeRemoveGo(v, '', kind);
+    else if (a === 'to') ask({ title: '"' + v + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + v + '"을 고른 값으로 바꾸고 삭제', choices: others, input: false, ok: '바꾸고 삭제', danger: true },
+      function (d) { if (d) qeRemoveGo(v, d, kind); });
   });
 }
-function qeRemoveGo(from, to) {
-  var kind = QE.kind, L = qeLabel(kind);
+function qeRemoveGo(from, to, kind) {
+  kind = kind || QE.kind;
   if (!requireWorker()) return;
   needPin(function (pin) {
     call('quickRemove', { kind: kind, from: from, to: to, pin: pin, worker: worker() }).then(function (r) {
-      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; loadRecent();
+      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; loadRecent(); pkRefresh();
       quickUndoToast('"' + from + '" ' + (to ? '→ "' + to + '"' : '→ 빈칸') + ' 바꾸고 삭제 (재고 ' + r.res.stock + ' · 이력 ' + r.res.hist + '행) · 백업: ' + r.backupName, r.row);
     }, function () {});
   });
@@ -4204,8 +4305,9 @@ function quickUndoToast(msg, row) {
   clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 10000);
 }
 /* 사용 중인 기록: 재고(누르면 지도에서 그 줄) + 이력 최근 50건 */
-function qeSeeUse(v) {
-  var kind = QE.kind, st = kind === '지종' ? S.stock.filter(function (s) { return s.grade === v; })
+function qeSeeUse(v, kind) {
+  kind = kind || QE.kind;
+  var st = kind === '지종' ? S.stock.filter(function (s) { return s.grade === v; })
     : kind === '제지사' ? S.stock.filter(function (s) { return makersOf(s).some(function (m) { return m.maker === v; }); }) : [];
   call('quickUsageHist', kind, v, 50).then(function (hs) {
     var ch = st.map(function (s) { return { v: 's:' + s.loc, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 누르면 지도에서 열기' }; })
