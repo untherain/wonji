@@ -3291,7 +3291,13 @@ function parseName(name) {
   var m = name.match(/^(.*?)\s*\(([^)]*)\)?\s*$/);
   if (m && m[2]) return { grade: m[1].trim(), maker: canonMaker(m[2]) };
   if (/제지$/.test(name)) return { grade: '', maker: canonMaker(name) };
+  var mk = makerOf(name); if (mk) return { grade: '', maker: mk };   // 원지명 전체가 등록 제지사(다른 이름 포함) = 제지사
   return { grade: name, maker: '' };
+}
+/* 등록 제지사 이름(다른 이름 포함)과 같으면 그 제지사 이름 · 아니면 '' */
+function makerOf(w) {
+  var c = normMk(canonMaker(w)); if (!c) return '';
+  return (S.quick['제지사'] || []).filter(function (m) { return normMk(m) === c; })[0] || '';
 }
 function normG(x) { return String(x || '').replace(/[\s()]/g, '').toUpperCase(); }
 /* 계획 품목의 지종 · 제지사: 제지사 선택칸 값 우선, 예전 품목(선택칸 없음)은 원지명 글자에서 */
@@ -3343,6 +3349,7 @@ function allocPlan() {
 
 function renderPlan() {
   var el = $('f-plan');
+  PL.items.forEach(function (it) { var m = !it.maker && it.grade && makerOf(it.grade); if (m) { it.maker = m; it.grade = ''; delete it.weak; } });
   seg($('p-seg'), [['edit', '계획 입력'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
     if (v === 'pick') { makePick(); if (PL.stage !== 'pick') renderPlan(); }
     else { PL.stage = 'edit'; savePL(); renderPlan(); window.scrollTo(0, 0); }
