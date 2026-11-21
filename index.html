@@ -1045,12 +1045,19 @@ function renderMap() {
     return h;
   }
   /* 구역 한 쌍: 줄 번호마다 한 행 (왼쪽 · 통로 · 오른쪽) — 규격 목록이 길어도 좌우 줄 번호가 어긋나지 않음 */
-  /* 가지 통로: 통로 상태 줄에 연결된 구역 (위 · 아래 면) */
+  /* 가지 통로: 연결된 통로 줄 + 붙어 있는 통로 줄 = 한 묶음(lo~hi) · 안쪽(위) · 입구 쪽(아래) 구역 */
+  function isPass(z, n) { var c = cfgOf(w, z.code + '-' + pad(n)); return c.st === '통로'; }
   function branchOf(z, i) {
-    if (!z || i > z.rows) return null;
-    var key = z.code + '-' + pad(i), up = null, down = null;
-    w.zones.forEach(function (x) { if (x.link === key) { if (x.face === '위') up = x; else down = x; } });
-    return up || down ? { key: key, up: up, down: down } : null;
+    if (!z || i > z.rows || !isPass(z, i)) return null;
+    var lo = i, hi = i;
+    while (lo > 1 && isPass(z, lo - 1)) lo--;
+    while (hi < z.rows && isPass(z, hi + 1)) hi++;
+    var up = null, down = null, key = '';
+    w.zones.forEach(function (x) {
+      var m = String(x.link || '').split('-');
+      if (m[0] === z.code && +m[1] >= lo && +m[1] <= hi) { key = key || x.link; if (x.face === '위') up = x; else down = x; }
+    });
+    return up || down ? { key: key, lo: lo, hi: hi, up: up, down: down } : null;
   }
   /* 가지 통로 구역 한 면: 세로 줄을 가로로 나열 (넘치면 좌우 스크롤) */
   function strip(z) {
@@ -1067,16 +1074,18 @@ function renderMap() {
       out += '<div class="map"><div class="aisle" style="grid-column:2; grid-row:1 / span ' + seg.length + '"></div>' + seg.join('') + '</div>';
       seg = [];
     }
-    function brCell(b) { return '<div class="cell brcell"><span>가지 통로 · ' + esc(keyOf(w.id + '-' + b.key)) + '</span></div>'; }
+    function brCell(b, z, i) {
+      var mid = Math.floor((b.lo + b.hi) / 2) === i;   // 묶음 가운데 줄에만 글자
+      return '<div class="cell brcell"><span>' + (mid ? '가지 통로 · ' + esc(keyOf(w.id + '-' + z.code + '-' + pad(b.lo))) + (b.hi > b.lo ? '~' + pad(b.hi) : '') : '') + '</span></div>';
+    }
     // rev = 주 출입구가 01 쪽 → 01이 아래(주 출입구 쪽) · 아니면 끝 번호가 아래
     for (var j = 1; j <= n; j++) {
       var i = w.rev ? n - j + 1 : j, b1 = branchOf(z1, i), b2 = branchOf(z2, i), b = b1 || b2;
       if (!b) { seg.push(cellOf(z1, i) + cellOf(z2, i)); continue; }
-      flush();
-      out += strip(b.up);
-      seg.push((b1 ? brCell(b1) : cellOf(z1, i)) + (b2 ? brCell(b2) : cellOf(z2, i)));
-      flush();
-      out += strip(b.down);
+      var top = w.rev ? b.hi : b.lo, bottom = w.rev ? b.lo : b.hi;   // 화면 기준 묶음 첫 줄 · 끝 줄
+      if (i === top) { flush(); out += strip(b.up); }   // 안쪽 면 = 묶음 위
+      seg.push((b1 ? brCell(b1, z1, i) : cellOf(z1, i)) + (b2 ? brCell(b2, z2, i) : cellOf(z2, i)));
+      if (i === bottom) { flush(); out += strip(b.down); }   // 입구 쪽 면 = 묶음 아래
     }
     flush();
     return out || '<div class="map"></div>';
