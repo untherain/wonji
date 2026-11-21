@@ -2208,22 +2208,22 @@ function qEdit(kind, v) {
   var stock = key ? S.stock.filter(function (s) { return String(s[key]) === String(v); }).reduce(function (a, s) { return a + s.qty; }, 0) : 0;
   var seen = ((S.quickSeen || {})[kind] || {})[v] || 0;
   ask({ title: name + ' ' + v, msg: '재고 ' + stock + '롤 · 최근 90일 ' + seen + '건\n이름을 고치면 재고 · 기록도 함께 바뀜 (있는 값이면 합침)',
-    value: v, numeric: num, ok: '이름 저장', extra: kind === '제지사' ? ['약칭 · 다른 이름', '숨기기'] : ['숨기기'] }, function (r) {
+    value: v, numeric: num, ok: '이름 저장', extra: kind === '제지사' || kind === '지종' ? ['약칭 · 다른 이름', '숨기기'] : ['숨기기'] }, function (r) {
     if (r === null) return;
     if (r === '\u0001숨기기') return quickSave({ kind: kind, from: v, hide: true }, name + ' ' + v + ' 숨김');
-    if (r === '\u0001약칭 · 다른 이름') return makerMore(v);
+    if (r === '\u0001약칭 · 다른 이름') return valMore(kind, v);
     if (!r || r === v) return;
     if (num && !/^\d+$/.test(r)) { toast('숫자만 입력', true); return; }
     quickSave({ kind: kind, from: v, to: r }, name + ' ' + v + ' → ' + r);
   });
 }
-function makerMore(v) {
-  var q = (S.quickAll || []).filter(function (x) { return x.k === '제지사' && x.v === v; })[0] || {};
-  ask({ title: v + ' 약칭', msg: '지도 칸 표시 · 비우면 자동', value: q.short || '', placeholder: makerShort(v) + ' (자동)' }, function (s) {
+function valMore(kind, v) {
+  var q = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v === v; })[0] || {};
+  ask({ title: v + ' 약칭', msg: '비우면 전체 이름', value: q.short || '', placeholder: v }, function (s) {
     if (s === null) return;
-    ask({ title: v + ' 다른 이름', msg: '라벨 · 계획서에 쓰이는 이름 (쉼표 구분)', value: String(q.alias || '').split('|').filter(String).join(', '), placeholder: '예: 왕자, Oji' }, function (a) {
+    ask({ title: v + ' 다른 이름', msg: '라벨 · 계획서에 쓰이는 이름 (쉼표 구분)', value: String(q.alias || '').split('|').filter(String).join(', '), placeholder: kind === '지종' ? '예: 단무, 단면' : '예: 왕자, Oji' }, function (a) {
       if (a === null) return;
-      quickSave({ kind: '제지사', from: v, short: s, alias: a }, v + ' 약칭 · 다른 이름 저장');
+      quickSave({ kind: kind, from: v, short: s, alias: a }, v + ' 약칭 · 다른 이름 저장');
     });
   });
 }
@@ -2580,12 +2580,11 @@ function shortMap(all) {
   return out;
 }
 var SHORT = { src: null, map: {} };
+/* 제지사 약칭: 기준정보 약칭 · 비어 있으면 제지사 전체 이름 (지종 약칭과 같은 규칙) */
 function makerShort(m) {
   m = String(m || '').trim(); if (!m) return '';
-  var all = (S.quickAll || []).filter(function (x) { return x.k === '제지사'; });
-  if (SHORT.src !== S.quickAll || SHORT.n !== all.length) SHORT = { src: S.quickAll, n: all.length, map: shortMap(all) };
-  var c = canonMaker(m), q = all.filter(function (x) { return x.v === m || x.v === c; })[0];
-  return q ? SHORT.map[q.v] : shortMap([{ v: m }])[m];
+  var c = canonMaker(m), q = (S.quickAll || []).filter(function (x) { return x.k === '제지사' && (x.v === m || x.v === c); })[0];
+  return q && q.short ? q.short : q ? q.v : m;
 }
 function makersOf(s) { return s.makers && s.makers.length ? s.makers : [{ maker: s.maker || '', qty: s.qty }]; }
 function mkTag(m) {
@@ -3391,6 +3390,12 @@ function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } ca
 
 /* 제지사 표준화: 기준정보의 별칭 (왕자|Oji|王子 → 왕자) */
 function normMk(x) { return String(x || '').replace(/\s+/g, '').replace(/제지$/, '').toUpperCase(); }
+function canonGrade(x) {
+  var n = normMk(x); if (!n) return '';
+  var rows = S.quick['지종별칭'] || [];
+  for (var i = 0; i < rows.length; i++) { var al = rows[i].split('|'); if (al.map(normMk).indexOf(n) >= 0) return al[0].trim(); }
+  return String(x).trim();
+}
 function canonMaker(x) {
   var n = normMk(x); if (!n) return '';
   var rows = S.quick['제지사별칭'] || [];
@@ -3404,10 +3409,10 @@ function canonMaker(x) {
 function parseName(name) {
   name = String(name || '').trim();
   var m = name.match(/^(.*?)\s*\(([^)]*)\)?\s*$/);
-  if (m && m[2]) return { grade: m[1].trim(), maker: canonMaker(m[2]) };
+  if (m && m[2]) return { grade: canonGrade(m[1]), maker: canonMaker(m[2]) };
   if (/제지$/.test(name)) return { grade: '', maker: canonMaker(name) };
   var mk = makerOf(name); if (mk) return { grade: '', maker: mk };   // 원지명 전체가 등록 제지사(다른 이름 포함) = 제지사
-  return { grade: name, maker: '' };
+  return { grade: canonGrade(name), maker: '' };
 }
 /* 등록 제지사 이름(다른 이름 포함)과 같으면 그 제지사 이름 · 아니면 '' */
 function makerOf(w) {
@@ -4071,7 +4076,7 @@ function renderQuick() {
   }), QE.kind, qePick);
   var help = {
     '평량': '', '폭': '',
-    '지종': '',
+    '지종': '왼쪽 = 약칭 · 오른쪽 = 다른 이름',
     '제지사': '왼쪽 = 약칭 · 오른쪽 = 다른 이름',
     '출고처': ''
   }[QE.kind];
@@ -4127,17 +4132,15 @@ function qeRow(it, i) {
     '<button class="xbtn" onclick="qeDel(' + i + ')" aria-label="삭제">×</button></div>' +
     '<div class="row" style="justify-content:flex-start; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:12px"><span class="muted" style="font-size:12px">' + info + '</span>' + tags + acts +
     '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px; margin-left:auto" onclick="qeSet(' + i + ',\'st\',\'' + (it.st === '중지' ? '' : '중지') + '\')">' + (it.st === '중지' ? '다시 사용' : '사용 중지') + '</button></div>';
-  if (QE.kind === '제지사') h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span>' +
-    '<input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="' + esc(makerShort(it.orig || it.v)) + '" value="' + esc(it.short || '') +
-    '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="위치 현황 약칭 (비우면 자동)">' +
-    '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="다른 이름 (쉼표 구분, 예: 왕자, Oji)" value="' +
+  if (QE.kind === '제지사' || QE.kind === '지종') h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span>' +
+    '<input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="전체 이름" value="' + esc(it.short || '') +
+    '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="비우면 전체 이름">' +
+    '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="다른 이름 (쉼표 구분, 예: ' + (QE.kind === '지종' ? '단무, 단면' : '왕자, Oji') + ')" value="' +
     esc(String(it.alias || '').split('|').join(', ')) + '" oninput="qeSet(' + i + ',\'alias\',this.value,1)" aria-label="다른 이름"></div>';
   if (QE.kind === '지종') {
     var mk = (S.quickAll || []).filter(function (q) { return q.k === '제지사' && q.st !== '중지'; }).map(function (q) { return q.v; });
     if (it.maker && mk.indexOf(it.maker) < 0) mk.push(it.maker);
-    h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span><input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="전체 이름" value="' + esc(it.short || '') +
-      '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="제지사 없을 때 표시 (비우면 자동)">' +
-      '<select class="mini" style="flex:1; min-width:0; font-size:13px" onchange="qeSet(' + i + ',\'maker\',this.value)" aria-label="기본 제지사">' +
+    h += '<div class="row" style="gap:4px; margin-top:4px"><select class="mini" style="flex:1; min-width:0; font-size:13px" onchange="qeSet(' + i + ',\'maker\',this.value)" aria-label="기본 제지사">' +
       '<option value="">기본 제지사 없음</option>' + mk.map(function (m) { return '<option value="' + esc(m) + '"' + (m === it.maker ? ' selected' : '') + '>기본 제지사: ' + esc(m) + '</option>'; }).join('') + '</select></div>';
   }
   return h + '</div>';
@@ -4228,7 +4231,7 @@ function qeMerge(i) {
   var to = QE.items.filter(function (x) { return x.orig !== it.orig; }).map(function (x) { return x.orig; });
   if (!to.length) { toast('합칠 대상 없음', true); return; }
   ask({ title: '"' + it.orig + '" 합치기', msg: '고른 값으로 재고 · 이력 이름 변경 후 "' + it.orig + '" 삭제' +
-    (QE.kind === '제지사' ? ' · "' + it.orig + '"은 다른 이름으로 남음' : '') + ' · 관리자 PIN 필요', choices: to, input: false, ok: '합치기', danger: true }, function (d) {
+    (QE.kind === '제지사' || QE.kind === '지종' ? ' · "' + it.orig + '"은 다른 이름으로 남음' : '') + ' · 관리자 PIN 필요', choices: to, input: false, ok: '합치기', danger: true }, function (d) {
     if (!d) return;
     needPin(function (pin) {
       call('mergeQuick', QE.kind, it.orig, d, pin).then(function (r) { applyQuick(r); toast('"' + it.orig + '" → "' + d + '" 합침'); });
