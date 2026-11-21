@@ -1319,12 +1319,7 @@ function startMerge(enc) {
 function mjDate(dk) { return String(dk || '').split(',').filter(String).map(function (d) { return d.slice(5); }).join(' · '); }
 function sheetMerge() {
   var j = MJ; if (!j) { SH = null; return closeSheet(); }
-  var tot = j.moves.length, n = tot - mjLeft(), k = -1;
-  j.moves.some(function (m, i) { if (!m.done) { k = i; return true; } return false; });
-  var box = function (lb, loc) {
-    return '<div style="flex:1; min-width:0; text-align:center"><div class="muted" style="font-weight:700; margin-bottom:4px">' + lb + '</div>' +
-      '<div style="border:2px solid var(--ink); border-radius:12px; padding:14px 4px; font-size:30px; font-weight:900; white-space:nowrap">' + esc(keyOf(loc)) + '</div></div>';
-  };
+  var tot = j.moves.length, n = tot - mjLeft();
   var whRow = '';
   if (j.here && !n) {   // 줄 화면 모으기 · 이동 시작 전: 대상 창고 선택
     var s0 = S.stock.filter(function (x) { return x.loc === j.here && sigOf(x) === j.sig; })[0], wq = {};
@@ -1334,29 +1329,29 @@ function sheetMerge() {
       whRow = '<div class="cgf" style="margin:10px 0 0"><span class="muted" style="align-self:center; margin-right:2px">대상 창고</span>' +
         ids.map(function (id) { return '<button class="chip' + ((j.whs || []).indexOf(String(id)) >= 0 ? ' on' : '') + '" onclick="mjWh(' + id + ')">' + esc(whName(id)) + ' ' + wq[id] + '롤</button>'; }).join('') + '</div>';
   }
-  var h = shHead('모으기 · ' + (!tot ? keyOf(j.here) : (k < 0 ? tot : k + 1) + '/' + tot), esc(distTitle(j.sig)) + ' · 보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false);
-  h += whRow;
+  var h = shHead('모으기 · ' + esc(distTitle(j.sig)), '보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
   if (!tot) {
-    h += '<div style="text-align:center; margin:20px 0 14px"><b style="font-size:20px">이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
-  } else if (k >= 0) {
-    var m = j.moves[k], nx = j.moves.filter(function (x, i) { return i > k && !x.done; })[0];
-    h += '<div style="display:flex; align-items:flex-end; gap:8px; margin:16px 0 10px">' + box('출발', m.from) +
-      '<div style="flex:none; font-size:28px; font-weight:900; padding-bottom:16px">➜</div>' + box('도착', m.to) + '</div>' +
-      '<div style="text-align:center; margin-bottom:14px"><b style="font-size:26px">' + m.qty + '롤</b>' +
-      (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 입고 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
-      (m.mix ? '<div style="font-weight:900; color:#7A3E00">입고일 상이</div>' : '') + '</div>' +
-      '<button class="btn" style="height:60px; font-size:20px" onclick="mjDone(' + k + ')">이동 완료</button>' +
-      '<div class="muted" style="text-align:center; margin:8px 0 14px">' + (nx ? '다음 · ' + esc(keyOf(nx.from)) + ' ➜ ' + esc(keyOf(nx.to)) + ' · ' + nx.qty + '롤' : '마지막 건') + '</div>';
+    h += '<div class="card" style="margin-top:10px"><b>이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
   } else {
-    h += '<div style="text-align:center; margin:20px 0 14px"><b style="font-size:24px">전체 이동 완료</b><div class="muted">이동 ' + tot + '건 · 보관 ' + j.before + '줄 → ' + j.after + '줄</div></div>';
+    h += '<div class="card" style="padding:0; overflow:hidden; margin-top:10px">' +
+      '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + (j.here ? '도착 ' + esc(keyOf(j.here)) : '이동 ' + tot + '건') + '</b>' +
+      '<span style="font-size:12px; color:#C9CDD3">이동 ' + n + '/' + tot + ' 완료</span></div>' +
+      j.moves.map(function (m, i) {
+        var body = '<div class="row"><b style="font-size:16px; white-space:nowrap">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b><b style="white-space:nowrap; flex:none">' + m.qty + '롤</b></div>' +
+          (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
+          (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '');
+        var side = m.done
+          ? '<button class="btn2" style="height:40px; padding:0 10px; background:#1E6B3A; color:#fff; border-color:#1E6B3A" onclick="mjUndo(' + i + ')">✓ 완료</button>'
+          : '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjDone(' + i + ')">이동 완료</button>';
+        return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : '#fff', body: body, side: side });
+      }).join('') +
+      (n === tot ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB; font-weight:900; color:#1E5A33">전체 이동 완료</div>' : '') + '</div>';
   }
-  if (j.skip && j.skip.length) h += '<div class="card" style="padding:8px 12px; margin:0 0 8px"><b>이동 불가 (자리 부족)</b><div class="muted">' +
+  if (j.skip && j.skip.length) h += '<div class="card" style="padding:8px 12px; margin:8px 0 0"><b>이동 불가 (자리 부족)</b><div class="muted">' +
     j.skip.map(function (x) { return esc(keyOf(x.loc)) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></div>';
-  if (n) h += '<div class="muted" style="font-weight:700; margin:6px 0 4px">완료 ' + n + '건</div>' + j.moves.map(function (m, i) {
-    return m.done ? '<div class="row" style="padding:6px 0; border-top:1px solid var(--line)"><span>✓ ' + esc(keyOf(m.from)) + ' ➜ ' + esc(keyOf(m.to)) + ' · ' + m.qty + '롤</span>' +
-      '<button class="btn2" style="flex:none; width:auto; height:40px; padding:0 12px" onclick="mjUndo(' + i + ')">완료 취소</button></div>' : '';
-  }).join('');
-  h += '<button class="' + (k >= 0 || !tot ? 'btn2' : 'btn') + '" style="width:100%; margin-top:12px" onclick="mjEnd()">' + (k >= 0 ? '목록 삭제' : !tot ? '닫기' : '작업 종료') + '</button>';
+  h += '<div class="muted" style="margin:8px 0 0">실물 이동 후 <b>이동 완료</b> 선택 · 선택 시 재고 반영 · <b>✓ 완료</b> 선택 시 완료 취소</div>';
+  var left = mjLeft();
+  h += '<button class="' + (left || !tot ? 'btn2' : 'btn') + '" style="width:100%; margin-top:12px" onclick="mjEnd()">' + (left ? '목록 삭제' : !tot ? '닫기' : '작업 종료') + '</button>';
   $('detail').innerHTML = h;
 }
 /* 같은 원지(서명 같음)가 있는 다른 위치들 */
@@ -3086,14 +3081,18 @@ function renderPick(el) {
   });
   el.innerHTML = h;
 }
+/* 공통 번호 행: 왼쪽 번호 원(완료 = 초록) + 보조 라벨 · 가운데 내용 · 오른쪽 버튼 (피킹 리스트 · 모으기 작업 목록) */
+function seqRow(o) {
+  return '<div style="display:flex; gap:10px; padding:9px 12px; border-top:1px solid #E6E8EB; background:' + (o.bg || '#fff') + '">' +
+    '<div style="width:40px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (o.done ? '#1E6B3A' : 'var(--y)') +
+    '; color:' + (o.done ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center">' + o.seq + '</div>' +
+    (o.label ? '<div class="muted" style="font-size:10px">' + o.label + '</div>' : '') + '</div>' +
+    '<div style="flex:1; min-width:0">' + o.body + '</div><div style="flex:none; display:flex; align-items:center">' + (o.side || '') + '</div></div>';
+}
 function pickRow(it, seq, a) {
   var done = PL.done[it.id], picked = PL.picked[it.id];
   var bg = done ? '#F2FAF4' : a && a.lack ? '#FDF1F1' : '#fff';
-  var h = '<div style="display:flex; gap:10px; padding:9px 12px; border-top:1px solid #E6E8EB; background:' + bg + '">' +
-    '<div style="width:40px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (done ? '#1E6B3A' : 'var(--y)') +
-    '; color:' + (done ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center">' + seq + '</div>' +
-    '<div class="muted" style="font-size:10px">계획 ' + it.planNo + '</div></div>' +
-    '<div style="flex:1; min-width:0"><div class="row"><b style="font-size:16px">' + esc(it.gsm + '×' + it.width) +
+  var h = '<div class="row"><b style="font-size:16px">' + esc(it.gsm + '×' + it.width) +
     '</b><b style="white-space:nowrap; flex:none">' + (it.all ? '전량' : it.qty + '롤') + '</b></div>' +
     (function () { var p = planMk(it), t = [p.maker || '제지사 미지정', p.grade].filter(String).join(' · '); return '<div class="muted">' + esc(t) + '</div>'; })() +
     noteHtml(it.note);
@@ -3108,10 +3107,9 @@ function pickRow(it, seq, a) {
     if (a.alts.length && (a.lack || !a.got)) h += '<div class="muted" style="font-size:12px">대체 후보 (제지사 다름): ' +
       a.alts.map(function (x) { return esc(locLabel(x.loc)) + ' ' + esc(x.maker) + ' ' + x.qty + '롤'; }).join(', ') + '</div>';
   }
-  h += '</div><div style="flex:none; display:flex; align-items:center">' + (done ? '<span class="pill" style="background:#E3F2E7; color:#1E5A33">✓</span>' :
+  return seqRow({ seq: seq, done: done, label: '계획 ' + it.planNo, bg: bg, body: h, side: (done ? '<span class="pill" style="background:#E3F2E7; color:#1E5A33">✓</span>' :
     '<button class="btn2" style="height:40px; padding:0 10px;' + (picked ? ' background:#1E6B3A; color:#fff; border-color:#1E6B3A' : '') + '" onclick="togglePick(\'' + it.id + '\')"' +
-    (a && a.got ? '' : ' disabled') + '>' + (picked ? '✓ 피킹' : '피킹') + '</button>') + '</div></div>';
-  return h;
+    (a && a.got ? '' : ' disabled') + '>' + (picked ? '✓ 피킹' : '피킹') + '</button>') });
 }
 /* 비고: "주의"가 들어간 말은 주황 강조, 나머지(작업명 · 절단규격 등)는 회색 */
 function noteHtml(note) {
