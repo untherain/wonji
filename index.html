@@ -1314,8 +1314,20 @@ function sheetMerge() {
     return '<div style="flex:1; min-width:0; text-align:center"><div class="muted" style="font-weight:700; margin-bottom:4px">' + lb + '</div>' +
       '<div style="border:2px solid var(--ink); border-radius:12px; padding:14px 4px; font-size:30px; font-weight:900; white-space:nowrap">' + esc(keyOf(loc)) + '</div></div>';
   };
-  var h = shHead('모으기 · ' + (k < 0 ? tot : k + 1) + '/' + tot, esc(distTitle(j.sig)) + ' · 보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false);
-  if (k >= 0) {
+  var whRow = '';
+  if (j.here && !n) {   // 줄 화면 모으기 · 이동 시작 전: 대상 창고 선택
+    var s0 = S.stock.filter(function (x) { return x.loc === j.here && sigOf(x) === j.sig; })[0], wq = {};
+    if (s0) othersOf(s0).forEach(function (x) { wq[x.wh] = (wq[x.wh] || 0) + x.qty; });
+    var ids = Object.keys(wq).sort(function (a, b) { return a - b; });
+    if (ids.length > 1 || (ids.length === 1 && s0 && String(ids[0]) !== String(s0.wh)))
+      whRow = '<div class="cgf" style="margin:10px 0 0"><span class="muted" style="align-self:center; margin-right:2px">대상 창고</span>' +
+        ids.map(function (id) { return '<button class="chip' + ((j.whs || []).indexOf(String(id)) >= 0 ? ' on' : '') + '" onclick="mjWh(' + id + ')">' + esc(whName(id)) + ' ' + wq[id] + '롤</button>'; }).join('') + '</div>';
+  }
+  var h = shHead('모으기 · ' + (!tot ? keyOf(j.here) : (k < 0 ? tot : k + 1) + '/' + tot), esc(distTitle(j.sig)) + ' · 보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false);
+  h += whRow;
+  if (!tot) {
+    h += '<div style="text-align:center; margin:20px 0 14px"><b style="font-size:20px">이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
+  } else if (k >= 0) {
     var m = j.moves[k], nx = j.moves.filter(function (x, i) { return i > k && !x.done; })[0];
     h += '<div style="display:flex; align-items:flex-end; gap:8px; margin:16px 0 10px">' + box('출발', m.from) +
       '<div style="flex:none; font-size:28px; font-weight:900; padding-bottom:16px">➜</div>' + box('도착', m.to) + '</div>' +
@@ -1333,33 +1345,48 @@ function sheetMerge() {
     return m.done ? '<div class="row" style="padding:6px 0; border-top:1px solid var(--line)"><span>✓ ' + esc(keyOf(m.from)) + ' ➜ ' + esc(keyOf(m.to)) + ' · ' + m.qty + '롤</span>' +
       '<button class="btn2" style="flex:none; width:auto; height:40px; padding:0 12px" onclick="mjUndo(' + i + ')">완료 취소</button></div>' : '';
   }).join('');
-  h += '<button class="' + (k >= 0 ? 'btn2' : 'btn') + '" style="width:100%; margin-top:12px" onclick="mjEnd()">' + (k >= 0 ? '목록 삭제' : '작업 종료') + '</button>';
+  h += '<button class="' + (k >= 0 || !tot ? 'btn2' : 'btn') + '" style="width:100%; margin-top:12px" onclick="mjEnd()">' + (k >= 0 ? '목록 삭제' : !tot ? '닫기' : '작업 종료') + '</button>';
   $('detail').innerHTML = h;
 }
 /* 같은 원지(서명 같음)가 있는 다른 위치들 */
 function othersOf(s) { var g = sigOf(s); return S.stock.filter(function (x) { return x.loc !== s.loc && sigOf(x) === g; }); }
 /* B. 여기로 모으기: 이 줄을 목적지로 고정 · 적게 든 곳부터 통째로 옮김(줄 수 감소) · 빈 자리 넘으면 거기서 멈춤
    같은 창고 먼저 → 다른 창고 · 작업 목록(MJ)은 한곳으로 모으기와 같은 부품 */
+/* 도착 줄(here) 기준 모으기 계획: 대상 창고(whs)의 같은 원지를 적게 든 줄부터 전량 이동 · 잔여 자리 초과분은 이동 불가 */
+function hereJob(here, sig, whs) {
+  var s = S.stock.filter(function (x) { return x.loc === here && sigOf(x) === sig; })[0];
+  var J = { sig: sig, here: here, whs: whs, rule: '', moves: [], skip: [], before: 1, after: 1, free: 0 };
+  if (!s) return J;
+  var free = J.free = freeFor(here, s.gsm, s.width, s.grade);
+  var src = othersOf(s).filter(function (x) { return whs.indexOf(String(x.wh)) >= 0; })
+    .sort(function (a, b) { return (a.wh != s.wh) - (b.wh != s.wh) || a.qty - b.qty; });
+  src.forEach(function (x) {
+    if (x.qty <= free) { free -= x.qty; J.moves.push({ from: x.loc, to: here, qty: x.qty, mix: lotKey(x) !== lotKey(s), d: lotKey(x), td: lotKey(s), done: 0, nos: [] }); }
+    else J.skip.push({ loc: x.loc, qty: x.qty });
+  });
+  J.before = src.length + 1; J.after = J.before - J.moves.length;
+  return J;
+}
+/* 대상 창고 토글 (이동 시작 전만 · 최소 1개) → 계획 다시 계산 */
+function mjWh(id) {
+  var j = MJ; if (!j || !j.here || j.moves.some(function (m) { return m.done; })) return;
+  id = String(id); var w = (j.whs || []).slice(), i = w.indexOf(id);
+  if (i >= 0) { if (w.length > 1) w.splice(i, 1); } else w.push(id);
+  MJ = hereJob(j.here, j.sig, w); mjSave(); renderSheet();
+}
 function mergeHere(i) {
   var s = SH.items[i]; if (!s) return;
   var here = SH.code, sig = sigOf(s);
   var go = function () {
-    var free = freeFor(here, s.gsm, s.width, s.grade);
-    var src = othersOf(s).sort(function (a, b) { return (a.wh != s.wh) - (b.wh != s.wh) || a.qty - b.qty; });
-    var moves = [], skip = [];
-    src.forEach(function (x) {
-      if (x.qty <= free) { free -= x.qty; moves.push({ from: x.loc, to: here, qty: x.qty, mix: lotKey(x) !== lotKey(s), d: lotKey(x), td: lotKey(s), done: 0, nos: [] }); }
-      else skip.push(x);
-    });
-    var before = src.length + 1, after = before - moves.length;
-    var tail = skip.length ? '\n\n이동 불가 (자리 부족): ' + skip.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(', ') : '';
-    if (!moves.length) {
-      ask({ title: '모으기 · ' + keyOf(here), input: false, chips: [], msg: keyOf(here) + ' 잔여 자리 ' + freeFor(here, s.gsm, s.width, s.grade) + '롤 · 전량 이동 가능 위치 없음' + tail }, function () {});
+    var all = {}; othersOf(s).forEach(function (x) { all[String(x.wh)] = 1; });
+    var whs = all[String(s.wh)] ? [String(s.wh)] : Object.keys(all);   // 기본: 같은 창고 (없으면 전체)
+    var J = hereJob(here, sig, whs);
+    if (!J.moves.length && Object.keys(all).length < 2) {
+      ask({ title: '모으기 · ' + keyOf(here), input: false, chips: [], msg: keyOf(here) + ' 잔여 자리 ' + J.free + '롤 · 전량 이동 가능 위치 없음' +
+        (J.skip.length ? '\n\n이동 불가 (자리 부족): ' + J.skip.map(function (x) { return keyOf(x.loc) + ' ' + x.qty + '롤'; }).join(', ') : '') }, function () {});
       return;
     }
-    MJ = { sig: sig, here: here, before: before, after: after, rule: '', moves: moves,
-      skip: skip.map(function (x) { return { loc: x.loc, qty: x.qty }; }) };
-    mjSave(); openMerge();
+    MJ = J; mjSave(); openMerge();
   };
   if (MJ && mjLeft()) {
     ask({ title: '진행 중 작업 목록', msg: distTitle(MJ.sig) + ' · 잔여 ' + mjLeft() + '건\n신규 목록으로 교체 (완료분 유지)', input: false, ok: '교체' },
