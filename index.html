@@ -1078,7 +1078,7 @@ function renderMap() {
       var mid = Math.floor((b.lo + b.hi) / 2) === i;   // 묶음 가운데 줄에만 글자
       return '<div class="cell brcell"><span>' + (mid ? '가지 통로 · ' + esc(keyOf(w.id + '-' + z.code + '-' + pad(b.lo))) + (b.hi > b.lo ? '~' + pad(b.hi) : '') : '') + '</span></div>';
     }
-    // rev = 주 출입구가 01 쪽 → 01이 아래(주 출입구 쪽) · 아니면 끝 번호가 아래
+    // 상하 바꾸기(역순): 끝 번호 줄이 위
     for (var j = 1; j <= n; j++) {
       var i = w.rev ? n - j + 1 : j, b1 = branchOf(z1, i), b2 = branchOf(z2, i), b = b1 || b2;
       if (!b) { seg.push(cellOf(z1, i) + cellOf(z2, i)); continue; }
@@ -1090,13 +1090,10 @@ function renderMap() {
     flush();
     return out || '<div class="map"></div>';
   }
-  /* 지도 = 주 출입구에서 본 모습: 주 출입구 항상 아래 · 좌우 = 주 출입구 기준 좌우
-     같은 면 구역 순서 1번 = 주 출입구 쪽 → 아래부터 */
   var html = '';
-  bandsOf(w).reverse().forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 좌 | 통로 | 우 (빈칸 가능)
+  bandsOf(w).forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 좌 | 통로 | 우 (빈칸 가능)
     html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' + pairRows(pair[0], pair[1]);
   });
-  html += '<div class="mainent">▲ 주 출입구</div>';
   $('m-body').innerHTML = html;
   // 검색 결과가 있으면 첫 번째로 걸린 줄로 스크롤 (조건 바뀐 때만 · 작업 중엔 안 함)
   if (fo && fh.length && fkey !== renderMap.scrolled && !SH) {
@@ -3266,10 +3263,10 @@ function renderWh() {
         inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:40px; flex:none; padding:0 2px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
         '<select class="mini" style="width:104px; flex:none; padding:0 2px; font-size:12px" onchange="setZonePos(' + i + ',' + j + ',this.value)" aria-label="위치">' +
         opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
-        '<button class="xbtn" style="width:28px' + (z.link || first ? '; visibility:hidden' : '') + '" onclick="zoneUp(' + i + ',' + j + ')" aria-label="같은 면 안 순서 주 출입구 쪽으로">▼</button>' +
+        '<button class="xbtn" style="width:28px' + (z.link || first ? '; visibility:hidden' : '') + '" onclick="zoneUp(' + i + ',' + j + ')" aria-label="같은 면 안 순서 위로">▲</button>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
     }).join('') +
-      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치: <b>본 통로 좌·우</b> 또는 <b>통로 상태 줄</b>(가지 통로)의 안쪽·입구 쪽 · 좌우 = 주 출입구 기준 · ▼ 같은 면 안 순서(주 출입구 쪽으로) · 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
+      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치: <b>본 통로 좌·우</b> 또는 <b>통로 상태 줄</b>(가지 통로)의 안쪽·입구 쪽 · ▲ 같은 면 안 순서 변경 · 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
       zonePrev(w);
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
@@ -3295,10 +3292,9 @@ function renderWh() {
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
       '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 좌-01) · 별칭 필수 · 구역마다 위치(통로 · 면) 지정</div>' + zones +
-      '<div class="row" style="gap:6px; margin:4px 0 8px"><span style="font-size:13px; font-weight:700">주 출입구 위치</span>' +
-      '<select class="mini" style="width:120px; flex:none; padding:0 6px" onchange="setEntrance(' + i + ', this.value)" aria-label="주 출입구 위치">' +
-      '<option value="01"' + (w.rev ? ' selected' : '') + '>01 쪽</option><option value="end"' + (w.rev ? '' : ' selected') + '>끝 번호 쪽</option></select></div>' +
-      '<div class="muted" style="font-size:12px; margin:-4px 0 8px">지도·좌우 기준 = 주 출입구에서 본 모습 (주 출입구 아래)</div>' +
+      '<div class="row" style="gap:6px; margin:4px 0 8px"><span style="font-size:13px; font-weight:700">위치 현황 위쪽 줄</span>' +
+      '<select class="mini" style="width:120px; flex:none; padding:0 6px" onchange="setEntrance(' + i + ', this.value)" aria-label="위치 현황 위쪽 줄">' +
+      '<option value="end"' + (w.rev ? ' selected' : '') + '>끝 번호</option><option value="01"' + (w.rev ? '' : ' selected') + '>01</option></select></div>' +
       '<button class="btn2" style="height:38px" onclick="addZone(' + i + ')">+ 구역 추가</button></div>' +
       '<div class="sub"><h3>적재 기준 (지폭 → 최대 적재 단수)</h3>' +
       '<div class="row" style="margin-bottom:6px"><span>줄당 칸 수 (기본)</span>' + inp(i + '.slots', w.slots, true, ' style="width:52px; flex:none; text-align:center; padding:0 4px" aria-label="줄당 칸 수"') + '</div>' + rule +
@@ -3344,7 +3340,7 @@ function addZone(i) {
   normZones(W[i]); renderWh();
 }
 /* 주 출입구 위치: 01 쪽(rev) · 끝 번호 쪽 — 지도 표시 방향만 (위치 코드 · 재고 불변) → [창고 설정 저장] 필요 */
-function setEntrance(i, v) { W[i].rev = v === '01'; renderWh(); toast('주 출입구 위치 변경 · [창고 설정 저장] 시 반영'); }
+function setEntrance(i, v) { W[i].rev = v === 'end'; renderWh(); toast('위치 현황 순서 변경 · [창고 설정 저장] 시 반영'); }
 /* 구역 위치: 'L' 본 통로 좌 · 'R' 본 통로 우 · 'A-07:위' 통로 상태 줄(가지 통로)의 위·아래 면
    본 통로 자리 번호(slot): 홀수 = 좌, 짝수 = 우, 같은 면 안 순서 = 번호 순 (지도 위→아래) */
 /* 가지 통로 면: 저장값 위·아래 (지도 기준, 주 출입구 아래) → 표시 안쪽·입구 쪽 */
