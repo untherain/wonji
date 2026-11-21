@@ -4109,7 +4109,7 @@ function qeRow(it, i) {
     '<button class="xbtn" onclick="qeDel(' + i + ')" aria-label="삭제">×</button></div>' +
     '<div class="row" style="justify-content:flex-start; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:12px"><span class="muted" style="font-size:12px">' + info + '</span>' + tags + acts +
     '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px; margin-left:auto" onclick="qeSet(' + i + ',\'st\',\'' + (it.st === '중지' ? '' : '중지') + '\')">' + (it.st === '중지' ? '다시 사용' : '사용 중지') + '</button></div>';
-  if (QE.kind === '제지사') h += '<div class="row" style="gap:4px; margin-top:4px">' +
+  if (QE.kind === '제지사') h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span>' +
     '<input class="mini" style="width:64px; flex:none; font-size:13px; text-align:center; padding:0 4px" maxlength="3" placeholder="' + esc(makerShort(it.orig || it.v)) + '" value="' + esc(it.short || '') +
     '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="위치 현황 약칭 (한글 2자 · 영문 3자, 비우면 자동)">' +
     '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="다른 이름 (쉼표 구분, 예: 왕자, Oji)" value="' +
@@ -4118,7 +4118,7 @@ function qeRow(it, i) {
     var mk = (S.quickAll || []).filter(function (q) { return q.k === '제지사' && q.st !== '중지'; }).map(function (q) { return q.v; });
     if (it.maker && mk.indexOf(it.maker) < 0) mk.push(it.maker);
     var auto = gradeShort(it.orig || it.v);
-    h += '<div class="row" style="gap:4px; margin-top:4px"><input class="mini" style="width:64px; flex:none; font-size:13px; text-align:center; padding:0 4px" maxlength="4" placeholder="' + esc(it.short ? '' : auto) + '" value="' + esc(it.short || '') +
+    h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span><input class="mini" style="width:64px; flex:none; font-size:13px; text-align:center; padding:0 4px" maxlength="4" placeholder="' + esc(it.short ? '' : auto) + '" value="' + esc(it.short || '') +
       '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="제지사 없을 때 표시 (비우면 자동)">' +
       '<select class="mini" style="flex:1; min-width:0; font-size:13px" onchange="qeSet(' + i + ',\'maker\',this.value)" aria-label="기본 제지사">' +
       '<option value="">기본 제지사 없음</option>' + mk.map(function (m) { return '<option value="' + esc(m) + '"' + (m === it.maker ? ' selected' : '') + '>기본 제지사: ' + esc(m) + '</option>'; }).join('') + '</select></div>';
