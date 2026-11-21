@@ -1320,8 +1320,8 @@ function sheetMerge() {
     return '<div class="card" style="display:flex; align-items:center; gap:10px; padding:10px 12px; margin:0 0 6px' + (m.done ? '; opacity:.5' : '') + '">' +
       '<div style="flex:1; min-width:0"><b style="font-size:18px">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b>' +
       '<div class="muted">' + m.qty + '롤' + (m.mix ? ' · 입고일 섞임' : '') + '</div></div>' +
-      (m.done ? '<button class="btn2" style="flex:none; height:44px; padding:0 12px" onclick="mjUndo(' + i + ')">✓ 완료 · 취소</button>'
-              : '<button class="btn" style="flex:none; height:44px; padding:0 20px" onclick="mjDone(' + i + ')">완료</button>') + '</div>';
+      (m.done ? '<button class="btn2" style="flex:none; width:auto; height:44px; padding:0 12px" onclick="mjUndo(' + i + ')">✓ 완료 · 취소</button>'
+              : '<button class="btn" style="flex:none; width:auto; height:44px; padding:0 20px" onclick="mjDone(' + i + ')">완료</button>') + '</div>';
   }).join('');
   h += '<button class="' + (mjLeft() ? 'btn2' : 'btn') + '" style="width:100%; margin-top:8px" onclick="mjEnd()">' + (mjLeft() ? '목록 삭제' : '작업 종료') + '</button>';
   $('detail').innerHTML = h;
