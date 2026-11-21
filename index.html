@@ -181,12 +181,10 @@
   .rem { font-size:11px; font-weight:900; background:#6741D9; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px; vertical-align:2px; }
   .old { font-size:11px; font-weight:900; background:#9A1C1C; color:#fff; border-radius:4px; padding:1px 5px; margin-left:4px; vertical-align:2px; }
   #syncBtn { position:absolute; right:max(12px, calc((100% - 640px) / 2 + 12px)); top:12px; background:#2E3339; border:1px solid #555B63; color:#fff; border-radius:10px; font:inherit; font-size:14px; font-weight:700; height:38px; padding:0 12px; }
-  #syncBtn small { color:#A9AFB6; font-weight:500; margin-left:4px; }
   #ptr { height:0; overflow:hidden; text-align:center; font-size:13px; font-weight:700; color:var(--sub); transition:height .15s; }
   #newVer { display:none; }   /* 새 버전 열기용 숨은 링크 (버튼은 #syncBtn 하나) */
   /* 새 버전 있음: 버튼 오른쪽 위 노란 점(↑) + 노란 테두리 */
-  #syncBtn.upd { border-color:var(--y); }
-  #syncBtn .nvdot { position:absolute; top:-7px; right:-7px; width:20px; height:20px; border-radius:50%; background:var(--y); color:var(--ink); font-style:normal; font-size:13px; font-weight:900; line-height:20px; text-align:center; box-shadow:0 0 0 2px var(--ink); }
+  #syncBtn.upd { border-color:var(--y); background:var(--y); color:var(--ink); }
   .rt { width:100%; border-collapse:collapse; font-size:13px; }
   .rt th, .rt td { border-bottom:1px solid #E6E8EB; padding:5px 4px; text-align:right; white-space:nowrap; }
   .rt th:first-child, .rt td:first-child, .rt .l { text-align:left; }
@@ -387,7 +385,7 @@
 <body>
 <header>
   <h1 id="title">재고</h1>
-  <button id="syncBtn" onclick="syncTap()" aria-label="재고 새로 고침">↻ 새로고침<small id="syncAt">-</small></button>
+  <button id="syncBtn" onclick="topTap()" aria-label="검색" style="display:none">🔍 검색</button>
   <a id="newVer" target="_top" href="#" aria-hidden="true"></a>
   <span id="testBar" data-lp="test" onclick="lpAct('test')" role="button" aria-label="테스트 모드 끄기" style="display:none">테스트</span>
   <div id="hdrExtra"></div>
@@ -633,7 +631,6 @@ function setStock(stock, at) {
   if (stock && !Array.isArray(stock) && stock.today) S.today = stock.today;   // 오늘 입고 진행 (저장 · 되돌리기 결과)
   if (stock && !Array.isArray(stock) && stock.stock) stock = stock.stock;   // 저장 결과 { stock, nos }
   S.stock = stock; S.loadedAt = Date.now(); S.at = at || hhmm();
-  var el = $('syncAt'); if (el) el.textContent = S.at;
 }
 /* 다른 작업자 입력 반영: 탭 이동 · 앱 복귀 때 15초 지났으면 새로 고침, ↻ 누르면 바로 */
 function refreshStock(force) {
@@ -652,19 +649,28 @@ function refreshStock(force) {
   });
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshStock(false); });
-/* 새 버전 배포 감지 → [↻ 새로고침] 버튼 모서리에 업데이트 표시(노란 점 ↑): 누르면 앱 전체 다시 열기 (재고도 함께 최신)
-   버튼 하나로 처리 — 따로 띠를 띄우지 않음 · 버튼 글자 · 시각은 그대로 */
+/* 위쪽 버튼: 재고 탭 = [🔍 검색](검색 팝업) · 새 버전 배포 감지 시 모든 탭 = [↑ 새 버전](앱 다시 열기) · 그 외 숨김
+   재고 새로 고침 = 자동(1분 · 앱 복귀) + 당겨서 새로고침 */
 var NEWVER = false;
 function checkVer(v) {
   if (!v || !S.ver || v === S.ver || NEWVER) return;
   NEWVER = true;
   $('newVer').href = S.appUrl || '#';
-  var b = $('syncBtn'), d = document.createElement('i');
-  d.className = 'nvdot'; d.textContent = '↑'; d.setAttribute('aria-hidden', 'true');
-  b.classList.add('upd'); b.appendChild(d); b.setAttribute('aria-label', '새 버전 적용');
+  topBtn();
 }
-function syncTap() {
+function topBtn() {
+  var b = $('syncBtn'); if (!b) return;
+  b.classList.toggle('upd', NEWVER);
+  b.textContent = NEWVER ? '↑ 새 버전' : '🔍 검색';
+  b.setAttribute('aria-label', NEWVER ? '새 버전 적용' : '검색');
+  b.style.display = NEWVER || TAB === 'map' ? '' : 'none';
+}
+function topTap() {
   if (NEWVER) return $('newVer').click();   // 구글 화면에선 바깥 창 전체를 새 주소로 (target=_top 링크)
+  if (TAB === 'map' && !MV) openFilter();
+}
+function syncTap() {   // 당겨서 새로고침
+  if (NEWVER) return $('newVer').click();
   refreshStock(true);
 }
 /* 1분마다 자동 새로 고침 (작업창 · 이동 중에는 건너뜀) */
@@ -677,7 +683,7 @@ setInterval(function () { if (document.visibilityState === 'visible' && !SH && !
     if (y0 === null) return;
     dy = e.touches[0].clientY - y0;
     P.style.height = Math.min(44, Math.max(0, dy / 2)) + 'px';
-    P.textContent = dy > 90 ? '↻ 놓으면 새로고침' : '↓ 당겨서 새로고침';
+    P.textContent = (dy > 90 ? '↻ 놓으면 새로고침' : '↓ 당겨서 새로고침') + (S.at ? ' · ' + S.at : '');
   }, { passive: true });
   document.addEventListener('touchend', function () {
     if (y0 !== null && dy > 90) syncTap();   // 당겨서 새로고침 = 버튼과 같음 (새 버전이면 적용)
@@ -911,6 +917,7 @@ function show(t) {
   $('title').textContent = TITLES[t];
   $('testBar').style.display = isTest() ? 'inline-block' : 'none';
   $('hdrExtra').innerHTML = '';
+  topBtn();
   SH = null; MV = null; ST = null; PKT = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
   ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
   window.scrollTo(0, 0);
@@ -1242,7 +1249,7 @@ function saveRowEditor(code) {
 }
 function goIn(code) { I.loc = code; show('in'); }
 function searchBar() {
-  if (!fOn()) return '<button class="srch" onclick="openFilter()">🔍 검색 (규격 · 제지사 · 문구)</button>';
+  if (!fOn()) return '';   // 평소 숨김 (위쪽 [🔍 검색] 버튼) · 검색 중일 때만 조건 · 결과 수 · ✕
   var fh = fHits(), hits = fh.list, locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
   var lab = [F.maker, (F.gsm || F.width) ? (F.gsm || '전체') + ' × ' + (F.width || '전체') : '', F.grade, F.q ? '"' + F.q + '"' : ''].filter(Boolean).join(' ');
   return '<div class="srch" role="button" onclick="openFilter()"><b>' + esc(lab) + '</b><span class="cnt">' +
