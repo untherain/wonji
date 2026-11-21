@@ -140,6 +140,7 @@
   .map > .cell { height:auto; align-self:stretch; display:flex; flex-direction:column; }
   .map > .cell .bar { margin-top:auto; } .map > .cell .bar::before { content:none; }
   .map > .cell > .sl:last-of-type, .map > .cell > .s { margin-bottom:4px; }
+  .onlybar { margin:8px 0 0; padding:6px 10px; border-radius:8px; background:#FFF6D6; border:1px solid var(--y); font-weight:900; font-size:13px; }
   .mainent { margin:4px 0 0; padding:6px 0; text-align:center; font-weight:900; font-size:13px; color:var(--ink); border-top:3px solid var(--y); }
   .bstrip { margin:4px 0 8px; }
   .bhead { font-weight:900; font-size:14px; margin-bottom:4px; }
@@ -1112,7 +1113,7 @@ function renderMap() {
     flush();
     return out || '<div class="map"></div>';
   }
-  var html = '';
+  var html = (w.only || []).length ? '<div class="onlybar">' + esc(w.only.join(' · ')) + ' 전용 창고</div>' : '';
   bandsOf(w).forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 좌 | 통로 | 우 (빈칸 가능)
     html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' + pairRows(pair[0], pair[1]);
   });
@@ -1823,9 +1824,11 @@ function moveTo(code) {
   var free = freeFor(code, s.gsm, s.width, s.grade);
   if (free < q) { toast(keyOf(code) + ' 공간 부족 (최대 ' + free + '롤)', true); return; }
   if (!requireWorker()) return;
-  call('moveStock', Object.assign(itemP(s), { from: from, to: code, qty: q })).then(function (r) {
-    setStock(r); MV = null; renderMap();
-    undoToast('이동 ' + plain(locRoute(from, code)) + ' · ' + fmtItem(s, q), r.nos);
+  onlyOk([code], s.maker, function () {
+    call('moveStock', Object.assign(itemP(s), { from: from, to: code, qty: q })).then(function (r) {
+      setStock(r); MV = null; renderMap();
+      undoToast('이동 ' + plain(locRoute(from, code)) + ' · ' + fmtItem(s, q), r.nos);
+    });
   });
 }
 function cellTap(code) {
@@ -2502,6 +2505,21 @@ function planBox() {
     return '<div class="row" style="padding:6px 2px;' + (k ? ' border-top:1px solid var(--line);' : '') + '"><b>' + esc(locLabel(x.loc)) + '</b><span style="font-weight:800">' + x.qty + '롤</span></div>';
   }).join('') + '<button class="btn2" style="width:100%; margin-top:6px" onclick="pickOwn()">직접 선택 (한 줄)</button></div>';
 }
+/* 전용 제지사: 창고 only 목록 (빈 목록 = 전체 허용) */
+function mkKey(m) { return normMk(canonMaker(m || '')); }
+function whAllows(w, maker) {
+  var o = (w && w.only) || []; if (!o.length) return true;
+  var k = mkKey(maker); return !!k && o.some(function (x) { return mkKey(x) === k; });
+}
+function whDedicated(w, maker) { return !!(w && (w.only || []).length) && whAllows(w, maker); }
+/* 다른 제지사를 전용 창고에 넣을 때 확인 (혼재 허용 · 확인 후 진행) */
+function onlyOk(codes, maker, go) {
+  var seen = {}, bad = codes.map(whOf).filter(function (w) { if (!w || seen[w.id] || whAllows(w, maker)) return false; seen[w.id] = 1; return true; });
+  if (!bad.length) { go(); return; }
+  ask({ title: '전용 창고 확인', input: false, ok: '진행',
+    msg: bad.map(function (w) { return w.name + ' = ' + w.only.join('·') + ' 전용'; }).join(' · ') + ' · ' + (maker || '제지사 미입력') + ' 적재 · 계속 진행?' },
+    function (y) { if (y) go(); });
+}
 /* 추천 후보 순서: (잔량) 같은 규격 잔량 있는 잔량 전용 줄 → 잔량 전용 줄 → 같은 규격 줄(오래된 입고 순) → 빈 줄(01번 = 입구 쪽부터)
    잔량 전용 · 출하 대기 등 다른 용도 줄과 다른 규격이 있는 줄은 제외 */
 function sugCands() {
@@ -2518,8 +2536,11 @@ function sugCands() {
     .sort(function (a, b) { return a.date.localeCompare(b.date); })
     .forEach(function (s) { if (normalRow(s.loc)) add(s.loc); });
   S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (normalRow(code) && rowInfo(code).rolls === 0) add(code); }); });
-  return out;
+  // 전용 제지사: 허용 안 되는 창고 제외 · 해당 제지사 전용 창고 우선 (각 그룹 안 순서 유지)
+  var mk = curMaker(), ok = out.filter(function (c) { return whAllows(whOf(c), mk); });
+  return ok.filter(function (c) { return whDedicated(whOf(c), mk); }).concat(ok.filter(function (c) { return !whDedicated(whOf(c), mk); }));
 }
+function curMaker() { var m = $('i-maker').value; return m === '__new' ? '' : m; }
 /* 추천 위치: 전량 수용 가능한 첫 후보 */
 function suggestLoc() {
   if (!I.gsm || !I.width) return null;
@@ -2532,7 +2553,9 @@ function suggestLoc() {
    ③ 고른 줄 안 채우는 순서 = 추천 순서 (같은 규격 줄 먼저) */
 function splitPlan() {
   if (!I.gsm || !I.width) return null;
-  var g = curGrade(), cands = sugCands(), rank = {}, free = {}, same = {};
+  var g = curGrade(), cands = sugCands(), rank = {}, free = {}, same = {}, mk = curMaker();
+  var ded = cands.filter(function (c) { return whDedicated(whOf(c), mk); });
+  if (ded.length && ded.reduce(function (a, c) { return a + freeFor(c, I.gsm, I.width, g); }, 0) >= I.qty) cands = ded;
   cands.forEach(function (c, i) {
     rank[c] = i; free[c] = freeFor(c, I.gsm, I.width, g);
     same[c] = rowInfo(c).items.some(function (s) { return s.gsm == I.gsm && s.width == I.width; }) ? 1 : 0;
@@ -2603,6 +2626,9 @@ function saveIn() {
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
   if (I.plan) { p.parts = I.plan.map(function (x) { return { loc: x.loc, qty: x.qty }; }); p.loc = p.parts[0].loc; }
+  onlyOk(p.parts ? p.parts.map(function (x) { return x.loc; }) : [p.loc], p.maker, function () { saveInGo(p); });
+}
+function saveInGo(p) {
   call('intake', p).then(function (stock) {
     setStock(stock);
     [['지종', p.grade], ['제지사', p.maker]].forEach(function (x) {
@@ -3311,7 +3337,7 @@ var W = null;
 function cloneWhs() {
   return S.whs.map(function (w) {
     return {
-      id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
+      id: w.id, name: w.name, slots: w.slots, rev: !!w.rev, only: (w.only || []).slice(),
       rule: w.rule.map(function (r) { return { max: r.max === null ? '' : r.max, lv: r.lv }; }),
       zones: w.zones.map(function (z, j) { return { code: z.code, name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1, link: z.link || '', face: z.face || '' }; }),
       rows: JSON.parse(JSON.stringify(w.rows))
@@ -3391,6 +3417,11 @@ function renderWh() {
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
+      '<div class="sub"><h3>전용 제지사</h3><div class="muted" style="margin:-4px 0 6px">비움 = 전체 허용 · 지정 시 추천은 해당 제지사만 · 다른 제지사 입고 · 이동은 확인 후 진행</div>' +
+      '<div class="row" style="gap:6px; flex-wrap:wrap; justify-content:flex-start">' +
+      (w.only || []).map(function (m, k) { return '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px" onclick="onlyDel(' + i + ',' + k + ')">' + esc(m) + ' ✕</button>'; }).join('') +
+      '<select class="mini" style="width:130px; flex:none; padding:0 6px" onchange="onlyAdd(' + i + ', this.value)" aria-label="전용 제지사 추가"><option value="">+ 제지사</option>' +
+      (S.quick['제지사'] || []).filter(function (m) { return (w.only || []).indexOf(m) < 0; }).map(function (m) { return '<option>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
       '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 1-01 · 2상-13) · 별칭 필수 · 구역마다 위치(통로 · 면) 지정</div>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span style="font-size:13px; font-weight:700">01번 줄 위치</span>' +
       '<select class="mini" style="width:120px; flex:none; padding:0 6px" onchange="setEntrance(' + i + ', this.value)" aria-label="01번 줄 위치">' +
@@ -3421,6 +3452,8 @@ function whPrev(i) {
     return (j === w.rule.length - 1 ? lastLabel(w) : r.max + ' mm 이하') + ' ' + s * (+r.lv || 0) + '롤';
   }).join(' / ');
 }
+function onlyAdd(i, m) { if (!m) return; W[i].only = (W[i].only || []).concat([m]); renderWh(); toast('전용 제지사 추가 · [창고 설정 저장] 시 반영'); }
+function onlyDel(i, k) { W[i].only.splice(k, 1); renderWh(); toast('전용 제지사 삭제 · [창고 설정 저장] 시 반영'); }
 function addWh() {
   var max = W.reduce(function (m, w) { return Math.max(m, +w.id || 0); }, 0);
   W.push({ id: max + 1, name: (max + 1) + '창고', slots: 7, rule: [{ max: 1000, lv: 6 }, { max: '', lv: 4 }],
@@ -3531,7 +3564,7 @@ function addEx(i) {
 function whToServer() {
   return W.map(function (w) {
     return {
-      id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
+      id: w.id, name: w.name, slots: w.slots, rev: !!w.rev, only: w.only || [],
       ruleText: w.rule.map(function (r, j) { return (j === w.rule.length - 1 ? '*' : r.max) + ':' + r.lv; }).join(', '),
       zones: w.zones.map(function (z, j) { return { code: String(z.code).trim().toUpperCase(), name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1, link: z.link || '', face: z.face || '' }; }),
       rows: w.rows
