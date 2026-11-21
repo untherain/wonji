@@ -117,6 +117,9 @@
 .stab { display:none; } .stab.on { display:block; }
 .seg .ndot { margin-left:4px; }
   .locbox { display:flex; flex-direction:column; gap:6px; }
+  .sugtag { font-size:12px; font-weight:800; color:var(--ink); background:var(--y); border-radius:6px; padding:2px 8px; }
+  #i-loc.sug select, #i-plan.sug .locbox { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
+  #i-plan.sug .locbox { border:1px solid var(--y); border-radius:10px; padding:6px 8px; }
   .tag { display:inline-block; width:66px; height:62px; border-radius:10px; background:#E6E8EB; text-align:center; padding-top:6px; flex:none; }
   .tag b { display:block; font-size:19px; }
   .tag.hot { background:var(--ink); color:var(--y); }
@@ -439,7 +442,7 @@
       <select id="i-grade" aria-label="지종"></select>
       <select id="i-maker" aria-label="제지사"></select>
     </div>
-    <h2>보관 위치</h2>
+    <h2 style="display:flex; align-items:center; gap:8px">보관 위치<span id="i-locTag"></span></h2>
     <div id="i-loc"></div>
     <div id="i-plan" style="display:none"></div>
     <div class="muted" id="i-hint" style="margin:6px 0 10px; color:var(--ok); font-weight:700"></div>
@@ -2577,14 +2580,14 @@ function inHint() {
   }
   if (ri.cfg.use && ri.cfg.use !== '원지') h += ' · [' + ri.cfg.use + '] 줄';
   if (sameHere) h += ' · 같은 규격 있음';
-  var tail = '';
-  if (I.gsm && I.width) {
-    if (!sug) tail = I.locManual ? ' · 전량 수용 위치 없음 <button class="btn2" style="height:26px; padding:0 8px; font-size:12px; margin-left:4px" onclick="useSug()">분산 추천</button>' : '';
-    else if (sug === code) tail = I.locManual ? '' : ' · 추천 위치 적용';
-    else tail = ' · 추천 위치: ' + esc(locLabel(sug)) + ' <button class="btn2" style="height:26px; padding:0 8px; font-size:12px; margin-left:4px" onclick="useSug()">추천 적용</button>';
-  }
-  if (I.plan) { h = '분산 추천 ' + I.plan.length + '줄 · 전량 ' + I.qty + '롤 (한 줄 수용 불가)'; tail = ''; }
+  var tail = '', auto = !I.locManual && I.gsm && I.width && (I.plan || sug === code);
+  if (I.plan) h = '전량 ' + I.qty + '롤 · ' + I.plan.length + '줄 분산 (한 줄 수용 불가)';
   else if (!I.locManual && I.gsm && I.width && !sug) tail = ' · 전 창고 적재 공간 부족';
+  // 추천 표시: 칸 노란 테두리 + 제목 [추천] · 직접 선택 후 추천과 다르면 [추천 위치로] 버튼만
+  $('i-loc').classList.toggle('sug', !!auto && !I.plan);
+  $('i-plan').classList.toggle('sug', !!I.plan);
+  $('i-locTag').innerHTML = auto ? '<span class="sugtag">추천</span>'
+    : (I.locManual && I.gsm && I.width && sug !== code) ? '<button class="btn2" style="height:26px; padding:0 10px; font-size:12px" onclick="useSug()">추천 위치로</button>' : '';
   $('i-hint').innerHTML = esc(h) + tail;
   $('i-hint').style.color = !I.plan && ((ri.w && I.width && I.qty > freeFor(code, I.gsm, I.width, g)) || (!I.locManual && I.gsm && I.width && !sug)) ? '#9A1C1C' : 'var(--ok)';
   var imk = $('i-maker').value === '__new' ? '' : $('i-maker').value;
