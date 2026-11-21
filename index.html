@@ -1339,9 +1339,10 @@ function sheetMerge() {
       j.moves.map(function (m, i) {
         var body = '<div class="row"><b style="font-size:16px; white-space:nowrap">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b><b style="white-space:nowrap; flex:none">' + m.qty + '롤</b></div>' +
           (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
-          (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '');
+          (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '') +
+          (m.done ? '<div style="font-size:12px; font-weight:900; color:#1E5A33">✓ 이동 완료</div>' : '');
         var side = m.done
-          ? '<button class="btn2" style="height:40px; padding:0 10px; background:#1E6B3A; color:#fff; border-color:#1E6B3A" onclick="mjUndo(' + i + ')">✓ 완료</button>'
+          ? '<button class="btn2" style="height:40px; padding:0 10px; color:#9A1C1C; border-color:#9A1C1C" onclick="mjUndo(' + i + ')">이동 취소</button>'
           : '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjDone(' + i + ')">이동 완료</button>';
         return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : '#fff', body: body, side: side });
       }).join('') +
@@ -1349,7 +1350,7 @@ function sheetMerge() {
   }
   if (j.skip && j.skip.length) h += '<div class="card" style="padding:8px 12px; margin:8px 0 0"><b>이동 불가 (자리 부족)</b><div class="muted">' +
     j.skip.map(function (x) { return esc(keyOf(x.loc)) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></div>';
-  h += '<div class="muted" style="margin:8px 0 0">실물 이동 후 <b>이동 완료</b> 선택 · 선택 시 재고 반영 · <b>✓ 완료</b> 선택 시 완료 취소</div>';
+  h += '<div class="muted" style="margin:8px 0 0">실물 이동 후 <b>이동 완료</b> 선택 · 선택 시 재고 반영 · 오류 시 <b>이동 취소</b> (재고 원복)</div>';
   var left = mjLeft();
   h += '<button class="' + (left || !tot ? 'btn2' : 'btn') + '" style="width:100%; margin-top:12px" onclick="mjEnd()">' + (left ? '목록 삭제' : !tot ? '닫기' : '작업 종료') + '</button>';
   $('detail').innerHTML = h;
@@ -1414,10 +1415,10 @@ function mjDone(i) {
 function mjUndo(i) {
   var m = MJ && MJ.moves[i]; if (!m || !m.done) return;
   if (!m.nos.length) { toast('취소 대상 기록 없음 · 기록 탭에서 취소', true); return; }
-  ask({ title: '완료 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n이동 취소 · 재고 원복', input: false, ok: '완료 취소', danger: true }, function (y) {
+  ask({ title: '이동 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n재고 원복 (출발 위치 복귀)', input: false, ok: '이동 취소', danger: true }, function (y) {
     if (!y || !requireWorker()) return;
     call('undoTx', { nos: m.nos, worker: worker(), test: isTest() }).then(function (st) {
-      setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('완료 취소');
+      setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('이동 취소 · 재고 원복');
     });
   });
 }
