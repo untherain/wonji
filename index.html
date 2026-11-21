@@ -1609,15 +1609,13 @@ function itemHtml(o, qty) {
   var m = itemMk(o);
   return (m ? '<span class="' + (m.g ? 'mkg' : 'mkn') + '">' + esc(m.t) + '</span> ' : '') + esc(spec(o)) + (qty != null && qty !== '' ? ' · ' + qty + '롤' : '');
 }
-/* 지종 약칭: 기준정보 약칭 우선 · 비우면 자동 (영문·숫자로 시작 = 그 부분 4자까지 · 한글 4자 이상 = 1·3번째 글자 · 그 외 앞 2자) */
+/* 2줄에 쓸 지종: 1줄에 지종 전체 이름이 이미 나오면(제지사 없음 · 약칭 없음) 생략 */
+function gradeSub(o) { var g = o.grade || ''; return g && !o.maker && !(o.makers && o.makers.length > 1) && gradeShort(g) === g ? '' : g; }
+/* 지종 약칭: 기준정보 약칭 · 비어 있으면 지종 전체 이름 */
 function gradeShort(g) {
   g = String(g || '').trim(); if (!g) return '';
   var q = (S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === g && x.short; })[0];
-  if (q) return q.short;
-  var v = g.replace(/\s+/g, ''), m = v.match(/^[A-Za-z0-9]+/);
-  if (m) return m[0].slice(0, 4);
-  var k = v.replace(/[^가-힣]/g, '');
-  return k.length >= 4 ? k.charAt(0) + k.charAt(2) : v.slice(0, 2);
+  return q ? q.short : g;
 }
 /* 공통 부품: 요약 한 줄 (표기 규칙 그대로) — parts = 글자 또는 P(값, 이름, 이동 id, 사진 키, 필수, 앞 글자)
    값 없음: 필수면 빨간 이름 (누르면 사진 다시 읽은 화면에선 그 항목만 재촬영, 아니면 그 칸으로 이동) · 선택 항목이면 생략
@@ -1898,7 +1896,7 @@ function itemBlock(s, i, ri) {
   var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 먼저 출고</span>' : '';
   var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
-    '<br><span class="muted">' + (s.grade ? esc(s.grade) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 타 위치 ' + othersOf(s).length + '줄' : '') + '</span></span>' +
+    '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 타 위치 ' + othersOf(s).length + '줄' : '') + '</span></span>' +
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
@@ -3065,7 +3063,7 @@ function renderG() {
   $('g-items').innerHTML = items.length ? items.map(function (s, i) {
     var on = sameItem(G.item, s);
     return '<button class="card row' + (on ? ' hot' : '') + '" style="width:100%; font:inherit; text-align:left; ' + (on ? 'background:#FFF8E1' : '') + '" onclick="pickItem(' + i + ')">' +
-      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + '<br><span class="muted">' + (s.grade ? esc(s.grade) + ' · ' : '') + lotText(s) + '</span></span><b>재고 ' + s.qty + '롤</b></button>';
+      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + '</span></span><b>재고 ' + s.qty + '롤</b></button>';
   }).join('') : '<div class="card muted">이 위치에 재고 없음</div>';
   renderG.items = items;
   // 롤 수: 1 ~ 현재 재고
@@ -3098,7 +3096,7 @@ function renderCount() {
   $('g-items').innerHTML = (list.length ? list.map(function (s, i) {
     var a = G.cnt.v[itemKey(s)], d = a - s.qty; if (d) diff++;
     return '<div class="card row" style="' + (d ? 'background:#FFF8E1; border:2px solid var(--ink)' : '') + '">' +
-      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + (s.grade ? '<div class="muted">' + esc(s.grade) + '</div>' : '') + '<div class="muted" style="white-space:nowrap">전산 ' + s.qty + '롤' +
+      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + (gradeSub(s) ? '<div class="muted">' + esc(gradeSub(s)) + '</div>' : '') + '<div class="muted" style="white-space:nowrap">전산 ' + s.qty + '롤' +
       (d ? ' · <b style="color:' + (d > 0 ? 'var(--ok)' : '#9A1C1C') + '">' + (d > 0 ? '+' : '') + d + '</b>' : '') + '</div></span>' +
       stepper(a, 'cntStep(' + i + ',-1)', 'cntStep(' + i + ',1)', '실사 수량') + '</div>';
   }).join('') : '<div class="card muted">이 위치에 재고 없음</div>') +
@@ -3707,7 +3705,7 @@ function pickRow(it, seq, a) {
     if (a.lack) l2.push('<span style="font-size:13px; font-weight:900; color:#9A1C1C">부족 ' + a.lack + '</span>');
   }
   if (warn) l2.push('<span style="font-size:13px; font-weight:900; color:#E8590C">⚠ ' + esc(warn) + '</span>');
-  l2.push('<span class="muted" style="font-size:12px">' + esc([pm.grade, '계획 ' + it.planNo].filter(String).join(' · ')) + '</span>');
+  l2.push('<span class="muted" style="font-size:12px">' + esc([gradeSub(pm), '계획 ' + it.planNo].filter(String).join(' · ')) + '</span>');
   if (it.note) l2.push(noteFold('pk' + it.id, true, '<div class="muted" style="font-size:12px">' + esc(it.note) + '</div>'));
   if (!done && a && a.alts.length && (a.lack || !a.got)) l2.push('<details class="note"><summary>대체 ' + a.alts.length + '</summary><div class="muted" style="font-size:12px">' +
     a.alts.map(function (x) { return esc(locLabel(x.loc)) + ' ' + esc(x.maker) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></details>');
@@ -4117,8 +4115,7 @@ function qeRow(it, i) {
   if (QE.kind === '지종') {
     var mk = (S.quickAll || []).filter(function (q) { return q.k === '제지사' && q.st !== '중지'; }).map(function (q) { return q.v; });
     if (it.maker && mk.indexOf(it.maker) < 0) mk.push(it.maker);
-    var auto = gradeShort(it.orig || it.v);
-    h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span><input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="' + esc(it.short ? '' : auto) + '" value="' + esc(it.short || '') +
+    h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span><input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="전체 이름" value="' + esc(it.short || '') +
       '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="제지사 없을 때 표시 (비우면 자동)">' +
       '<select class="mini" style="flex:1; min-width:0; font-size:13px" onchange="qeSet(' + i + ',\'maker\',this.value)" aria-label="기본 제지사">' +
       '<option value="">기본 제지사 없음</option>' + mk.map(function (m) { return '<option value="' + esc(m) + '"' + (m === it.maker ? ' selected' : '') + '>기본 제지사: ' + esc(m) + '</option>'; }).join('') + '</select></div>';
