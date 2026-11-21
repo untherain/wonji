@@ -1962,6 +1962,27 @@ function useSpec(s) {
   var u = specUse(), k = s.gsm + '|' + s.width + '|' + (s.maker || '');
   u[k] = { n: ((u[k] || {}).n || 0) + 1, t: Date.now() };
   lsSet('specUse', JSON.stringify(u));
+  var v = valUse();
+  [['지종', s.grade], ['제지사', s.maker]].forEach(function (x) {
+    if (!x[1]) return; var kk = x[0] + '|' + x[1];
+    v[kk] = { n: ((v[kk] || {}).n || 0) + 1, t: Date.now() };
+  });
+  lsSet('valUse', JSON.stringify(v));
+}
+/* 지종 · 제지사 사용 기록 (이 폰) */
+function valUse() { try { return JSON.parse(lsGet('valUse') || '{}') || {}; } catch (e) { return {}; } }
+/* 선택칸 순서: 자주 쓰는 5개(최근 30일 사용 횟수 → 현재 재고 롤 수) + 그 외 가나다순 */
+function freqSplit(kind, list) {
+  var v = valUse(), cut = Date.now() - 30 * 864e5, use = {}, stk = {};
+  Object.keys(v).forEach(function (k) { var i = k.indexOf('|'); if (k.slice(0, i) === kind && v[k].t >= cut) use[k.slice(i + 1)] = v[k].n; });
+  S.stock.forEach(function (x) {
+    if (kind === '지종') { if (x.grade) stk[x.grade] = (stk[x.grade] || 0) + x.qty; }
+    else makersOf(x).forEach(function (m) { if (m.maker) stk[m.maker] = (stk[m.maker] || 0) + m.qty; });
+  });
+  var top = list.filter(function (x) { return use[x] || stk[x]; })
+    .sort(function (a, b) { return (use[b] || 0) - (use[a] || 0) || (stk[b] || 0) - (stk[a] || 0); }).slice(0, 5);
+  var rest = list.filter(function (x) { return top.indexOf(x) < 0; }).sort(function (a, b) { return String(a).localeCompare(String(b), 'ko'); });
+  return { top: top, rest: rest };
 }
 /* 자주 쓰는 규격 3개: 이 폰에서 최근 30일 사용 횟수 순 → 모자라면 재고 많은 규격 */
 function freqSpecs() {
@@ -2363,9 +2384,14 @@ function inSumText(where) {
 function selOpts(list, label, cur, first) {
   list = (list || []).slice();
   if (cur && cur !== '__new' && list.indexOf(cur) < 0) list.push(cur);
-  return '<option value="">' + esc(first || label + ' (선택)') + '</option>' +
-    list.map(function (v) { return '<option' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('') +
-    '<option value="__new">+ 직접 입력</option>';
+  function op(v) { return '<option' + (v === cur ? ' selected' : '') + '>' + esc(v) + '</option>'; }
+  var body = list.map(op).join('');
+  if ((label === '지종' || label === '제지사') && list.length > 6) {   // 자주 쓰는 순 + 그 외 가나다순
+    var f = freqSplit(label, list);
+    body = f.top.length ? '<optgroup label="자주 쓰는">' + f.top.map(op).join('') + '</optgroup><optgroup label="그 외 (가나다순)">' + f.rest.map(op).join('') + '</optgroup>'
+      : f.rest.map(op).join('');
+  }
+  return '<option value="">' + esc(first || label + ' (선택)') + '</option>' + body + '<option value="__new">+ 직접 입력</option>';
 }
 function fillSelect(el, list, label, cur) {
   el.innerHTML = selOpts(list, label, cur);
@@ -2827,7 +2853,7 @@ function saveIn() {
 }
 function saveInGo(p) {
   call('intake', p).then(function (stock) {
-    setStock(stock);
+    setStock(stock); useSpec(p);
     [['지종', p.grade], ['제지사', p.maker]].forEach(function (x) {
       if (x[1]) { S.quick[x[0]] = S.quick[x[0]] || []; if (S.quick[x[0]].indexOf(x[1]) < 0) S.quick[x[0]].push(x[1]); }
       // 기준정보에 없던 값 = 서버에서 '확인 필요'로 추가됨 (제지사 다른 이름은 제외)
@@ -3416,7 +3442,7 @@ function addPQ() {
   var mk = PQ.maker || '', gr = PQ.grade || '';
   PL.items.push({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: gr + (mk ? '(' + mk + ')' : ''), grade: gr, maker: mk,
     gsm: PQ.gsm, width: PQ.width, qty: PQ.all ? null : PQ.qty, all: !!PQ.all, note: '' });
-  savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; PQ.all = false; renderPlan();
+  useSpec(PQ); savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; PQ.all = false; renderPlan();
 }
 function clearPlan() {
   ask({ title: '새 계획', msg: '현재 계획 품목 ' + PL.items.length + '건 · 피킹 기록 비우기', input: false, ok: '비우기', danger: true },
