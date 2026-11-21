@@ -418,7 +418,7 @@
     <div id="i-photo"></div>   <!-- 공통 부품 photoBar (renderIn) -->
     <div id="i-ocr" class="card" style="display:none; margin-top:8px"></div>
     <div class="scan" id="i-scanbox" style="margin-top:10px">
-      <label for="i-scan">손글씨</label>
+      <label for="i-scan">직접 입력</label>
       <input id="i-scan" placeholder="230-1210 20R/L" autocomplete="off">
     </div>
     <div id="i-fromWrap" style="display:none"><h2>반납 호기</h2><div class="grid2" id="i-from" data-qk="출고처"></div></div>
@@ -473,11 +473,10 @@
     <div class="stab" data-k="me">
     <h2>작업자 로그인</h2>
     <div id="set-workerBox"></div>
-    <h2>손글씨 입력 방식</h2>
+    <h2>입고 직접 입력 칸</h2>
     <div class="card">
-      <label class="radio"><input type="radio" name="hand" value="scan" onchange="saveLocal()"> <span><b>텍스트 스캔 + 선택 버튼</b> (권장)</span></label>
-      <label class="radio"><input type="radio" name="hand" value="btn" onchange="saveLocal()"> <span><b>선택 버튼만</b></span></label>
-      <label class="radio" style="color:#8A9098"><input type="radio" name="hand" disabled> <span><b>AI 인식</b> · 나중에 추가</span></label>
+      <label class="radio"><input type="radio" name="hand" value="scan" onchange="saveLocal()"> <span><b>표시</b></span></label>
+      <label class="radio"><input type="radio" name="hand" value="btn" onchange="saveLocal()"> <span><b>숨김</b></span></label>
     </div>
     </div>
     <div class="stab" data-k="admin">
