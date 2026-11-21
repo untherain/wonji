@@ -475,27 +475,6 @@
     <button class="btn" id="i-save" onclick="saveIn()">입고 저장</button>
   </section>
 
-  <!-- 4. 관리 -->
-  <section id="s-mng">
-    <div id="g-summary"></div>
-    <div class="seg" id="g-seg" style="background:#E6E8EB"></div>
-
-    <div id="g-form">
-      <h2 id="g-fromLabel">출발 위치</h2>
-      <div id="g-from"></div>
-      <h2>품목</h2>
-      <div id="g-items"></div>
-      <div id="g-qtyRow" class="card row"><b id="g-qtyLabel" style="white-space:nowrap; flex:none">롤 수</b>
-        <div id="g-step"></div>
-        <button class="btn2" id="g-all" style="height:52px; padding:0 8px; flex:none" onclick="if(G.item){G.qty=G.item.qty;renderG();}">전량</button>
-      </div>
-      <div id="g-destWrap"><h2>출고처</h2><div class="grid2" id="g-dest" data-qk="출고처"></div></div>
-      <div id="g-toWrap"><h2>도착 위치</h2><div id="g-to"></div></div>
-      <div class="muted" id="g-sum" style="text-align:center; margin:10px 0"></div>
-      <button class="btn" id="g-save" onclick="saveG()">저장</button>
-    </div>
-  </section>
-
   <!-- 5. 기록 (이력 · 보고서) -->
   <section id="s-log">
     <div class="seg" id="l-seg" data-t="log"></div>
@@ -613,7 +592,6 @@ function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(fu
 function fQ(v) { F.q = v; renderMap(); var c = $('fq-cnt'), h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); }
 var M = { wh: null };                               // 위치 현황 창고
 var I = { gsm: null, width: null, qty: 1, rem: false, from: null, locManual: false }; // 입고 (rem = 잔량 반납 · locManual = 보관 위치 직접 선택)
-var G = { mode: '출고', item: null, qty: 1, dest: null }; // 작업 (출고 · 이동 · 실사)
 var LG = { mode: '이력' };   // 기록 (이력 · 보고서)
 var TAB = 'map';
 var TITLES = { map: '재고 · 위치 현황', in: '입고', plan: '출고 · 생산계획', log: '기록', set: '설정' };
@@ -987,7 +965,6 @@ function show(t) {
 new MutationObserver(function () { hdrFit(); }).observe($('hdrExtra'), { childList: true });
 new MutationObserver(function () { hdrFit(); }).observe($('hdrSrch'), { childList: true });
 $('i-step').outerHTML = stepper(1, 'I.qty=Math.max(1,I.qty-1);renderIn()', 'I.qty++;renderIn()', '롤 수', 'i-qty');
-$('g-step').outerHTML = stepper(1, 'G.qty=Math.max(0,G.qty-1);renderG()', 'G.qty++;renderG()', '롤 수', 'g-qty');
 
 /* ===== 1. 재고(지도) 작업 열기 — 검색 결과 줄에서 바로 출고 · 이동 · 실사 ===== */
 function actOn(mode, s) {
@@ -1353,7 +1330,6 @@ function moveBand() {
     '<div class="row" style="margin-top:6px"><span style="font-weight:700">롤 수 <small>(최대 ' + s.qty + ')</small></span>' + stepper(MV.qty, 'mvQty(-1)', 'mvQty(1)', '이동 롤 수') + '</div>' +
     '<div style="font-size:13px; font-weight:700; margin-top:4px">도착 줄 누르면 저장 · 다른 창고는 위에서 선택</div></div>';
 }
-function goMng(mode, code) { G.mode = mode; G.from = code; G.item = null; G.cnt = null; show('mng'); }
 
 /* ===== 지도 작업창: 줄 누르면 출고 · 이동 · 입고 · 실사 (모든 작업을 지도에서) ===== */
 var SH = null;   // { code, mode: ''|'out'|'in'|'cnt'|'add'|'cfg'|'filter', it, qty, sp, cnt, rem, from, more }
@@ -1836,8 +1812,8 @@ function ocrCall(kind, d) {
       tsrReady().then(function (det) { return tsrCells(det, o0.c, o0.items); }).then(function (t) { return tsrPlan(t, o0.text); }, function () { return null; });
     return table.then(function (r) {
       var good = kind === 'ocrPlan' ? !!r : (function (x) { return !!(x.gsm && x.width); })(labelParse(o0.text));
-      if (good || k >= 2) return { o: k ? o0 : o0, r: r, first: o0 };
-      var c = lvRot(o0.c); if (k === 1) c = lvRot(lvRot(c));   // 1번째 = 90° · 2번째 = 270°
+      if (good || k >= 2) return { o: o0, r: r };
+      var c = k === 0 ? lvRot(o0.c) : lvRot(lvRot(o0.c));   // 원래 → 90° → (180° 더) = 270°
       return padReady().then(function (svc) { return padRunC(svc, c); }).then(function (o1) {
         return readRot(o1, k + 1).then(function (x) { return x.r || (kind !== 'ocrPlan' && labelParse(x.o.text).gsm) ? x : { o: o0, r: null }; });
       });
@@ -2630,22 +2606,23 @@ function pickSel(sel) {
   });
 }
 /* 공통 부품: 지종 · 제지사 선택 창 본체 — 선택칸(pickSel) · 품목 수정/제지사 지정(pickQuick) 공통
-   o: { cur, more(목록에 더할 값), empty(빈값 선택지 제목 · 없으면 안 보임), title, msg, rawNew(true면 '__new' 그대로 반환) }
+   o: { cur, more(목록에 더할 값), list(목록 직접 지정), empty(빈값 선택지 제목 · 없으면 안 보임), title, msg,
+        rawNew(true면 '__new' 그대로 반환), noNew(직접 입력 없음), noEdit(✎ 편집 없음) }
    cb(값) — 빈값 = '' */
 function valPick(kind, o, cb) {
-  var cur = o.cur || '', list = (S.quick[kind] || []).slice();
+  var cur = o.cur || '', list = (o.list || S.quick[kind] || []).slice();
   (o.more || []).forEach(function (v) { if (v && list.indexOf(v) < 0) list.push(v); });   // 목록에 없는 현재 값 등
   var f = list.length > 6 ? freqSplit(kind, list) : { top: [], rest: list };
   function item(v) {
     var q = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v === v; })[0] || {};
-    return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v && v === cur ? '선택됨' : '', edit: !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
+    return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v && v === cur ? '선택됨' : '', edit: !o.noEdit && !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
   }
   var ch = o.empty ? [{ v: '', t: o.empty, keep: 1 }] : [];
   if (f.top.length) ch.push({ h: '자주 쓰는' });
   ch = ch.concat(f.top.map(item));
   if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
   ch = ch.concat(f.rest.map(item));
-  ch.push({ v: '__new', t: '+ 직접 입력', keep: 1 });
+  if (!o.noNew) ch.push({ v: '__new', t: '+ 직접 입력', keep: 1 });
   ask({ title: o.title || kind + ' 선택', msg: o.msg, list: true, search: true, chips: ch, onEdit: function (v) { valEdit(kind, v); } }, function (v) {
     if (v == null) return;
     if (v === '') return cb('');
@@ -3487,25 +3464,6 @@ function saveInGo(p) {
   });
 }
 
-/* ===== 4. 작업 (출고 · 이동 · 실사) ===== */
-function renderMng() {
-  $('g-summary').innerHTML = statTiles(S.whs.map(function (w) {
-    var n = S.stock.filter(function (s) { return s.wh == w.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
-    var slots = 0, used = 0;
-    eachRow(w, function (z, key, code) { var ri = rowInfo(code); if (!ri.cfg.off) slots += ri.slots; used += ri.used; });
-    var pct = slots ? Math.round(used / slots * 100) : 0;
-    return { name: w.name, val: n + '롤', pct: pct, sub: '적재율 ' + pct + '%', lp: 'wh:' + w.id };
-  }));
-  if (['출고', '이동', '실사'].indexOf(G.mode) < 0) G.mode = '출고';
-  seg($('g-seg'), ['출고', '이동', '실사'], G.mode, function (m) { G.mode = m; G.item = null; G.cnt = null; renderMng(); });
-  $('g-fromLabel').textContent = G.mode === '실사' ? '실사 위치' : '출발 위치';
-  locPicker($('g-from'), G.from || null, function (c) { G.from = c; G.item = null; G.cnt = null; renderG(); });
-  G.from = $('g-from').dataset.code;
-  $('g-destWrap').style.display = G.mode === '출고' ? 'block' : 'none';
-  $('g-toWrap').style.display = G.mode === '이동' ? 'block' : 'none';
-  if (G.mode === '이동') locPicker($('g-to'), G.to || null, function (c) { G.to = c; renderG(); });
-  renderG();
-}
 /* ===== 5. 기록 (이력 · 보고서) ===== */
 function renderLog() {
   seg($('l-seg'), ['이력', '보고서'], LG.mode, function (m) { LG.mode = m; E = null; renderLog(); });
@@ -3518,100 +3476,7 @@ function renderLog() {
 }
 function sameItem(a, b) { return a && b && a.gsm == b.gsm && a.width == b.width && (a.grade || '') === (b.grade || '') && !!a.rem === !!b.rem && (a.maker || '') === (b.maker || ''); }
 function itemKey(s) { return [s.gsm, s.width, s.grade || '', s.rem ? 'Y' : '', s.maker || ''].join('|'); }
-function renderG() {
-  if (G.mode === '실사') return renderCount();
-  $('g-qtyRow').style.display = 'flex';
-  var items = S.stock.filter(function (s) { return s.loc === G.from; }).sort(function (a, b) { return a.date.localeCompare(b.date); });
-  // 선택 품목은 최신 재고로 다시 연결 (다른 작업자 입력 반영)
-  if (G.item) G.item = items.filter(function (s) { return sameItem(s, G.item); })[0] || null;
-  if (!G.item && items.length) { G.item = items[0]; G.qty = 1; }
-  $('g-items').innerHTML = items.length ? items.map(function (s, i) {
-    var on = sameItem(G.item, s);
-    return '<button class="card row' + (on ? ' hot' : '') + '" style="width:100%; font:inherit; text-align:left; ' + (on ? 'background:#FFF8E1' : '') + '" onclick="pickItem(' + i + ')">' +
-      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + '</span></span><b>재고 ' + s.qty + '롤</b></button>';
-  }).join('') : '<div class="card muted">이 위치에 재고 없음</div>';
-  renderG.items = items;
-  // 롤 수: 1 ~ 현재 재고
-  var max = G.item ? G.item.qty : 0;
-  G.qty = Math.max(1, Math.min(G.qty, max || 1));
-  $('g-qtyLabel').innerHTML = '롤 수' + (G.item ? '<div class="muted" style="font-weight:500">최대 ' + max + '</div>' : '');
-  $('g-qty').textContent = G.qty;
-  $('g-all').style.display = G.item ? 'inline-block' : 'none';
-  if (G.mode === '출고') {
-    chips($('g-dest'), S.quick['출고처'] || [], G.dest, function (v) { G.dest = v; renderG(); });
-  }
-  var it = G.item;
-  var s = !it ? '규격 선택 필요' :
-    G.mode === '출고' ? locLabel(G.from) + ' → ' + (G.dest || '출고처?') + ' · ' + spec(it) + (it.rem ? ' 잔량' : '') + ' ' + G.qty + '롤' :
-    locRoute(G.from, $('g-to').dataset.code || '') + ' · ' + spec(it) + (it.rem ? ' 잔량' : '') + ' ' + G.qty + '롤';
-  $('g-sum').textContent = s;
-  $('g-save').textContent = G.mode + ' 저장';
-}
-function pickItem(i) { var s = renderG.items[i]; G.item = s; G.qty = 1; renderG(); }
-
-/* 줄 실사: 이 줄의 전 품목 실제 수량을 한 번에 입력 → 차이 난 품목만 기록 */
-function renderCount() {
-  $('g-qtyRow').style.display = 'none';
-  var items = S.stock.filter(function (s) { return s.loc === G.from; }).sort(function (a, b) { return a.date.localeCompare(b.date); });
-  if (!G.cnt) G.cnt = { extra: [], v: {} };
-  var list = items.concat(G.cnt.extra.filter(function (x) { return !items.some(function (s) { return sameItem(s, x); }); }));
-  list.forEach(function (s) { var k = itemKey(s); if (G.cnt.v[k] == null) G.cnt.v[k] = s.qty; });
-  renderCount.list = list;
-  var diff = 0;
-  $('g-items').innerHTML = (list.length ? list.map(function (s, i) {
-    var a = G.cnt.v[itemKey(s)], d = a - s.qty; if (d) diff++;
-    return '<div class="card row" style="' + (d ? 'background:#FFF8E1; border:2px solid var(--ink)' : '') + '">' +
-      '<span><b>' + itemHtml(s) + '</b>' + remTag(s) + (gradeSub(s) ? '<div class="muted">' + esc(gradeSub(s)) + '</div>' : '') + '<div class="muted" style="white-space:nowrap">전산 ' + s.qty + '롤' +
-      (d ? ' · <b style="color:' + (d > 0 ? 'var(--ok)' : '#9A1C1C') + '">' + (d > 0 ? '+' : '') + d + '</b>' : '') + '</div></span>' +
-      stepper(a, 'cntStep(' + i + ',-1)', 'cntStep(' + i + ',1)', '실사 수량') + '</div>';
-  }).join('') : '<div class="card muted">이 위치에 재고 없음</div>') +
-    '<button class="btn2" style="width:100%; margin-bottom:8px" onclick="newItemForCount()">+ 미등록 규격 추가</button>';
-  $('g-sum').innerHTML = esc(locLabel(G.from) + ' · ' + list.length + '개 규격 · 차이 ' + diff + '건');
-  $('g-save').textContent = '실사 저장';
-}
 var ADJ_REASONS = ['전산 오류', '분실', '파손', '출고 누락', '입고 누락', '기타'];
-function cntStep(i, d) { var s = renderCount.list[i], k = itemKey(s); G.cnt.v[k] = Math.max(0, G.cnt.v[k] + d); renderCount(); }
-function newItemForCount() {
-  ask({ title: '규격 입력', placeholder: '예: 230-1210' }, function (t) {
-    if (!t) return;
-    var p = parseHand(t); if (!p.gsm) { toast('형식: 230-1210', true); return; }
-    var x = { gsm: p.gsm, width: p.width, grade: '', rem: false, qty: 0 };
-    G.cnt.extra.push(x); G.cnt.v[itemKey(x)] = 1; renderCount();
-  });
-}
-function saveG() {
-  if (!requireWorker()) return;
-  if (G.mode === '실사') {
-    var ch = (renderCount.list || []).filter(function (s) { return G.cnt.v[itemKey(s)] !== s.qty; })
-      .map(function (s) { return { gsm: s.gsm, width: s.width, grade: s.grade || '', rem: !!s.rem, actual: G.cnt.v[itemKey(s)] }; });
-    if (!ch.length) { toast('차이 없음 — 저장할 내용 없음', true); return; }
-    var lines = (renderCount.list || []).filter(function (s) { return G.cnt.v[itemKey(s)] !== s.qty; }).map(function (s) {
-      var d = G.cnt.v[itemKey(s)] - s.qty; return plain(spec(s)) + (s.rem ? ' 잔량' : '') + ' ' + (d > 0 ? '+' : '') + d + '롤';
-    });
-    var up = ch.some(function (c, i) { return /\+/.test(lines[i]); }), down = ch.some(function (c, i) { return !/\+/.test(lines[i]); });
-    var reasons = ADJ_REASONS.filter(function (r) { return !(r === '출고 누락' && up) && !(r === '입고 누락' && down); });
-    ask({ title: '실사 차이 사유', msg: lines.join('\n') + '\n\n출고 누락 → 출고로 기록 · 입고 누락 → 입고로 기록', choices: reasons, placeholder: '상세 (선택)', ok: '저장' }, function (reason) {
-      if (reason === null) return;
-      var go = function (dest) {
-        call('adjustRow', { loc: G.from, items: ch, worker: worker(), test: isTest(), reason: reason, dest: dest || '' }).then(function (r) {
-          setStock(r.stock); toast((r.type === '실사' ? '실사 저장 완료 · 차이 ' : r.type + ' 기록 완료 · ') + r.changed + '건'); G.cnt = null; renderMng();
-        });
-      };
-      if (/^출고 누락/.test(reason)) ask({ title: '출고처 선택', msg: '출고 누락분을 출고로 기록', choices: S.quick['출고처'] || [], input: false, ok: '출고 기록' }, function (d) {
-        if (d === null) return; go(String(d).split(' — ')[0]);
-      });
-      else go('');
-    });
-    return;
-  }
-  var it = G.item; if (!it) { toast('규격 선택 필요', true); return; }
-  if (G.qty > it.qty) { toast('재고 ' + it.qty + '롤 — 수량 초과', true); return; }
-  var base = { gsm: it.gsm, width: it.width, grade: it.grade, rem: !!it.rem, worker: worker(), test: isTest() };
-  var fn, p;
-  if (G.mode === '출고') { fn = 'outbound'; p = Object.assign({ loc: G.from, qty: G.qty, dest: G.dest }, base); }
-  else { fn = 'moveStock'; p = Object.assign({ from: G.from, to: $('g-to').dataset.code, qty: G.qty }, base); }
-  call(fn, p).then(function (stock) { setStock(stock); toast(G.mode + ' 저장 완료'); G.item = null; renderMng(); });
-}
 var HF = { period: '7', type: '', q: '' };
 function histBar() {
   var periods = [['0', '오늘'], ['7', '7일'], ['30', '30일'], ['', '전체']];
@@ -4602,14 +4467,14 @@ function qeRow(it, i) {
     '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="다른 이름 (쉼표 구분, 예: ' + (QE.kind === '지종' ? '단무, 단면' : '왕자, Oji') + ')" value="' +
     esc(String(it.alias || '').split('|').join(', ')) + '" oninput="qeSet(' + i + ',\'alias\',this.value,1)" aria-label="다른 이름"></div>';
   if (QE.kind === '지종') {
-    var mk = (S.quickAll || []).filter(function (q) { return q.k === '제지사' && q.st !== '중지'; }).map(function (q) { return q.v; });
-    if (it.maker && mk.indexOf(it.maker) < 0) mk.push(it.maker);
-    h += '<div class="row" style="gap:4px; margin-top:4px"><select class="mini" style="flex:1; min-width:0; font-size:13px" onchange="qeSet(' + i + ',\'maker\',this.value)" aria-label="기본 제지사">' +
-      '<option value="">기본 제지사 없음</option>' + mk.map(function (m) { return '<option value="' + esc(m) + '"' + (m === it.maker ? ' selected' : '') + '>기본 제지사: ' + esc(m) + '</option>'; }).join('') + '</select></div>';
+    h += '<div class="row" style="gap:4px; margin-top:4px"><button class="btn2 mini" style="flex:1; min-width:0; font-size:13px; text-align:left" onclick="qeMk(' + i + ')" aria-label="기본 제지사">' +
+      (it.maker ? '기본 제지사: ' + esc(it.maker) : '기본 제지사 없음') + ' ▾</button></div>';
   }
   return h + '</div>';
 }
 /* quiet = 입력 중 (다시 그리지 않음 — 커서 유지) */
+/* 기본 제지사 (지종) — 공통 선택 창 */
+function qeMk(i) { var it = QE.items[i]; valPick('제지사', { cur: it.maker, title: (it.v || '지종') + ' 기본 제지사', empty: '기본 제지사 없음', noEdit: true }, function (m) { qeSet(i, 'maker', m); }); }
 function qeSet(i, f, v, quiet) {
   QE.items[i][f] = v; QE.dirty = true;
   if (!quiet) renderQuick(); else { var b = document.querySelector('#set-quick .grid2 button'); if (b) b.disabled = false; }
@@ -4644,7 +4509,7 @@ function delFlow(kind, v, u, stopFn) {
     if (a === 'stop') stopFn();
     else if (a === 'see') qeSeeUse(v, kind);
     else if (a === 'blank') qeRemoveGo(v, '', kind);
-    else if (a === 'to') ask({ title: '"' + v + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + v + '"을 고른 값으로 바꾸고 삭제', choices: others, input: false, ok: '바꾸고 삭제', danger: true },
+    else if (a === 'to') valPick(kind, { list: others, noNew: true, noEdit: true, title: '"' + v + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + v + '"을 고른 값으로 바꾸고 삭제' },
       function (d) { if (d) qeRemoveGo(v, d, kind); });
   });
 }
@@ -4700,8 +4565,8 @@ function qeMerge(i) {
   if (QE.dirty) { toast('변경 내용 먼저 저장 또는 되돌리기', true); return; }
   var to = QE.items.filter(function (x) { return x.orig !== it.orig; }).map(function (x) { return x.orig; });
   if (!to.length) { toast('합칠 대상 없음', true); return; }
-  ask({ title: '"' + it.orig + '" 합치기', msg: '고른 값으로 재고 · 이력 이름 변경 후 "' + it.orig + '" 삭제' +
-    (QE.kind === '제지사' || QE.kind === '지종' ? ' · "' + it.orig + '"은 다른 이름으로 남음' : '') + ' · 관리자 PIN 필요', choices: to, input: false, ok: '합치기', danger: true }, function (d) {
+  valPick(QE.kind, { title: '"' + it.orig + '" 합치기', msg: '고른 값으로 재고 · 이력 이름 변경 후 "' + it.orig + '" 삭제' +
+    (QE.kind === '제지사' || QE.kind === '지종' ? ' · "' + it.orig + '"은 다른 이름으로 남음' : '') + ' · 관리자 PIN 필요', list: to, noNew: true, noEdit: true }, function (d) {
     if (!d) return;
     needPin(function (pin) {
       call('mergeQuick', QE.kind, it.orig, d, pin).then(function (r) { applyQuick(r); toast('"' + it.orig + '" → "' + d + '" 합침'); });
