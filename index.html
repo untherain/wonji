@@ -643,7 +643,7 @@ function refreshStock(force) {
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
   call('getStock', tok()).then(function (r) {
     if (r.today) S.today = r.today;
-    setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver);
+    setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force) toast('재고 새로 고침 완료');
     if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
     else if (TAB === 'in') inHint();
@@ -733,7 +733,7 @@ function call(fn) {
   }
   return new Promise(function (res, rej) {
     var r = google.script.run
-      .withSuccessHandler(function (v) { done(); res(v); })
+      .withSuccessHandler(function (v) { done(); res(v); if (QSYNC[fn]) quickSync(); })
       .withFailureHandler(function (e) { done(); toast((e && e.message) || String(e), true); rej(e); });
     r[fn].apply(r, args);
   });
@@ -2626,7 +2626,11 @@ function valPick(kind, o, cb) {
   ask({ title: o.title || kind + ' 선택', msg: o.msg, list: true, search: true, chips: ch, onEdit: function (v) { valEdit(kind, v); } }, function (v) {
     if (v == null) return;
     if (v === '') return cb('');
-    if (v === '__new' && !o.rawNew) return ask({ title: kind + ' 입력' }, function (x) { if (x) cb(x); });
+    if (v === '__new' && !o.rawNew) return ask({ title: kind + ' 입력' }, function (x) {   // 직접 입력 = 기준정보에도 등록 (입고 화면과 같음)
+      if (!x) return;
+      if ((S.quick[kind] || []).indexOf(x) >= 0) return cb(x);
+      quickAddVal(kind, x, function () { cb(x); });
+    });
     cb(v);
   });
 }
@@ -4474,7 +4478,7 @@ function qeRow(it, i) {
 }
 /* quiet = 입력 중 (다시 그리지 않음 — 커서 유지) */
 /* 기본 제지사 (지종) — 공통 선택 창 */
-function qeMk(i) { var it = QE.items[i]; valPick('제지사', { cur: it.maker, title: (it.v || '지종') + ' 기본 제지사', empty: '기본 제지사 없음', noEdit: true }, function (m) { qeSet(i, 'maker', m); }); }
+function qeMk(i) { var it = QE.items[i]; valPick('제지사', { cur: it.maker, title: (it.v || '지종') + ' 기본 제지사', empty: '기본 제지사 없음', noEdit: true, noNew: true }, function (m) { qeSet(i, 'maker', m); }); }
 function qeSet(i, f, v, quiet) {
   QE.items[i][f] = v; QE.dirty = true;
   if (!quiet) renderQuick(); else { var b = document.querySelector('#set-quick .grid2 button'); if (b) b.disabled = false; }
@@ -4578,6 +4582,15 @@ function qeSave() {
   needPin(function (pin) {
     call('saveQuickList', QE.kind, items, pin).then(function (r) { applyQuick(r); toast(qeLabel(QE.kind) + ' 저장됨'); });
   });
+}
+/* 기준정보 자동 등록 맞추기: 서버가 저장하면서 새 값(제지사 · 지종 · 평량 · 폭)을 등록하는 작업 → 끝나면 폰 목록도 새로 받음
+   (재고 새로 고침 때도 함께 → 다른 폰에서 추가한 값 반영) · 설정에서 고치는 중이면 건너뜀 */
+var QSYNC = { intake: 1, commitOpening: 1, editTx: 1, fixItem: 1, setMaker: 1 };
+function quickSync() { google.script.run.withSuccessHandler(applyQuickIf).getQuick(); }
+function applyQuickIf(r) {
+  if (!r || !r.all || QE.dirty) return;
+  if (JSON.stringify(r.all) === JSON.stringify(S.quickAll) && JSON.stringify(r.quick) === JSON.stringify(S.quick)) return;
+  applyQuick(r);
 }
 function applyQuick(r) {
   S.quickAll = r.all; S.quick = r.quick; S.qusage = null; QE.items = null;
