@@ -137,6 +137,15 @@
   .map > .cell { height:auto; align-self:stretch; display:flex; flex-direction:column; }
   .map > .cell .bar { margin-top:auto; } .map > .cell .bar::before { content:none; }
   .map > .cell > .sl:last-of-type, .map > .cell > .s { margin-bottom:4px; }
+  .bstrip { margin:4px 0 8px; }
+  .bhead { font-weight:900; font-size:14px; margin-bottom:4px; }
+  .bcells { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; -webkit-overflow-scrolling:touch; }
+  .bcells > .cell { flex:0 0 120px; margin-bottom:0; display:flex; flex-direction:column; }
+  .bcells > .cell .bar { margin-top:auto; } .bcells > .cell .bar::before { content:none; }
+  .bcells > .cell .t { flex-wrap:wrap; column-gap:6px; }
+  .cell.brcell { display:flex; align-items:center; justify-content:center; border-style:dashed; color:#6B7178; font-size:12px; font-weight:800;
+    background:repeating-linear-gradient(90deg,var(--y) 0 14px,transparent 14px 26px) center / 100% 4px no-repeat, #fff; }
+  .cell.brcell span { background:#fff; padding:0 6px; }
   .aisle { background:repeating-linear-gradient(180deg,var(--y) 0 14px,transparent 14px 26px); width:4px; justify-self:center; border-radius:2px; }
   .cell { min-height:46px; border-radius:8px; border:1px solid var(--line); background:#fff; padding:4px 8px; margin-bottom:5px; width:100%; text-align:left; font:inherit; color:var(--ink); display:block; }
   .cell.off { background:#E6E8EB; color:#6B7178; }
@@ -181,15 +190,15 @@
   .void { opacity:.55; } .void b { text-decoration: line-through; }
   #toast { position:fixed; left:max(14px, calc((100% - 640px) / 2 + 14px)); right:max(14px, calc((100% - 640px) / 2 + 14px)); bottom:80px; background:var(--ink); color:#fff; padding:14px; border-radius:12px; font-weight:700; display:none; z-index:9; white-space:pre-line; }
   .zhead { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); gap:6px; font-weight:900; font-size:14px; margin:12px 0 6px; }
-  .zhead .zh { display:flex; align-items:center; gap:6px; min-width:0; }
-  .zhead .zh .zh-lab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .zhead .zh, .bhead .zh { display:flex; align-items:center; gap:6px; min-width:0; }
+  .zhead .zh .zh-lab, .bhead .zh .zh-lab { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .zoff { flex:none; height:26px; padding:0 9px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:11px; font-weight:700; }
   .zoff.on { border-color:var(--ink); color:var(--ink); background:#EDEFF2; }
   /* 설정 구역 배치 미리보기 (지도와 같은 좌|우) */
   .zprev { border:1px solid #E6E8EB; border-radius:8px; overflow:hidden; margin-bottom:8px; }
-  .zprev-row { display:grid; grid-template-columns:40px 1fr 1fr; align-items:stretch; font-size:13px; font-weight:700; }
+  .zprev-row { display:grid; grid-template-columns:58px 1fr 1fr; align-items:stretch; font-size:13px; font-weight:700; }
   .zprev-row + .zprev-row { border-top:1px solid #E6E8EB; }
-  .zprev-b { background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; }
+  .zprev-b { background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; text-align:center; line-height:1.25; padding:4px 2px; }
   .zprev-c { padding:6px 8px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .zprev-c + .zprev-c { border-left:1px dashed #C9CDD3; }
   .zprev-c small { font-weight:500; color:#8A9098; } .zprev-c .side { color:#6B7178; font-weight:800; margin-right:3px; }
@@ -341,7 +350,7 @@
   .cell.setog { border:2px dashed var(--ink); }   /* 사용=흰 바탕, 미사용=.cell.off 회색 바탕 (둘 다 점선) */
   .zedit { flex:none; height:26px; min-width:30px; padding:0 8px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:13px; font-weight:700; }
   .zedit.on { border-color:var(--ink); background:var(--ink); color:#fff; }
-  .zhead .zh.editing { outline:2px solid var(--ink); outline-offset:2px; border-radius:6px; }
+  .zhead .zh.editing, .bhead .zh.editing { outline:2px solid var(--ink); outline-offset:2px; border-radius:6px; }
   .ehint { margin-top:8px; padding:7px 10px; border-radius:8px; background:#EDEFF2; border:1px solid var(--ink); font-size:12.5px; color:var(--ink); }
   .warnbox { background:#FDECEC; border:1px solid #9A1C1C; border-radius:10px; padding:10px 12px; margin-top:10px; color:#9A1C1C; }
   .warnbox span { color:var(--ink); }
@@ -1035,16 +1044,45 @@ function renderMap() {
     return h;
   }
   /* 구역 한 쌍: 줄 번호마다 한 행 (왼쪽 · 통로 · 오른쪽) — 규격 목록이 길어도 좌우 줄 번호가 어긋나지 않음 */
+  /* 가지 통로: 통로 상태 줄에 연결된 구역 (위 · 아래 면) */
+  function branchOf(z, i) {
+    if (!z || i > z.rows) return null;
+    var key = z.code + '-' + pad(i), up = null, down = null;
+    w.zones.forEach(function (x) { if (x.link === key) { if (x.face === '위') up = x; else down = x; } });
+    return up || down ? { key: key, up: up, down: down } : null;
+  }
+  /* 가지 통로 구역 한 면: 세로 줄을 가로로 나열 (넘치면 좌우 스크롤) */
+  function strip(z) {
+    if (!z) return '';
+    var h = '';
+    for (var i = 1; i <= z.rows; i++) h += cellOf(z, i);
+    return '<div class="bstrip"><div class="bhead">' + zHead(w, z) + '</div><div class="bcells">' + h + '</div></div>';
+  }
+  /* 구역 한 쌍: 줄 번호마다 한 행 (왼쪽 · 통로 · 오른쪽). 가지 통로 줄에서 끊고 위 면 → 가지 통로 → 아래 면 순서로 끼움 */
   function pairRows(z1, z2) {
-    var n = Math.max(z1 ? z1.rows : 0, z2 ? z2.rows : 0), h = '<div class="aisle" style="grid-column:2; grid-row:1 / span ' + Math.max(1, n) + '"></div>';
+    var n = Math.max(z1 ? z1.rows : 0, z2 ? z2.rows : 0), out = '', seg = [];
+    function flush() {
+      if (!seg.length) return;
+      out += '<div class="map"><div class="aisle" style="grid-column:2; grid-row:1 / span ' + seg.length + '"></div>' + seg.join('') + '</div>';
+      seg = [];
+    }
+    function brCell(b) { return '<div class="cell brcell"><span>가지 통로 · ' + esc(keyOf(w.id + '-' + b.key)) + '</span></div>'; }
     // 상하 바꾸기(역순): 끝 번호 줄이 위
-    for (var j = 1; j <= n; j++) { var i = w.rev ? n - j + 1 : j; h += cellOf(z1, i) + cellOf(z2, i); }
-    return h;
+    for (var j = 1; j <= n; j++) {
+      var i = w.rev ? n - j + 1 : j, b1 = branchOf(z1, i), b2 = branchOf(z2, i), b = b1 || b2;
+      if (!b) { seg.push(cellOf(z1, i) + cellOf(z2, i)); continue; }
+      flush();
+      out += strip(b.up);
+      seg.push((b1 ? brCell(b1) : cellOf(z1, i)) + (b2 ? brCell(b2) : cellOf(z2, i)));
+      flush();
+      out += strip(b.down);
+    }
+    flush();
+    return out || '<div class="map"></div>';
   }
   var html = '';
-  bandsOf(w).forEach(function (pair) {   // 자리(슬롯) 기준: 왼쪽 | 통로 | 오른쪽 (빈칸 가능)
-    html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' +
-      '<div class="map">' + pairRows(pair[0], pair[1]) + '</div>';
+  bandsOf(w).forEach(function (pair) {   // 본 통로 자리(슬롯) 기준: 왼쪽 | 통로 | 오른쪽 (빈칸 가능)
+    html += '<div class="zhead">' + zHead(w, pair[0]) + '<span></span>' + zHead(w, pair[1]) + '</div>' + pairRows(pair[0], pair[1]);
   });
   $('m-body').innerHTML = html;
   // 검색 결과가 있으면 첫 번째로 걸린 줄로 스크롤 (조건 바뀐 때만 · 작업 중엔 안 함)
@@ -1078,6 +1116,7 @@ function stTog(code) {   // 활성 구역 · 재고 없음 · 원래 사용/미�
 function bandsOf(w) {
   var slots = [];
   (w.zones || []).forEach(function (z, i) {
+    if (z.link) return;   // 가지 통로 구역은 통로 줄 자리에 따로 그림
     var s = (z.slot != null ? z.slot - 1 : i); if (s < 0) s = i;
     while (slots[s]) s++;   // 자리 중복 시 다음 빈 자리 (구역이 지도에서 사라지지 않게)
     slots[s] = z;
@@ -3164,7 +3203,7 @@ function cloneWhs() {
     return {
       id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
       rule: w.rule.map(function (r) { return { max: r.max === null ? '' : r.max, lv: r.lv }; }),
-      zones: w.zones.map(function (z, j) { return { code: z.code, name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1 }; }),
+      zones: w.zones.map(function (z, j) { return { code: z.code, name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1, link: z.link || '', face: z.face || '' }; }),
       rows: JSON.parse(JSON.stringify(w.rows))
     };
   });
@@ -3203,18 +3242,21 @@ function renderWh() {
   };
   whEl().innerHTML = W.map(function (w, i) {
     if (i !== WI) return '';
-    var slotLab = function (k) { return (Math.floor(k / 2) + 1) + '열 ' + (k % 2 === 0 ? '좌' : '우'); };
-    var offerSlots = (bandsOf(w).length + 1) * 2;   // 현재 열 + 한 열 더 (빈칸 자리 선택 가능)
+    var pas = passRows(w);
     var zones = w.zones.map(function (z, j) {
-      var cur = z.slot != null ? z.slot - 1 : j, opts = '';
-      for (var k = 0; k < offerSlots; k++) opts += '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + slotLab(k) + '</option>';
+      var cur = zPos(z), opts = [['L', '본 통로 좌'], ['R', '본 통로 우']];
+      pas.forEach(function (p) { if (p.key.split('-')[0] !== String(z.code).toUpperCase()) ['위', '아래'].forEach(function (f) { opts.push([p.key + ':' + f, p.label + ' 통로 ' + f]); }); });
+      if (z.link && !opts.some(function (o) { return o[0] === cur; })) opts.push([cur, z.link + ' 통로 ' + z.face + ' (통로 상태 아님)']);
+      var side = zPos(z), first = !z.link && w.zones.filter(function (x) { return !x.link && zPos(x) === side && x.slot < z.slot; }).length === 0;
       return '<div class="row" style="gap:4px; margin-bottom:4px">' +
-        inp(i + '.zones.' + j + '.name', aliasOf(z), false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (예: 좌) · 필수" aria-label="구역 별칭"') +
-        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:44px; flex:none; padding:0 3px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
-        '<select class="mini" style="width:74px; flex:none; padding:0 2px" onchange="moveZoneTo(' + i + ',' + j + ',+this.value)" aria-label="위치">' + opts + '</select>' +
+        inp(i + '.zones.' + j + '.name', aliasOf(z), false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 · 필수" aria-label="구역 별칭"') +
+        inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:40px; flex:none; padding:0 2px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
+        '<select class="mini" style="width:104px; flex:none; padding:0 2px; font-size:12px" onchange="setZonePos(' + i + ',' + j + ',this.value)" aria-label="위치">' +
+        opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
+        '<button class="xbtn" style="width:28px' + (z.link || first ? '; visibility:hidden' : '') + '" onclick="zoneUp(' + i + ',' + j + ')" aria-label="같은 면 안 순서 위로">▲</button>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
     }).join('') +
-      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치 선택 시 해당 자리 구역과 <b>교체</b> · 별칭(좌·우)은 <b>자리 고정</b> · 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
+      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치: <b>본 통로 좌·우</b> 또는 <b>통로 상태 줄</b>(가지 통로)의 위·아래 · ▲ 같은 면 안 순서 변경 · 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
       zonePrev(w);
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
@@ -3239,7 +3281,7 @@ function renderWh() {
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
-      '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 좌-01) · 별칭 필수 · 2개 구역씩 통로 좌우 배치</div>' + zones +
+      '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 좌-01) · 별칭 필수 · 구역마다 위치(통로 · 면) 지정</div>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span class="muted" style="font-size:12px">위치 현황 <span style="white-space:nowrap">위 <b>' + (w.rev ? '끝 번호' : '01') + '</b></span> · <span style="white-space:nowrap">아래 <b>' + (w.rev ? '01' : '끝 번호') + '</b></span></span>' +
       '<button class="btn2" style="height:34px; padding:0 10px; font-size:13px" onclick="flipRows(' + i + ')">⇅ 상하 바꾸기</button></div>' +
       '<button class="btn2" style="height:38px" onclick="addZone(' + i + ')">+ 구역 추가</button></div>' +
@@ -3281,31 +3323,68 @@ function delWh(i) {
 function addZone(i) {
   var used = W[i].zones.map(function (z) { return String(z.code).toUpperCase(); });
   var code = 'ABCDEFGHJKLMNPQRSTUVWXYZ'.split('').filter(function (c) { return used.indexOf(c) < 0; })[0] || 'Z';
-  var maxS = W[i].zones.reduce(function (m, z) { return Math.max(m, z.slot || 0); }, 0);
-  W[i].zones.push({ code: code, name: '', rows: 10, slot: maxS + 1 });
-  renderWh();
+  var nL = W[i].zones.filter(function (z) { return !z.link && zPos(z) === 'L'; }).length;
+  var nR = W[i].zones.filter(function (z) { return !z.link && zPos(z) === 'R'; }).length;
+  W[i].zones.push({ code: code, name: '', rows: 10, slot: nL <= nR ? 9999 : 10000, link: '', face: '' });   // 구역 적은 면 맨 끝
+  normZones(W[i]); renderWh();
 }
 /* 줄 번호 상하 바꾸기 (위치 현황 표시 순서만 · 위치 코드 · 재고는 그대로) → [창고 설정 저장] 필요 */
 function flipRows(i) { W[i].rev = !W[i].rev; renderWh(); toast('상하 바뀜 — [창고 설정 저장]을 눌러야 반영'); }
-/* 구역 위치 지정 (드롭다운, to=0부터 슬롯): 그 자리에 구역 있으면 맞바꿈, 빈칸이면 이동 → [창고 설정 저장] */
-function moveZoneTo(i, j, to) {
-  var zs = W[i].zones, z = zs[j], from = z.slot != null ? z.slot - 1 : j;
-  if (to === from) { renderWh(); return; }
-  var occ = zs.filter(function (x) { return x !== z && (x.slot != null ? x.slot - 1 : zs.indexOf(x)) === to; })[0];
-  if (occ) { occ.slot = from + 1; var tn = occ.name; occ.name = z.name; z.name = tn; }   // 맞바꿈: 구역(코드·재고)만 이동 · 별칭(좌·우)은 자리 고정
-  z.slot = to + 1;
-  renderWh(); toast('구역 위치 변경 · 별칭은 자리 고정 · [창고 설정 저장] 시 반영');
+/* 구역 위치: 'L' 본 통로 좌 · 'R' 본 통로 우 · 'A-07:위' 통로 상태 줄(가지 통로)의 위·아래 면
+   본 통로 자리 번호(slot): 홀수 = 좌, 짝수 = 우, 같은 면 안 순서 = 번호 순 (지도 위→아래) */
+function zPos(z) { return z.link ? z.link + ':' + z.face : ((+z.slot || 1) % 2 ? 'L' : 'R'); }
+/* 자리 번호 정리: 좌 1,3,5… · 우 2,4,6… (같은 면 순서 유지) · 가지 통로 구역은 그 뒤 */
+function normZones(w) {
+  var L = [], R = [], X = [];
+  w.zones.slice().sort(function (a, b) { return (+a.slot || 0) - (+b.slot || 0); })
+    .forEach(function (z) { (z.link ? X : zPos(z) === 'L' ? L : R).push(z); });
+  L.forEach(function (z, k) { z.slot = 2 * k + 1; });
+  R.forEach(function (z, k) { z.slot = 2 * k + 2; });
+  var m = Math.max(L.length, R.length) * 2;
+  X.forEach(function (z, k) { z.slot = m + k + 1; });
 }
-/* 배치 미리보기: 지도와 같은 좌|우 묶음 (표시 이름 = 지도에 나오는 그대로, 빈칸 표시) */
+/* 통로 상태 줄 목록 (본 통로 구역 안) → 가지 통로 연결 후보 */
+function passRows(w) {
+  var out = [];
+  w.zones.forEach(function (z) {
+    if (z.link) return;
+    for (var n = 1; n <= (+z.rows || 0); n++) {
+      var key = String(z.code).toUpperCase() + '-' + pad(n), c = w.rows[key];
+      if (c && c.st === '통로') out.push({ key: key, label: (aliasOf(z) || z.code) + '-' + pad(n) });
+    }
+  });
+  return out;
+}
+function setZonePos(i, j, v) {
+  var z = W[i].zones[j];
+  if (v === 'L' || v === 'R') { z.link = ''; z.face = ''; z.slot = v === 'L' ? 9999 : 10000; }   // 해당 면 맨 끝
+  else { var p = v.split(':'); z.link = p[0]; z.face = p[1]; }
+  normZones(W[i]); renderWh(); toast('구역 위치 변경 · [창고 설정 저장] 시 반영');
+}
+/* 같은 면 안 순서 위로 (바로 위 구역과 자리 번호 교환) */
+function zoneUp(i, j) {
+  var w = W[i], z = w.zones[j], side = zPos(z);
+  var prev = w.zones.filter(function (x) { return !x.link && zPos(x) === side && x.slot < z.slot; })
+    .sort(function (a, b) { return b.slot - a.slot; })[0];
+  if (!prev) return;
+  var t = prev.slot; prev.slot = z.slot; z.slot = t;
+  renderWh(); toast('순서 변경 · [창고 설정 저장] 시 반영');
+}
+/* 배치 미리보기: 본 통로 좌·우 + 가지 통로(통로 상태 줄) 위·아래 */
 function zonePrev(w) {
-  var h = '';
-  bandsOf(w).forEach(function (pair, b) {
-    var cell = function (z, side) {
-      return z ? '<span class="side">' + side + '</span>' + (aliasOf(z) ? esc(aliasOf(z)) : '<small>별칭 미입력</small>')
-               : '<span class="muted">' + side + ' 비움</span>';
-    };
-    h += '<div class="zprev-row"><span class="zprev-b">' + (b + 1) + '열</span>' +
-      '<span class="zprev-c">' + cell(pair[0], '좌') + '</span><span class="zprev-c">' + cell(pair[1], '우') + '</span></div>';
+  var nm = function (z) { return aliasOf(z) ? esc(aliasOf(z)) + ' <small>' + z.rows + '줄</small>' : '<small>별칭 미입력</small>'; };
+  var list = function (zs) { return zs.length ? zs.map(nm).join(' · ') : '<span class="muted">비움</span>'; };
+  var main = w.zones.filter(function (z) { return !z.link; }).sort(function (a, b) { return a.slot - b.slot; });
+  var h = '<div class="zprev-row"><span class="zprev-b">본 통로</span>' +
+    '<span class="zprev-c"><span class="side">좌</span>' + list(main.filter(function (z) { return zPos(z) === 'L'; })) + '</span>' +
+    '<span class="zprev-c"><span class="side">우</span>' + list(main.filter(function (z) { return zPos(z) === 'R'; })) + '</span></div>';
+  var pas = passRows(w), keys = {};
+  w.zones.forEach(function (z) { if (z.link) keys[z.link] = 1; });
+  pas.filter(function (p) { return keys[p.key]; }).forEach(function (p) {
+    var of = function (f) { return w.zones.filter(function (z) { return z.link === p.key && z.face === f; }); };
+    h += '<div class="zprev-row"><span class="zprev-b">' + esc(p.label) + '<br>통로</span>' +
+      '<span class="zprev-c"><span class="side">위</span>' + list(of('위')) + '</span>' +
+      '<span class="zprev-c"><span class="side">아래</span>' + list(of('아래')) + '</span></div>';
   });
   return '<div class="zprev">' + h + '</div>';
 }
@@ -3340,7 +3419,7 @@ function whToServer() {
     return {
       id: w.id, name: w.name, slots: w.slots, rev: !!w.rev,
       ruleText: w.rule.map(function (r, j) { return (j === w.rule.length - 1 ? '*' : r.max) + ':' + r.lv; }).join(', '),
-      zones: w.zones.map(function (z, j) { return { code: String(z.code).trim().toUpperCase(), name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1 }; }),
+      zones: w.zones.map(function (z, j) { return { code: String(z.code).trim().toUpperCase(), name: z.name, rows: z.rows, slot: z.slot != null ? z.slot : j + 1, link: z.link || '', face: z.face || '' }; }),
       rows: w.rows
     };
   });
