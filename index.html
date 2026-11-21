@@ -921,6 +921,11 @@ function whOf(code) { var id = String(code || '').split('-')[0]; return S.whs.fi
 function rawKey(code) { var p = String(code || '').split('-'); return p[1] + '-' + p[2]; }
 /* 화면 표시용 구역: 기본은 표준 코드(A-01) · 설정에서 구역에 별칭(좌 등)을 넣으면 그 별칭 사용(좌-01).
    별칭 없음 = 이름이 비었거나 "A구역"처럼 코드와 같은 기본값 → 코드(A) */
+/* 구역 별칭: 서버 기본값(코드 · "A구역")은 별칭 없음으로 취급 */
+function aliasOf(z) {
+  var nm = String((z && z.name) || '').trim(), bare = nm.replace(/\s+/g, '').replace(/구역$/, '');
+  return bare && bare.toUpperCase() !== String(z.code).toUpperCase() ? nm : '';
+}
 function zoneShort(wid, zc) {
   var w = (S.whs || []).filter(function (x) { return String(x.id) === String(wid); })[0];
   var z = w && w.zones.filter(function (x) { return x.code === zc; })[0];
@@ -3204,13 +3209,12 @@ function renderWh() {
       var cur = z.slot != null ? z.slot - 1 : j, opts = '';
       for (var k = 0; k < offerSlots; k++) opts += '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + slotLab(k) + '</option>';
       return '<div class="row" style="gap:4px; margin-bottom:4px">' +
-        inp(i + '.zones.' + j + '.code', z.code, false, ' style="width:42px; flex:none; padding:0 3px; text-align:center; text-transform:uppercase" aria-label="구역 코드"') +
-        inp(i + '.zones.' + j + '.name', z.name, false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (비우면 ' + esc(z.code) + ')" aria-label="구역 별칭"') +
+        inp(i + '.zones.' + j + '.name', aliasOf(z), false, ' style="flex:1; min-width:0; padding:0 6px" placeholder="별칭 (예: 좌) · 필수" aria-label="구역 별칭"') +
         inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:44px; flex:none; padding:0 3px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
         '<select class="mini" style="width:74px; flex:none; padding:0 2px" onchange="moveZoneTo(' + i + ',' + j + ',+this.value)" aria-label="위치">' + opts + '</select>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
     }).join('') +
-      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치 선택 시 해당 자리 구역과 <b>교체</b> · 별칭(좌·우)은 <b>자리 고정</b> · 코드(A·B)와 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
+      '<div class="muted" style="font-size:12px; margin:2px 0 6px">위치 선택 시 해당 자리 구역과 <b>교체</b> · 별칭(좌·우)은 <b>자리 고정</b> · 재고는 구역 따라 이동 · 저장 시 지도 반영</div>' +
       zonePrev(w);
     var rule = w.rule.map(function (r, j) {
       var last = j === w.rule.length - 1;
@@ -3223,7 +3227,7 @@ function renderWh() {
     var ex = Object.keys(w.rows).sort().map(function (k) {
       var c = w.rows[k], base = i + '.rows.' + k + '.';
       return '<div style="border-bottom:1px solid #E6E8EB; padding:6px 0">' +
-        '<div class="row" style="gap:6px"><b style="width:48px; flex:none">' + esc(k) + '</b>' +
+        '<div class="row" style="gap:6px"><b style="width:48px; flex:none">' + esc(exLabel(w, k)) + '</b>' +
         '<select class="mini" style="flex:1; padding:0 6px" onchange="setW(\'' + base + 'use\', this.value)" aria-label="보관 용도">' + useOpts(c.use) + '</select>' +
         '<button class="xbtn" onclick="delete W[' + i + '].rows[\'' + k + '\']; renderWh()" aria-label="개별 설정 삭제">×</button></div>' +
         '<div class="row" style="gap:6px; margin-top:4px; justify-content:flex-start; font-size:13px; white-space:nowrap">' +
@@ -3235,7 +3239,7 @@ function renderWh() {
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
-      '<div class="sub"><h3>구역 (코드 · 별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치는 <b>코드-01</b>(예: A-01)로 표시 · 별칭을 넣으면 <b>별칭-01</b>(예: 좌-01) · 2개 구역씩 통로 좌우 배치</div>' + zones +
+      '<div class="sub"><h3>구역 (별칭 · 줄 수)</h3><div class="muted" style="margin:-4px 0 6px">위치 표시: <b>별칭-01</b> (예: 좌-01) · 별칭 필수 · 2개 구역씩 통로 좌우 배치</div>' + zones +
       '<div class="row" style="gap:6px; margin:4px 0 8px"><span class="muted" style="font-size:12px">위치 현황 <span style="white-space:nowrap">위 <b>' + (w.rev ? '끝 번호' : '01') + '</b></span> · <span style="white-space:nowrap">아래 <b>' + (w.rev ? '01' : '끝 번호') + '</b></span></span>' +
       '<button class="btn2" style="height:34px; padding:0 10px; font-size:13px" onclick="flipRows(' + i + ')">⇅ 상하 바꾸기</button></div>' +
       '<button class="btn2" style="height:38px" onclick="addZone(' + i + ')">+ 구역 추가</button></div>' +
@@ -3297,7 +3301,7 @@ function zonePrev(w) {
   var h = '';
   bandsOf(w).forEach(function (pair, b) {
     var cell = function (z, side) {
-      return z ? '<span class="side">' + side + '</span>' + esc(zoneShort(w.id, z.code)) + ' <small>(' + esc(z.code) + ')</small>'
+      return z ? '<span class="side">' + side + '</span>' + (aliasOf(z) ? esc(aliasOf(z)) : '<small>별칭 미입력</small>')
                : '<span class="muted">' + side + ' 비움</span>';
     };
     h += '<div class="zprev-row"><span class="zprev-b">' + (b + 1) + '열</span>' +
@@ -3314,13 +3318,20 @@ function addRule(i) {
   r.splice(r.length - 1, 0, { max: prev ? prev + 200 : 1000, lv: r[r.length - 1].lv });
   renderWh();
 }
+/* 줄 개별 설정 표시: 내부 키(A-07) → 별칭-07 (편집 중 사본 W 기준) */
+function exLabel(w, k) {
+  var p = String(k).split('-'), z = w.zones.filter(function (x) { return String(x.code).toUpperCase() === p[0]; })[0];
+  return (z && aliasOf(z) ? aliasOf(z) : p[0]) + '-' + p[1];
+}
 function addEx(i) {
-  ask({ title: '줄 개별 설정 추가', msg: '구역 코드-줄 번호', placeholder: '예: A-24' }, function (k) {
+  var w = W[i], ex = (w.zones[0] && aliasOf(w.zones[0])) || '좌';
+  ask({ title: '줄 개별 설정 추가', msg: '별칭-줄 번호', placeholder: '예: ' + ex + '-24' }, function (k) {
     if (!k) return;
-    var m = k.toUpperCase().match(/^([A-Z][A-Z0-9]{0,2})-?(\d{1,3})$/);
-    if (!m) { toast('형식: A-24', true); return; }
-    k = m[1] + '-' + pad(m[2]);
-    if (!W[i].rows[k]) W[i].rows[k] = { slots: null, maxLv: null, use: '', st: '' };
+    var m = String(k).trim().match(/^(.+?)-?(\d{1,3})$/);
+    var z = m && w.zones.filter(function (x) { return aliasOf(x) === m[1].trim(); })[0];
+    if (!z) { toast('형식: ' + ex + '-24 · 별칭 확인 (' + w.zones.map(aliasOf).filter(String).join(' · ') + ')', true); return; }
+    k = String(z.code).toUpperCase() + '-' + pad(m[2]);
+    if (!w.rows[k]) w.rows[k] = { slots: null, maxLv: null, use: '', st: '' };
     renderWh();
   });
 }
@@ -3335,6 +3346,16 @@ function whToServer() {
   });
 }
 function saveWh() {
+  // 별칭 필수 · 창고 안 중복 금지 (지도 · 기록 위치 표시 = 별칭-01)
+  for (var a = 0; a < W.length; a++) {
+    var seen = {};
+    for (var b = 0; b < W[a].zones.length; b++) {
+      var al = aliasOf(W[a].zones[b]);
+      if (!al) { WI = a; renderWh(); toast((W[a].name || W[a].id + '창고') + ' · 구역 별칭 미입력 · 입력 필요', true); return; }
+      if (seen[al]) { WI = a; renderWh(); toast((W[a].name || W[a].id + '창고') + ' · 구역 별칭 중복 (' + al + ')', true); return; }
+      seen[al] = 1;
+    }
+  }
   needPin(function (pin) {
     var fromMap = SH && SH.mode === 'wh', keep = fromMap ? W[WI].id : null;
     call('saveWarehouses', whToServer(), pin).then(function (whs) {
