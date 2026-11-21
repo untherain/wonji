@@ -188,7 +188,9 @@
   header { padding-top:6px; }
   .insumw { position:relative; margin-top:8px; } .insumw .srchin { margin-top:0; }
   .srchin.insum { font-size:17px; font-weight:900; color:var(--ink); padding-right:44px; border:2px solid transparent; }
-  .srchin.insum.miss { border-color:#E0402A; }
+  .srchin.insum.miss, .shtop .srchin.insum.miss { border-color:#E0402A; }
+  .shtop .srchin.insum { background:#F3F4F1; border-color:var(--line); }
+  .insum.ro { display:flex; align-items:center; padding-right:12px; background:#fff; }
   .srchin.insum::placeholder { font-weight:700; color:#8A9098; }
   .insx { position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:34px; border:0; background:none; font-size:22px; font-weight:900; color:#8A9098; }
   .srchin { display:block; width:100%; height:42px; border:0; border-radius:10px; padding:0 12px; margin-top:8px; font:inherit; font-size:15px; }
@@ -1569,9 +1571,9 @@ function shQty(d) {
   var max = SH.mode === 'out' && SH.it ? SH.it.qty : 999; if (SH.ocr) delete SH.ocr.qty;
   SH.qty = Math.max(1, Math.min(max, SH.qty + d)); renderSheet();
 }
-function shHead(title, sub, back, sum) {
+function shHead(title, sub, back, sum, box) {
   return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'closeSheet()') + '">' + (back ? '←' : '✕') + '</button></div>' +
-    (sub ? '<div class="muted" style="padding:2px 0 0">' + sub + '</div>' : '') + '</div>';
+    (box || '') + (sub ? '<div class="muted" style="padding:2px 0 0">' + sub + '</div>' : '') + '</div>';
 }
 function renderSheet() {
   PKT = null;
@@ -2136,12 +2138,33 @@ function suggestFor(sp, qty, except) {
   whs.some(function (w) { eachRow(w, function (z, key, code) { if (!found && rowInfo(code).rolls === 0 && ok(code)) found = code; }); return !!found; });
   return found;
 }
+/* 작업창 입력칸 (입고 · 미등록 규격): 입력 중엔 다시 그리지 않음 (자판 유지) · 입력 끝나면 화면 갱신 */
+function shBox() {
+  var sp = SH.sp, inq = SH.mode === 'in', t = '';
+  if (sp.gsm || sp.width) t = (sp.maker ? sp.maker + ' ' : '') + (sp.gsm || '평량') + '×' + (sp.width || '지폭') + (inq ? ' · ' + SH.qty + '롤' : '') + (SH.rem ? ' · 반납 ' + (SH.from || '호기?') : '');
+  return sumHtml('sh-sum', inq ? '예시: 230-1210 20롤' : '예시: 230-1210 무림', { type: 'shType', clear: 'shClear', blur: 'setTimeout(shBlur,150)', text: t, miss: !sp.gsm || !sp.width });
+}
+function shType(v) {
+  if (!SH || !SH.sp) return;
+  var p = parseLine(v), sp = SH.sp;
+  ['gsm', 'width', 'maker'].forEach(function (k) { if (p[k]) { sp[k] = p[k]; if (SH.ocr) delete SH.ocr[k]; } });
+  if (p.qty && SH.mode === 'in') SH.qty = p.qty;
+  shLive();
+}
+/* 입력 중 화면 갱신: 머리(입력칸)는 그대로 두고 아래 내용만 다시 그림 (자판 · 커서 유지) */
+function shLive() {
+  var d = $('detail'), html = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() : null;
+  if (!html) return;
+  var tmp = document.createElement('div'), top = d.querySelector('.shtop');
+  tmp.innerHTML = html;
+  [].slice.call(d.children).forEach(function (c) { if (c !== top) c.remove(); });
+  [].slice.call(tmp.children).forEach(function (c) { if (!c.classList.contains('shtop')) d.appendChild(c); });
+}
+function shBlur() { var el = $('sh-sum'); if (SH && (!el || document.activeElement !== el)) renderSheet(); }
+function shClear() { var sp = SH.sp; sp.gsm = sp.width = null; sp.maker = ''; sp.grade = ''; SH.qty = 1; SH.ocr = null; renderSheet(); }
 function sheetIn() {
   var code = SH.code, sp = SH.sp, ready = sp.gsm && sp.width, bad = false;
-  var sum = [P(sp.maker || '', '제지사', 'sp-mk', 'maker', false), sp.maker ? ' ' : '', P(sp.gsm, '평량', 'sp-gsm', 'gsm'), P(sp.width, '지폭', 'sp-width', 'width', true, '×'),
-    P(sp.grade, '지종', 'sh-more', 'grade', false, ' · ')];
-  if (SH.rem) sum.push(P(SH.from ? '반납 ' + SH.from : '', '반납 호기', 'sh-more', null, true, ' · '));
-  var h = shHead(esc(keyOf(code)) + ' ' + (SH.rem ? '반납' : '입고'), '', true, sLine(sum));
+  var h = shHead(esc(keyOf(code)) + ' ' + (SH.rem ? '반납' : '입고'), '', true, '', shBox());
   if (SH.cont) {   // 연속 입고: 저장 뒤에도 규격 유지 → 같은 줄 다른 규격 / 다음 줄
     var nx = nextRow(code);
     h += '<div class="grid2" style="margin:8px 0 4px"><button class="btn2" onclick="newSpec()">다른 규격</button>' +
@@ -2230,7 +2253,7 @@ function pickMakerCnt(i) {
 function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); renderSheet(); }
 function sheetAdd() {
   var sp = SH.sp, ready = sp.gsm && sp.width;
-  return shHead(esc(keyOf(SH.code)) + ' 미등록 규격', '', true, sLine([P(sp.maker || '', '제지사', 'sp-mk', 'maker', false), sp.maker ? ' ' : '', P(sp.gsm, '평량', 'sp-gsm', 'gsm'), P(sp.width, '지폭', 'sp-width', 'width', true, '×')])) +
+  return shHead(esc(keyOf(SH.code)) + ' 미등록 규격', '', true, '', shBox()) +
     photoBar('shPhoto', phNote('')) + pickerHtml(true) +
     '<div class="shfoot"><button class="btn" onclick="addCnt()"' + (ready ? '' : ' disabled style="opacity:.45"') + '>실사 목록에 추가</button></div>';
 }
@@ -2285,12 +2308,33 @@ function fGo(i) { var g = FLOCS[i]; if (!g) return; M.wh = g.wh; renderMap(); op
 function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
 function sheetFilter() {
   var h = fHits();
-  return shHead('검색', '', false, fSum(fOn() ? ' · ' + h.locs + '곳 · ' + h.qty + '롤' : '')) +
-    '<div class="row" style="gap:8px; margin:6px 0"><input class="mini" type="search" style="flex:1; height:44px; font-size:16px" value="' + esc(F.q || '') + '" placeholder="🔍 문구 검색 (지종 · 제지사 · 위치 · 잔량 등)" oninput="fQ(this.value)" onchange="renderSheet()">' +
-    '<span class="muted" id="fq-cnt" style="flex:none">' + (fOn() ? h.locs + '곳 · ' + h.qty + '롤' : '') + '</span></div>' +
+  return shHead('검색', '', false, '', sumHtml('f-sum', '🔍 예시: 230-1210 무림 · 잔량 · 1-01', { type: 'fType', clear: 'clearFilter', blur: 'setTimeout(fBlur,150)', text: fText(h), miss: false })) +
     photoBar('filterPhoto', phNote('')) + pickerBody(F, true, 'renderSheet()', true) + '<div id="fq-list">' + fLocList(h.list) + '</div>' +
     '<div class="grid2" style="margin-top:12px"><button class="btn2" onclick="clearFilter()">초기화</button><button class="btn" style="height:46px" onclick="closeSheet()">지도 보기</button></div>';
 }
+/* 검색 입력칸: 규격 · 제지사는 조건으로, 나머지 낱말은 문구 검색 · 입력 중엔 결과 · 지도만 갱신 */
+function fText(h) {
+  if (!fOn()) return '';
+  var spec = F.gsm && F.width ? F.gsm + '×' + F.width : F.gsm || F.width || '';
+  return [[F.maker, spec].filter(Boolean).join(' '), F.grade, F.q].filter(Boolean).join(' · ') + ' · ' + h.locs + '곳 · ' + h.qty + '롤';
+}
+function fType(v) {
+  var p = parseLine(v);
+  F.gsm = p.gsm || null; F.width = p.width || null; F.maker = p.maker || ''; F.grade = '';
+  var rest = String(v).replace(/(\d{2,3})\s*[-\/~×xX*＊ ]\s*(\d{3,4})/, ' ').replace(/\d+\s*(곳|롤)/g, ' ').replace(/전체/g, ' ');
+  if (p.maker) rest = rest.split(/\s+/).filter(function (w) { return normMk(canonMaker(w)) !== normMk(p.maker); }).join(' ');
+  // 숫자 하나만: 500 미만 세 자리 이하 = 평량 · 500~3000 = 지폭
+  rest = rest.split(/\s+/).filter(function (w) {
+    if (!/^\d{2,4}$/.test(w)) return true;
+    var n = +w;
+    if (!F.gsm && w.length <= 3 && n >= 30 && n < 500) { F.gsm = w; return false; }
+    if (!F.width && n >= 500 && n <= 3000) { F.width = w; return false; }
+    return true;
+  }).join(' ');
+  F.q = rest.replace(/[·"]/g, ' ').replace(/\s+/g, ' ').trim();
+  renderMap(); shLive();
+}
+function fBlur() { var el = $('f-sum'); if (SH && SH.mode === 'filter' && (!el || document.activeElement !== el)) renderSheet(); }
 function clearFilter(ev) {
   if (ev) ev.stopPropagation();
   F.gsm = F.width = null; F.maker = F.grade = F.q = '';
@@ -2321,15 +2365,16 @@ function parseHand(t) {
 /* 공통 부품: 상단 입력칸 겸 요약 줄 (입고 · 출고)
    처음 = 예시 · 값을 고르면 요약 · 누르면 전체 선택 후 입력 (텍스트 스캔 가능) · [×] = 비우기 · 일부만 있으면 빨간 테두리
    o = { type: 입력 함수 이름, clear: 비우기 함수 이름, blur: 입력 끝 코드, enter: Enter 코드(없으면 입력 끝), text: 요약, miss: 빠짐 여부 } */
+function sumHtml(id, ph, o) {
+  var ent = o.enter ? o.enter + ';this.select()' : 'this.blur()', t = o.text || '';
+  return '<div class="insumw"><input class="srchin insum' + (t && o.miss ? ' miss' : '') + '" id="' + id + '" value="' + esc(t) + '" aria-label="입력 · 요약" placeholder="' + esc(ph) + '" autocomplete="off" enterkeyhint="' + (o.enter ? 'enter' : 'done') + '"' +
+    ' oninput="' + o.type + '(this.value)" onfocus="this.select()" onblur="' + o.blur + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();' + ent + '}">' +
+    '<button class="insx" id="' + id + 'x" onclick="' + o.clear + '()" aria-label="입력 지우기" style="display:' + (t ? 'block' : 'none') + '">×</button></div>';
+}
+/* 머리글(탭)용: 처음 한 번 만들고, 입력 중이 아닐 때만 요약으로 갱신 */
 function sumBox(tab, id, ph, o) {
   var el = $(id);
-  if (!el && TAB === tab) {
-    var ent = o.enter ? o.enter + ';this.select()' : 'this.blur()';
-    hdrSum(tab, '<div class="insumw"><input class="srchin insum" id="' + id + '" aria-label="입력 · 요약" placeholder="' + esc(ph) + '" autocomplete="off" enterkeyhint="' + (o.enter ? 'enter' : 'done') + '"' +
-      ' oninput="' + o.type + '(this.value)" onfocus="this.select()" onblur="' + o.blur + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();' + ent + '}">' +
-      '<button class="insx" id="' + id + 'x" onclick="' + o.clear + '()" aria-label="입력 지우기">×</button></div>');
-    el = $(id);
-  }
+  if (!el && TAB === tab) { hdrSum(tab, sumHtml(id, ph, o)); el = $(id); }
   if (!el) return;
   if (document.activeElement !== el) el.value = o.text;
   el.classList.toggle('miss', !!el.value && !!o.miss);
@@ -3348,8 +3393,7 @@ function planRow(it) {
     '<input class="mini" inputmode="numeric" style="width:50px; flex:none; padding:0 2px; text-align:center" value="' + (it.all ? '전량' : (it.qty == null ? '' : it.qty)) + '" placeholder="수량" aria-label="수량" onchange="setQty(' + i + ',this.value)">' +
     '</div>' +
     // 2줄: 제지사 선택(넓게) · 지종 · 삭제,  3줄: 비고 (접힘)
-    '<div class="row" style="gap:4px; margin-top:4px">' + mkSelect(it, i) +
-    (mk.grade ? '<span class="muted" style="max-width:38%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px" title="' + esc(mk.grade) + '">' + esc(mk.grade) + '</span>' : '') +
+    '<div class="row" style="gap:4px; margin-top:4px">' + piSelect(it, i, 'grade') + piSelect(it, i, 'maker') +
     '<button class="xbtn" onclick="delPI(' + i + ')" aria-label="삭제">×</button></div>' +
     noteFold('pe' + it.id, !!it.note, '<input class="mini" style="height:34px; font-size:14px" value="' + esc(it.note || '') + '" placeholder="비고" aria-label="비고" onchange="setPI(' + i + ',\'note\',this.value)">') +
     '<div class="row" style="margin-top:2px">' +
@@ -3391,17 +3435,17 @@ function setQty(i, v) {
   savePL(); renderPlan();
 }
 /* 제지사 선택칸: 기준정보 제지사 목록 (인식된 제지사가 목록에 없으면 그것도 넣음) · 비어 있으면 빨간 테두리 */
-function mkSelect(it, i) {
-  var cur = planMk(it).maker, list = (S.quick['제지사'] || []).slice();
-  if (cur && list.indexOf(cur) < 0) list.unshift(cur);
-  return '<select class="mini" style="flex:1; min-width:0' + (cur ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="제지사" onchange="setMk(' + i + ',this.value)">' +
-    '<option value=""' + (cur ? '' : ' selected') + '>제지사 선택</option>' +
-    list.map(function (m) { return '<option' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select>';
+/* 계획 품목 지종 · 제지사 선택칸 (공통 목록 selOpts · 제지사 빠짐 = 빨강) */
+function piSelect(it, i, k) {
+  var mk = planMk(it), cur = mk[k], kind = k === 'grade' ? '지종' : '제지사';
+  return '<select class="mini" style="flex:1; min-width:0' + (k === 'maker' && !cur ? '; border-color:#9A1C1C; color:#9A1C1C' : '') + '" aria-label="' + kind + '" onchange="setPV(' + i + ',\'' + k + '\',this)">' +
+    selOpts(S.quick[kind], kind, cur) + '</select>';
 }
-function setMk(i, v) {
-  var it = PL.items[i];
-  if (!('maker' in it)) fillMk(it);
-  it.maker = v; if (v) delete it.weak; savePL(); renderPlan();
+function setPV(i, k, el) {
+  var it = PL.items[i], v = el.value, kind = k === 'grade' ? '지종' : '제지사';
+  function go(x) { if (!('maker' in it)) fillMk(it); it[k] = x; if (k === 'maker' && x) delete it.weak; savePL(); renderPlan(); }
+  if (v !== '__new') return go(v);
+  ask({ title: kind + ' 입력' }, function (x) { if (!x) return renderPlan(); quickAddVal(kind, x, function () { go(x); }); });
 }
 /* 삭제: 아래에 품목이 더 있으면 "이 품목만 / 여기부터 아래 전부" (인식 뒤 끝에 붙은 인쇄기 · 스리터 품목 한 번에) */
 function delPI(i) {
@@ -3488,9 +3532,8 @@ function renderPick(el) {
     var pend = PL.items.filter(function (it) { return it.line === line && !PL.done[it.id]; });
     if (pend.length) ps.push(P(line + ' ' + pend.filter(function (it) { return PL.picked[it.id]; }).length + '/' + pend.length, line, 'pk-' + line, null, true, ps.length ? ' · ' : ''));
   });
-  hdrSum('plan', ps.length ? sLine(ps, '피킹 체크') : '');
-  var h = '<div class="row"><div><b style="font-size:17px">피킹 리스트</b><div class="muted">' + esc([PL.date, '호기별 하단 품목부터 · 위치 선입선출'].filter(Boolean).join(' · ')) + '</div></div></div>' +
-    photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '');
+  hdrSum('plan', '<div class="insumw"><div class="srchin insum ro">' + esc([PL.date, ps.map(function (x) { return x.v; }).join(' · ') || '피킹 완료'].filter(Boolean).join(' · ')) + '</div></div>');
+  var h = photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '');
   LINES.slice(0, 3).forEach(function (line) {
     var its = PL.items.filter(function (it) { return it.line === line; }).sort(function (a, b) { return b.planNo - a.planNo; });
     if (!its.length) return;
