@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>글자 인식 비교</title>
+<style>
+  :root { --ink:#16191D; --sub:#555B63; --line:#D5D8DC; --bg:#F3F4F1; --y:#F2B705; --ok:#1E6B3A; --bad:#9A1C1C; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  header { background:var(--ink); color:#fff; padding:12px 16px; font-weight:900; font-size:19px; }
+  main { padding:12px 16px 40px; max-width:720px; margin:0 auto; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  button, select { font:inherit; height:46px; border-radius:10px; border:1.5px solid var(--ink); background:#fff; color:var(--ink); font-weight:800; padding:0 12px; }
+  button.cam { background:var(--y); border-color:var(--y); }
+  button:disabled { opacity:.4; }
+  .muted { color:var(--sub); font-size:13px; }
+  .st { font-size:14px; font-weight:700; }
+  .st.ok { color:var(--ok); } .st.bad { color:var(--bad); }
+  .stage { position:relative; width:100%; }
+  .stage img { width:100%; display:block; border-radius:8px; }
+  .stage .bx { position:absolute; border:2px solid #E0402A; background:rgba(224,64,42,.08); border-radius:3px; cursor:pointer; }
+  .stage .bx.gsm { border-color:#1F4FA8; background:rgba(31,79,168,.22); }
+  .stage .bx.width { border-color:#1E6B3A; background:rgba(30,107,58,.22); }
+  .stage .bx.qty { border-color:#B07A00; background:rgba(242,183,5,.32); }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th, td { border-bottom:1px solid var(--line); padding:7px 4px; text-align:left; }
+  th { font-size:13px; color:var(--sub); font-weight:700; }
+  td b { font-size:17px; }
+  .miss { color:var(--bad); font-weight:700; }
+  .pick { position:fixed; left:0; right:0; bottom:0; background:#fff; border-top:2px solid var(--ink); padding:12px 16px 20px; display:none; }
+  .pick .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:8px; }
+  details pre { white-space:pre-wrap; font-size:12px; }
+</style>
+<script>
+  (function () {
+    var m = document.createElement('script'); m.type = 'importmap';
+    m.textContent = JSON.stringify({ imports: {
+      'onnxruntime-web': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.all.bundle.min.mjs',
+      'ppu-ocv/web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.web.js',
+      'ppu-ocv/canvas-web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.canvas-web.js'
+    } });
+    document.currentScript.after(m);
+  })();
+</script>
+</head>
+<body>
+<header>글자 인식 비교</header>
+<main>
+  <div class="card">
+    <div class="row">
+      <select id="model" style="flex:1">
+        <option value="V6_SMALL_MODEL">PaddleOCR v6 기본</option>
+        <option value="V5_KOREAN_MOBILE_MODEL">PaddleOCR v5 한국어</option>
+        <option value="V6_TINY_MODEL">PaddleOCR v6 가벼움</option>
+      </select>
+    </div>
+    <div id="mst" class="st" style="margin-top:8px">모델 준비 중…</div>
+    <div class="grid2" style="margin-top:10px">
+      <button class="cam" id="bCam">카메라</button>
+      <button id="bAlb">앨범</button>
+    </div>
+    <input type="file" id="fCam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="fAlb" accept="image/*" hidden>
+  </div>
+
+  <div class="card" id="resCard" style="display:none">
+    <table>
+      <thead><tr><th></th><th>PaddleOCR (폰)</th><th>현재 (구글 드라이브)</th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+    <div class="muted" id="srvNote" style="margin-top:6px"></div>
+  </div>
+
+  <div class="card" id="imgCard" style="display:none">
+    <div class="stage" id="stage"><img id="img" alt="찍은 사진"></div>
+    <details style="margin-top:8px"><summary class="muted">인식 원문</summary>
+      <div class="grid2"><div><b class="muted">PaddleOCR</b><pre id="rawP"></pre></div><div><b class="muted">현재</b><pre id="rawS"></pre></div></div>
+    </details>
+  </div>
+</main>
+
+<div class="pick" id="pick">
+  <div class="row"><b id="pickTxt" style="font-size:18px; flex:1"></b><button onclick="closePick()" style="height:36px">닫기</button></div>
+  <div class="grid3">
+    <button onclick="assign('gsm')">평량</button>
+    <button onclick="assign('width')">지폭</button>
+    <button onclick="assign('qty')">롤 수</button>
+  </div>
+</div>
+
+<script>
+/* ===== 라벨 해석 규칙 = 서버 Code.gs parseLabel_ 와 같은 규칙 (평량 · 지폭 · 롤 수 · 제지사) ===== */
+function clean_(n) { return String(parseFloat(n)); }
+function unit_(t, re, min, max) { var g = new RegExp(re.source, 'gi'), m; while ((m = g.exec(t))) { var v = parseFloat(m[1]); if (v >= min && v <= max) return clean_(m[1]); } return null; }
+function near_(t, keyRe, min, max, skip) {
+  var g = new RegExp(keyRe.source, 'gi'), m;
+  while ((m = g.exec(t))) {
+    var nums = t.substr(m.index + m[0].length, 40).match(/\d+(?:\.\d+)?/g) || [];
+    for (var i = 0; i < nums.length; i++) { var v = parseFloat(nums[i]); if (v >= min && v <= max && clean_(nums[i]) !== skip) return clean_(nums[i]); }
+  }
+  return null;
+}
+function fixDigits_(t) {
+  var map = { 'O':'0','o':'0','D':'0','Q':'0','I':'1','l':'1','|':'1','!':'1','i':'1','Z':'2','z':'2','S':'5','s':'5','B':'8','b':'6','G':'6','g':'9','q':'9' };
+  return String(t).replace(/[—–―ー一~]/g, '-').replace(/[^\s\-\/]+/g, function (tok) {
+    if (tok.length > 6) return tok;
+    var m = tok.match(/^(.*?)(R.*|롤.*)?$/), head = m[1].replace(/./g, function (c) { return map[c] || c; });
+    if (/\d/.test(tok) || (m[2] && /^\d+$/.test(head))) return head + (m[2] || '');
+    return tok;
+  });
+}
+function hand_(t) {
+  t = String(t).replace(/[×xX＊*]/g, '-');
+  var m = t.match(/(\d{2,3})\s*[-\/~ ]\s*(\d{3,4})/), r = t.match(/(\d{1,3})\s*(R\s*\/?\s*L|롤|R(?![A-Za-z]))/i);
+  return { gsm: m ? m[1] : null, width: m ? m[2] : null, qty: r ? Number(r[1]) : null };
+}
+function parseLabel(text) {
+  var t = String(text || ''), out = { gsm: null, width: null, qty: null, maker: null };
+  var makers = [['한국제지', /한국제지|HANKUK|KACE/i], ['무림', /무림|MOORIM|네오클린팩|NEO/i], ['Oji', /王子|OJI|エフテックス/i], ['미쓰비시', /MITSUBISHI|미쓰비시/i], ['HTRH', /HTRH/i], ['HSG', /HSG/i], ['현진', /HYUNJIN/i]];
+  for (var i = 0; i < makers.length; i++) if (makers[i][1].test(t)) { out.maker = makers[i][0]; break; }
+  out.gsm = unit_(t, /(\d{2,3}(?:\.\d)?)\s*(?:g\s*\/\s*m|gsm|g\/㎡)/i, 30, 500) || near_(t, /평\s*량|BASIS\s*W|米\s*坪/i, 30, 500);
+  out.width = near_(t, /규\s*격|WIDTH|寸\s*法|폭/i, 300, 3000, out.gsm) || unit_(t, /(\d{3,4})\s*mm/i, 300, 3000);
+  var h = hand_(fixDigits_(t));
+  out.gsm = out.gsm || h.gsm; out.width = out.width || h.width; if (h.qty) out.qty = h.qty;
+  return out;
+}
+
+/* ===== 사진 준비 (앱과 같게: 긴 변 1800px · 흑백 대비 보정) ===== */
+function loadPhoto(file) {
+  return new Promise(function (ok) {
+    var img = new Image();
+    img.onload = function () {
+      var sc = Math.min(1, 1800 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src); ok(c);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+function enhanced(src) {
+  var c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  var x = c.getContext('2d'); x.drawImage(src, 0, 0);
+  var im = x.getImageData(0, 0, c.width, c.height), d = im.data, n = c.width * c.height, hist = new Array(256).fill(0), i, g;
+  for (i = 0; i < d.length; i += 4) { g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; d[i] = g; hist[g]++; }
+  var lo = 0, hi = 255, acc = 0;
+  while (lo < 255 && (acc += hist[lo]) < n * 0.02) lo++;
+  acc = 0; while (hi > 0 && (acc += hist[hi]) < n * 0.02) hi--;
+  if (hi - lo < 20) { lo = 0; hi = 255; }
+  for (i = 0; i < d.length; i += 4) { g = Math.max(0, Math.min(255, (d[i] - lo) * 255 / (hi - lo))); d[i] = d[i + 1] = d[i + 2] = g; }
+  x.putImageData(im, 0, 0); return c;
+}
+
+/* ===== 현재 엔진 (앱 서버 ocrPhoto) — 앱에서 로그인한 이 폰의 접속 키 사용 ===== */
+function serverOCR(dataUrl) {
+  var api = '', token = '';
+  try { api = (localStorage.getItem('api') || '').replace(/[^A-Za-z0-9_-]/g, ''); token = localStorage.getItem('token') || ''; } catch (e) {}
+  if (!api) return Promise.reject(new Error('앱을 이 폰에서 먼저 열어야 비교 가능'));
+  return fetch('https://script.google.com/macros/s/' + api + '/exec', { method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: 'ocrPhoto', args: [dataUrl], token: token }) })
+    .then(function (r) { return r.json(); })
+    .then(function (j) { if (!j.ok) throw new Error(j.err || '서버 오류'); return j.v; });
+}
+
+/* ===== 화면 ===== */
+var P = { pick: null, items: [], cur: { gsm: null, width: null, qty: null, maker: null }, srv: null, ms: 0, sms: 0, srvErr: '' };
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+function cell(v) { return v ? '<b>' + esc(v) + '</b>' : '<span class="miss">못 읽음</span>'; }
+function renderTable() {
+  var s = P.srv || {}, rows = [['평량', 'gsm'], ['지폭', 'width'], ['롤 수', 'qty'], ['제지사', 'maker']];
+  $('tb').innerHTML = rows.map(function (r) {
+    return '<tr><th>' + r[0] + '</th><td>' + cell(P.cur[r[1]]) + '</td><td>' + (P.srv ? cell(s[r[1]]) : P.srvErr ? '–' : '…') + '</td></tr>';
+  }).join('') + '<tr><th>시간</th><td>' + (P.ms ? (P.ms / 1000).toFixed(1) + '초' : '…') + '</td><td>' + (P.sms ? (P.sms / 1000).toFixed(1) + '초' : P.srvErr ? '–' : '…') + '</td></tr>';
+  $('srvNote').textContent = P.srvErr;
+  $('srvNote').className = P.srvErr ? 'st bad' : 'muted';
+  [].forEach.call(document.querySelectorAll('.bx'), function (el) {
+    var it = P.items[+el.dataset.i]; el.className = 'bx' + (it && it.role ? ' ' + it.role : '');
+  });
+}
+function drawBoxes(items, w, h) {
+  [].forEach.call(document.querySelectorAll('.bx'), function (el) { el.remove(); });
+  items.forEach(function (it, i) {
+    var b = it.box; if (!b) return;
+    var el = document.createElement('div'); el.className = 'bx'; el.dataset.i = i;
+    el.style.left = (b.x / w * 100) + '%'; el.style.top = (b.y / h * 100) + '%';
+    el.style.width = (b.width / w * 100) + '%'; el.style.height = (b.height / h * 100) + '%';
+    el.onclick = function () { openPick(i); };
+    $('stage').appendChild(el);
+  });
+}
+/* 자동 결과가 어느 상자에서 나왔는지 표시 */
+function markRoles() {
+  P.items.forEach(function (it) { it.role = null; });
+  ['gsm', 'width', 'qty'].forEach(function (k) {
+    var v = P.cur[k]; if (!v) return;
+    var hit = P.items.filter(function (it) { return fixDigits_(it.text).indexOf(String(v)) >= 0 && !it.role; })[0];
+    if (hit) hit.role = k;
+  });
+}
+function openPick(i) { P.pick = i; $('pickTxt').textContent = P.items[i].text; $('pick').style.display = 'block'; }
+function closePick() { $('pick').style.display = 'none'; P.pick = null; }
+function assign(k) {
+  var it = P.items[P.pick]; if (!it) return;
+  var t = fixDigits_(it.text), v;
+  if (k === 'qty') { var h = hand_(t); v = h.qty || (t.match(/\d{1,3}/) || [])[0]; }
+  else if (k === 'gsm') v = (t.match(/\d{2,3}(?:\.\d)?/) || [])[0];
+  else { var hh = hand_(t); v = hh.width || (t.match(/\d{3,4}/) || [])[0]; }
+  if (!v) { alert('숫자 없음: ' + it.text); return; }
+  P.items.forEach(function (x) { if (x.role === k) x.role = null; });
+  it.role = k; P.cur[k] = clean_(v); closePick(); renderTable();
+}
+
+var svc = null, mod = null;
+async function initModel() {
+  $('mst').textContent = '모델 내려받는 중… (처음 한 번 · 10~20MB)'; $('mst').className = 'st';
+  $('bCam').disabled = $('bAlb').disabled = true;
+  try {
+    if (!mod) mod = await import('https://cdn.jsdelivr.net/npm/ppu-paddle-ocr@6.7.1/web/index.js');
+    if (svc) { try { await svc.destroy(); } catch (e) {} }
+    var t0 = performance.now();
+    svc = new mod.PaddleOcrService({ model: mod[$('model').value] });
+    await svc.initialize();
+    $('mst').textContent = '준비 완료 (' + ((performance.now() - t0) / 1000).toFixed(1) + '초)'; $('mst').className = 'st ok';
+    $('bCam').disabled = $('bAlb').disabled = false;
+  } catch (e) {
+    $('mst').textContent = '모델 불러오기 실패: ' + (e && e.message || e); $('mst').className = 'st bad';
+  }
+}
+async function run(file) {
+  var src = await loadPhoto(file), c = enhanced(src), dataUrl = c.toDataURL('image/jpeg', 0.9);
+  $('img').src = src.toDataURL('image/jpeg', 0.85);
+  $('imgCard').style.display = $('resCard').style.display = 'block';
+  P.items = []; P.cur = { gsm: null, width: null, qty: null, maker: null }; P.srv = null; P.ms = P.sms = 0; P.srvErr = '';
+  $('rawP').textContent = $('rawS').textContent = '';
+  renderTable();
+  // 현재 엔진은 동시에 시작
+  var ts = performance.now();
+  serverOCR(dataUrl).then(function (v) { P.srv = v; P.sms = performance.now() - ts; $('rawS').textContent = v.raw || ''; renderTable(); },
+    function (e) { P.srvErr = '현재 엔진: ' + e.message; renderTable(); });
+  // PaddleOCR (폰 안)
+  try {
+    var t0 = performance.now();
+    var r = await svc.recognize(c, { flatten: true, noCache: true });
+    P.ms = performance.now() - t0;
+    P.items = (r.results || []).map(function (x) { return { text: x.text, conf: x.confidence, box: x.box }; });
+    var text = P.items.map(function (x) { return x.text; }).join('\n') || r.text || '';
+    $('rawP').textContent = text;
+    P.cur = parseLabel(text);
+    drawBoxes(P.items, c.width, c.height);
+    markRoles(); renderTable();
+  } catch (e) { $('mst').textContent = '인식 실패: ' + (e && e.message || e); $('mst').className = 'st bad'; }
+}
+$('bCam').onclick = function () { $('fCam').value = ''; $('fCam').click(); };
+$('bAlb').onclick = function () { $('fAlb').value = ''; $('fAlb').click(); };
+$('fCam').onchange = $('fAlb').onchange = function () { var f = this.files && this.files[0]; if (f) run(f); };
+$('model').onchange = initModel;
+initModel();
+</script>
+</body>
+</html>
