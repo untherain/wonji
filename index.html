@@ -3403,10 +3403,31 @@ function curGrade() { var g = $('i-grade').value; return g === '__new' ? '' : g;
    직접 고치기 전까지 추천(한 줄 · 분산) 자동 반영 · 고치면 유지 + [추천 위치로] */
 function inPick() { I.locManual = true; inHint(); }
 function autoLoc() {
-  if (I.locManual && I.parts && I.parts.length) { if (I.parts.length === 1) I.parts[0].qty = I.qty; return; }
+  if (I.locManual && I.parts && I.parts.length) {
+    if (I.parts.length === 1) I.parts[0].qty = I.qty;
+    else if (I.pq != null && I.pq !== I.qty) refitParts();   // 전량 롤 수가 바뀜 → 고른 줄 유지 · 수량만 맞춤
+    I.pq = I.qty; return;
+  }
   var sug = suggestLoc(), prev = I.parts && I.parts[0] && I.parts[0].loc;
   if (sug) I.parts = [{ loc: sug, qty: I.qty }];
   else I.parts = splitPlan() || [{ loc: prev || null, qty: I.qty }];
+  I.pq = I.qty;
+}
+/* 직접 고친 분산 줄 + 전량 변경: 늘면 앞 줄부터 빈 자리만큼 → 남으면 마지막 줄 · 줄면 마지막 줄부터 빼고 0롤 줄 삭제
+   (줄별 롤 수를 직접 고친 경우는 그대로 · 합계 불일치로 표시) */
+function refitParts() {
+  var d = I.qty - partsSum(), g = curGrade(), last = I.parts[I.parts.length - 1];
+  if (d > 0) {
+    I.parts.forEach(function (x) {
+      if (d <= 0 || !I.width) return;
+      var a = Math.min(Math.max(0, freeFor(x.loc, I.gsm, I.width, g) - x.qty), d); x.qty += a; d -= a;
+    });
+    if (d > 0) last.qty += d;
+  } else {
+    for (var k = I.parts.length - 1; k >= 0 && d < 0; k--) { var t = Math.min(I.parts[k].qty, -d); I.parts[k].qty -= t; d += t; }
+    I.parts = I.parts.filter(function (x) { return x.qty > 0; });
+    if (!I.parts.length) I.parts = [{ loc: last.loc, qty: I.qty }];
+  }
 }
 function useSug() { I.locManual = false; inHint(); }
 function partsSum() { return I.parts.reduce(function (a, x) { return a + (+x.qty || 0); }, 0); }
