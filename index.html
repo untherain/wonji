@@ -2877,7 +2877,7 @@ function lvZoom(z) {
   if (LV.hz) { try { LV.track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {} return; }
   LV.z = z; $('lv-v').style.transform = 'scale(' + z + ')';
 }
-function lvProg() { var p = LV && LV.o.progress ? LV.o.progress() : ''; $('lv-prog').textContent = p || ''; }
+function lvProg() { var p = LV && LV.o.progress ? LV.o.progress() : ''; $('lv-prog').textContent = [p, LV && LV.ms ? (LV.ms / 1000).toFixed(1) + '초' : ''].filter(String).join(' · '); }   // 프레임당 인식 시간
 function lvSay(t, cls) { var s = $('lv-st'); s.textContent = t; s.className = 'lv-st' + (cls ? ' ' + cls : ''); }
 /* 화면 좌표 ↔ 영상 좌표 (object-fit:cover + 화면 확대) */
 function lvMap() {
@@ -2928,9 +2928,11 @@ function lvTick() {
   if (q.bright < 45) { lvSay('어두움 — 밝은 쪽으로' + ($('lv-torch').style.display === 'none' ? '' : ' · 플래시'), 'warn'); return setTimeout(lvTick, 500); }
   if (q.sharp < 12) { lvSay('흔들림 — 잠시 멈춰 주세요', 'warn'); return setTimeout(lvTick, 300); }
   LV.busy = true;
-  var rot = LV.rot, src = rot ? lvRot(g.c) : g.c;
+  var rot = LV.rot, src = rot ? lvRot(g.c) : g.c, tr = Date.now();
+  var ex = src.getContext('2d'); enhance(ex, src.width, src.height);   // 사진 경로와 같은 보정 (흑백 · 명암 늘리기)
   padReady().then(function (svc) { return svc.recognize(src, { flatten: true, noCache: true }); }).then(function (res) {
     LV.busy = false; if (!LV || !LV.run) return;
+    LV.ms = Date.now() - tr; lvProg();
     var items = (res.results || []).filter(function (x) { return x.box && x.text; });
     var r = labelParse(padLines(items));
     lvBoxes(items, g, rot, { gsm: r.gsm, width: r.width });
@@ -2938,7 +2940,7 @@ function lvTick() {
       LV.last = ''; LV.cnt = 0; LV.cand = null; LV.miss = (LV.miss || 0) + 1;
       if (!items.length || LV.miss >= 2) LV.hold = '';
       if (!items.length) LV.rot = false;
-      else if (!r.gsm && !r.width) LV.rot = !LV.rot;   // 못 읽으면 다음엔 90° 돌려 읽기 (세로 라벨)
+      else if (!r.gsm && !r.width && LV.miss % 2 === 0) LV.rot = !LV.rot;   // 2번 연속 못 읽으면 90° 돌려 읽기 (세로 라벨)
       var hs = items.map(function (x) { return x.box.height; }).sort(function (a, b) { return a - b; }), mh = hs.length ? hs[hs.length >> 1] : 0;
       var edge = items.some(function (x) { return x.box.x < 3 || x.box.y < 3 || x.box.x + x.box.width > src.width - 3 || x.box.y + x.box.height > src.height - 3; });
       var tip = !items.length ? '글자 없음 — 라벨을 틀 안에' : mh && mh < src.height * 0.05 ? '조금 더 가까이 (또는 확대)' : edge ? '조금 멀리 — 라벨이 틀 밖으로 나감' : '';
@@ -2953,8 +2955,9 @@ function lvTick() {
     LV.cnt = key === LV.last ? LV.cnt + 1 : 1; LV.last = key;
     var d = g.c.toDataURL('image/jpeg', 0.85);
     LV.cand = { r: r, d: d };
-    lvSay(fmtItem({ maker: r.maker ? canonMaker(r.maker) : '', grade: r.grade, gsm: r.gsm, width: r.width }) + (r.qty ? ' · ' + r.qty + '롤' : '') + (LV.cnt < 2 ? ' — 확인 중 (눌러서 바로 확정)' : ''), 'cand');
-    if (LV.cnt >= 2) lvConfirm(r, d);
+    lvSay(fmtItem({ maker: r.maker ? canonMaker(r.maker) : '', grade: r.grade, gsm: r.gsm, width: r.width }) + (r.qty ? ' · ' + r.qty + '롤' : '') + (LV.cnt < 2 && !known ? ' — 확인 중 (눌러서 바로 확정)' : ''), 'cand');
+    var known = (S.quick['평량'] || []).indexOf(String(r.gsm)) >= 0 && (S.quick['폭'] || []).indexOf(String(r.width)) >= 0;
+    if (LV.cnt >= 2 || known) lvConfirm(r, d);   // 기준정보에 있는 평량 · 지폭 = 바로 확정 · 처음 보는 값 = 2번 같아야
     setTimeout(lvTick, 250);
   }, function () { LV && (LV.busy = false); setTimeout(lvTick, 600); });
 }
@@ -3080,8 +3083,22 @@ function docCapture(pts) {
 /* [찍기]: 지금 화면 전체 → 영역 지정 → 기존 사진 처리 */
 function lvShot() {
   if (!LV) return;
-  var g = lvGrab(true), o = LV.o; liveClose();
-  if (!g) return;
+  var o = LV.o, tk = LV.track;
+  // 가능하면 카메라 고해상도 사진 (영상 한 장보다 선명) · 안 되면 영상 프레임
+  if (tk && window.ImageCapture) {
+    var g0 = lvGrab(true);
+    try {
+      new ImageCapture(tk).takePhoto().then(createImageBitmap).then(function (bm) {
+        var c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; c.getContext('2d').drawImage(bm, 0, 0);
+        liveClose(); lvShotGo({ c: c }, o);
+      }, function () { liveClose(); if (g0) lvShotGo(g0, o); });
+      return;
+    } catch (e) {}
+  }
+  var g = lvGrab(true); liveClose();
+  if (g) lvShotGo(g, o);
+}
+function lvShotGo(g, o) {
   var sc = Math.min(1, 1800 / Math.max(g.c.width, g.c.height)), c = document.createElement('canvas');
   c.width = Math.round(g.c.width * sc); c.height = Math.round(g.c.height * sc); c.getContext('2d').drawImage(g.c, 0, 0, c.width, c.height);
   cropPhoto(c, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); if (o.shot) o.shot(cc.toDataURL('image/jpeg', 0.9)); });
