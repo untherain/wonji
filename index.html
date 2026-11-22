@@ -957,7 +957,7 @@ function scanQR(cb) {
 
 /* ===== 탭 ===== */
 function show(t) {
-  TAB = t; SHRET = null;
+  TAB = t; SHST = [];
   ['map', 'in', 'plan', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
   $('title').textContent = TITLES[t];
@@ -1341,8 +1341,7 @@ function distSig(s, maker) { return [s.gsm, s.width, s.grade || '', maker != nul
 /* 분산 배지 누름 → 그 원지의 위치 리스트만 표시 (검색 결과 리스트 부품 fLocList 재사용, 검색 UI는 안 띄움) */
 function distPop(enc) {
   var p = decodeURIComponent(enc).split('|');   // 평량|지폭|지종|제지사|잔량
-  SH = { code: null, mode: 'dist', dist: { gsm: p[0], width: p[1], grade: p[2] || '', maker: p[3] || '', rem: p[4] === 'Y' } };
-  renderSheet();
+  shOpen({ code: null, mode: 'dist', dist: { gsm: p[0], width: p[1], grade: p[2] || '', maker: p[3] || '', rem: p[4] === 'Y' } });
 }
 function distTitle(sig) { var p = sig.split('|'); return fmtItem({ maker: p[3], grade: p[2], gsm: p[0], width: p[1] }) + (p[2] ? ' · ' + p[2] : '') + (p[4] === 'Y' ? ' 잔량' : ''); }
 function sheetDist() {
@@ -1430,7 +1429,7 @@ var MJ = null;
 try { MJ = JSON.parse(localStorage.getItem('mergeJob') || 'null'); } catch (e) { MJ = null; }
 function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
 function mjLeft() { return MJ ? MJ.moves.filter(function (m) { return !m.done; }).length : 0; }
-function openMerge() { SH = { code: null, mode: 'merge' }; renderSheet(); }
+function openMerge() { shOpen({ code: null, mode: 'merge' }); }
 /* 미완료 병합 작업이 있을 때: 기존 작업 계속 / 신규 작업 시작(잔여분 삭제) 선택 (작업 목록은 한 번에 1개) */
 function mjBusy(startNew) {
   var left = mjLeft();
@@ -1579,14 +1578,14 @@ function rowItems(code) {
 function itemP(s) { return { gsm: s.gsm, width: s.width, grade: s.grade || '', rem: !!s.rem, maker: s.maker || '', byMaker: true, worker: worker(), test: isTest() }; }
 function mkName(m, i, fn) { return m ? esc(m) : i != null ? '<button class="sg miss" style="font-size:14px" onclick="' + (fn || 'pickMaker') + '(' + i + ')">제지사 미확인 ▸</button>' : '<span style="color:#9A1C1C">제지사 미확인</span>'; }
 function openRow(code, mode) {
-  SH = { code: code, mode: '', it: null, qty: 1 };
-  if (mode) shMode(mode); else renderSheet();
+  shOpen({ code: code, mode: '', it: null, qty: 1 });
+  if (mode) shMode(mode);
 }
 function showDetail(code) { openRow(code); }
 /* 배경 클릭으로 시트 닫기 — 입력 중(입고·실사·줄설정·창고설정·적재순서)만 실수 방지로 예외(✕/← 로 닫기) */
 function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan'].indexOf(SH.mode) >= 0)) return; shClose(); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
-  SHRET = null;   // 돌아갈 곳은 shClose(✕ · 바깥 누름)만 씀 · 작업 중 닫힘(이동 시작 등)은 버림
+  SHST = [];   // 돌아갈 곳은 shClose(✕ · ← · 바깥 누름)만 씀 · 작업 중 닫힘(이동 시작 등)은 버림
   var wasFilter = SH && SH.mode === 'filter', wasPlan = SH && SH.mode === 'plan';
   document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none';
   if (wasPlan && TAB === 'plan') renderPlan();   // 계획 품목 창 닫음 → 목록 표시(노란 줄) 원래대로 · 스크롤 위치 그대로
@@ -1612,7 +1611,7 @@ function shQty(d) {
   SH.qty = Math.max(1, Math.min(max, SH.qty + d)); renderSheet();
 }
 function shHead(title, sub, back, sum, box) {
-  return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : SHRET ? '원래 창으로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'shClose()') + '">' + (back || SHRET ? '←' : '✕') + '</button></div>' +
+  return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : SHST.length ? '이전 창으로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'shClose()') + '">' + (back || SHST.length ? '←' : '✕') + '</button></div>' +
     (box || '') + (sub ? '<div class="muted" style="padding:2px 0 0">' + sub + '</div>' : '') + '</div>';
 }
 function renderSheet() {
@@ -1932,7 +1931,7 @@ function docRead(d) {
       if (lp.gsm && lp.width) return fLabel(lp);
       toast('규격 못 읽음 — 다시 촬영 (문서 전체가 보이게)', true); return;
     }
-    SH = { code: null, mode: 'doc', list: list, sel: null }; renderSheet(); $('detail').scrollTop = 0;
+    shOpen({ code: null, mode: 'doc', list: list, sel: null }); $('detail').scrollTop = 0;
   });
 }
 function docF(x) { return { gsm: x.gsm, width: x.width, maker: x.maker || '', grade: '', q: '' }; }
@@ -2562,26 +2561,36 @@ function fLocList(hits, force, dim) {
 function fGo(i) { var g = FLOCS[i]; if (g) goLoc(g.loc, g.items); }
 /* ===== 공통 부품: 위치로 가기 — 다른 창 · 탭에서 지도의 그 줄을 열고 찾는 품목 강조 · [←] = 원래 창으로 돌아감
    (검색 결과 · 타 위치 목록 · 피킹 대체 · 기준정보 사용 기록)  reopen = 원래 창을 다시 여는 함수 (작업창이 아닌 팝업일 때) ===== */
-var SHRET = null;   // 돌아갈 곳 { tab, y, sh, ds, reopen } — 다른 탭으로 가거나 창이 바뀌어 닫히면 지움
+var SHST = [];   // 돌아갈 창 목록 (쌓임) [{ tab, y, sh, ds, reopen }] — 다른 탭으로 가거나 작업 중 창이 닫히면 비움
+function shSnap(reopen) { return { tab: TAB, y: window.scrollY, sh: SH, ds: SH ? $('detail').scrollTop : 0, reopen: reopen || null }; }
+/* ===== 공통 부품: 창 열기 — 다른 창 위에서 열면 이전 창을 쌓아 둠 → [←] 로 한 단계씩 돌아감
+   같은 줄 안에서 화면만 바뀜 · 같은 종류 창을 다시 엶 = 쌓지 않음 ===== */
+function shOpen(next) {
+  var cur = SH, st = SHST.slice();
+  var same = cur && ((next.code && cur.code === next.code) || (!next.code && !cur.code && cur.mode === next.mode));
+  if (cur && !same) st.push(shSnap());
+  SH = next; SHST = st; renderSheet();
+}
 function goLoc(loc, items, reopen) {
-  var ret = { tab: TAB, y: window.scrollY, sh: SH, ds: SH ? $('detail').scrollTop : 0, reopen: reopen || null };
+  var st = SHST.slice(); st.push(shSnap(reopen));
   if (TAB !== 'map') show('map');
   var w = whOf(loc); if (w) M.wh = w.id;
-  renderMap(); openRow(loc);
-  SHRET = ret; SH.hl = (items || []).slice(); renderSheet();
+  renderMap(); SH = null; openRow(loc);
+  SHST = st; SH.hl = (items || []).slice(); renderSheet();
   var el = document.querySelector('#detail .it.hl'); if (el) el.scrollIntoView({ block: 'center' });
 }
-/* 창 닫기(✕ · 바깥 누름): 위치로 가기로 왔으면 원래 탭 · 스크롤 · 창으로 */
+/* 창 닫기(✕ · ← · 바깥 누름): 쌓인 이전 창이 있으면 그 창(탭 · 스크롤 포함)으로 */
 function shClose() {
-  var r = SHRET; closeSheet();
+  var st = SHST.slice(), r = st.pop(); closeSheet();
   if (!r) return;
   if (TAB !== r.tab) show(r.tab);
   window.scrollTo(0, r.y);
+  SHST = st;
   if (r.sh) { SH = r.sh; renderSheet(); $('detail').scrollTop = r.ds; }
   else if (r.reopen) r.reopen();
 }
 /* 지도 검색창: 검색과 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
-function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
+function openFilter() { shOpen({ code: null, mode: 'filter', sp: F, phmsg: '' }); }
 function sheetFilter() {
   var h = fHits();
   return shHead('검색', '', false, '', sumHtml('f-sum', '🔍 예시: 230-1210 무림 · 잔량 · 1-01', { type: 'fType', clear: 'clearFilter', blur: 'setTimeout(fBlur,150)', text: fText(h), miss: false })) +
@@ -3988,10 +3997,10 @@ function plCur() { return SH && SH.pid ? PL.items.filter(function (x) { return x
 function plOpen(id) {
   var it = id ? PL.items.filter(function (x) { return x.id === id; })[0] : null, pm = it ? planMk(it) : {};
   var last = planOrder().slice(-1)[0];
-  SH = { code: null, mode: 'plan', pid: it ? it.id : null, ocr: null, big: false,
+  shOpen({ code: null, mode: 'plan', pid: it ? it.id : null, ocr: null, big: false,
     sp: { gsm: it && it.gsm || null, width: it && it.width || null, maker: pm.maker || '', grade: pm.grade || '' },
-    qty: it && it.qty || 1, all: !!(it && it.all), line: it ? it.line : (last ? last.line : '1호기'), note: it && it.note || '' };
-  renderSheet(); $('detail').scrollTop = 0; plMark();
+    qty: it && it.qty || 1, all: !!(it && it.all), line: it ? it.line : (last ? last.line : '1호기'), note: it && it.note || '' });
+  $('detail').scrollTop = 0; plMark();
 }
 function plMark() { [].forEach.call(document.querySelectorAll('#f-plan [data-pid]'), function (r) { var on = SH && SH.mode === 'plan' && SH.pid === r.dataset.pid; r.style.background = on ? '#FFF8E1' : ''; r.style.boxShadow = on ? 'inset 4px 0 0 var(--y)' : ''; }); }
 function plQty(d) { SH.all = false; SH.qty = Math.max(1, SH.qty + d); renderSheet(); }
@@ -4258,7 +4267,7 @@ function noteFold(key, has, body) {
   return '<details class="note"' + (NOTE_OPEN[key] ? ' open' : '') + ' ontoggle="NOTE_OPEN[\'' + key + '\']=this.open"><summary>비고' + (has ? ' ●' : '') + '</summary>' + body + '</details>';
 }
 /* 피킹 품목 자세히 (공통 작업창): 비고 전체 · 배정 위치 · 대체 위치 목록(검색 결과와 같은 목록 · 누르면 지도의 그 줄) */
-function pkDetail(id) { SH = { code: null, mode: 'pkd', pid: id }; renderSheet(); $('detail').scrollTop = 0; }
+function pkDetail(id) { shOpen({ code: null, mode: 'pkd', pid: id }); $('detail').scrollTop = 0; }
 function sheetPkd() {
   var it = PL.items.filter(function (x) { return x.id === SH.pid; })[0];
   if (!it) return shHead('품목 없음', '', false);
@@ -4568,8 +4577,7 @@ function openWhCfg(id, sec) {
   if (MV) return;
   W = cloneWhs();
   WI = Math.max(0, W.map(function (w) { return String(w.id); }).indexOf(String(id)));
-  SH = { code: null, mode: 'wh' };
-  renderSheet();
+  shOpen({ code: null, mode: 'wh' });
   if (sec) setTimeout(function () {   // 해당 항목으로 이동 + 잠깐 강조
     var el = document.getElementById('whsec-' + sec); if (!el) return;
     try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
