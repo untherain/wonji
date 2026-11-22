@@ -71,7 +71,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <style>
   :root { --ink:#16191D; --sub:#555B63; --line:#D5D8DC; --bg:#F3F4F1; --y:#F2B705; --blue:#1F4FA8; --ok:#1E6B3A; --warn:#FFF1D6; }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; touch-action: manipulation; }   /* 두 번 눌러 확대 막음 (빠른 [+] 연타 · 스크롤 유지 · 누름 지연 없음) — 상속 안 돼서 * 에 적용 */
   body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif; font-size:16px; }
   header { background:var(--ink); color:#fff; padding:16px 16px 12px; position:sticky; top:0; z-index:5; }
   header h1 { margin:0; font-size:24px; font-weight:900; }
