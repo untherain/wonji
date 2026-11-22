@@ -3870,22 +3870,28 @@ function renderPlan() {
 
   pqHdr();
 }
-/* 계획 품목 한 줄 (읽기 전용 · 공통 번호 행) — 누르면 공통 작업창에서 수정 (목록 위치 그대로) */
+/* 계획 품목 한 줄 (인식 후 목록) — 호기 · 번호 · 지종 · 제지사 · 비고는 줄에서 바로, 규격 · 수량은 누르면 아래 작업창 */
 function planRow(it) {
-  var okS = it.gsm && it.width, okQ = it.all || it.qty, red = 'color:#9A1C1C; font-weight:900', pm = planMk(it);
-  var spec = okS ? itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) :
-    '<span style="' + red + '">' + (it.gsm || it.width ? esc((it.gsm || '?') + '×' + (it.width || '?')) : '규격 못 읽음') + '</span>';
-  var l2 = [];
-  if (it.weak) l2.push('<span style="color:#7A5200; font-size:12px; font-weight:700">필기 · 잡글자?</span>');
-  else if (!okS || !okQ) l2.push('<span style="color:#9A1C1C; font-size:12px; font-weight:700">' + (!okS ? '규격' : '수량') + ' 확인 필요 ▸</span>');
-  var sub = [gradeSub(pm), it.note].filter(String).join(' · ');
-  if (sub) l2.push('<span class="muted" style="font-size:12px">' + esc(sub) + '</span>');
-  var body = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0">' + spec + '</b>' +
-    '<b style="white-space:nowrap; flex:none' + (okQ ? '' : '; ' + red) + '">' + (it.all ? '전량' : it.qty ? it.qty + '롤' : '수량?') + '</b></div>' +
-    (l2.length ? '<div class="pkl2">' + l2.join('') + '</div>' : '');
-  var bad = !okS || !okQ || it.weak, cur = SH && SH.mode === 'plan' && SH.pid === it.id;
-  return '<div data-pid="' + it.id + '">' + seqRow({ seq: it.planNo, body: body, tap: "plOpen('" + it.id + "')", tight: true,
-    bg: cur ? '#FFF8E1' : bad ? '#FDF1F1' : '#fff' }) + '</div>';
+  var i = PL.items.indexOf(it), ok = it.gsm && it.width && (it.all || it.qty), mk = planMk(it);
+  var lineOpts = LINES.map(function (l) { return '<option' + (l === it.line ? ' selected' : '') + '>' + l + '</option>'; }).join('');
+  var L = LINES.indexOf(it.line);
+  return '<div data-pid="' + it.id + '" style="padding:8px 10px; border-top:1px solid #E6E8EB' + (SH && SH.mode === 'plan' && SH.pid === it.id ? '; background:#FFF8E1; box-shadow:inset 4px 0 0 var(--y)' : '') + '">' +
+    // 1줄: 호기 · 번호 · 규격(넓게) · 수량
+    '<div class="row" style="gap:4px">' +
+    '<select class="mini" style="width:66px; flex:none; padding:0 2px" aria-label="호기 (아래 품목 모두)" onchange="setLineFrom(' + i + ',this.value)">' + lineOpts + '</select>' +
+    '<input class="mini" type="number" inputmode="numeric" style="width:44px; flex:none; padding:0 2px; text-align:center" value="' + it.planNo + '" aria-label="계획 번호" onchange="setPI(' + i + ',\'planNo\',+this.value)">' +
+    '<button class="btn2 mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900' + (it.gsm && it.width ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="규격 선택" onclick="plOpen(\'' + it.id + '\')">' + (it.gsm || it.width ? (it.gsm || '?') + '×' + (it.width || '?') : '규격 선택') + '</button>' +
+    '<button class="btn2 mini" style="width:54px; flex:none; padding:0 2px' + (it.all || it.qty ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="수량 선택" onclick="plOpen(\'' + it.id + '\')">' + (it.all ? '전량' : it.qty ? it.qty + '롤' : '수량') + '</button>' +
+    '</div>' +
+    // 2줄: 제지사 선택(넓게) · 지종 · 삭제,  3줄: 비고 (접힘)
+    '<div class="row" style="gap:4px; margin-top:4px">' + piSelect(it, i, 'grade') + piSelect(it, i, 'maker') +
+    '<button class="xbtn" onclick="delPI(' + i + ')" aria-label="삭제">×</button></div>' +
+    noteFold('pe' + it.id, !!it.note, '<input class="mini" style="height:34px; font-size:14px" value="' + esc(it.note || '') + '" placeholder="비고" aria-label="비고" onchange="setPI(' + i + ',\'note\',this.value)">') +
+    '<div class="row" style="margin-top:2px">' +
+    (it.weak ? '<span style="color:#7A5200; font-size:12px; font-weight:700">필기 · 잡글자? — 진짜 품목이면 제지사 · 수량 입력</span>' :
+      ok ? '<span></span>' : '<span style="color:#9A1C1C; font-size:12px; font-weight:700">' + (!(it.gsm && it.width) ? '규격 못 읽음 — 사진 보고 입력' : '수량 확인 필요') + '</span>') +
+
+    '</div></div>';
 }
 /* ===== 계획 품목 작업창 (공통 작업창 SH · 공통 규격 선택기 · 수량 ±)
    줄 누름 = 수정 · [+ 품목 직접 추가] = 새 품목 · [◀ 이전] [다음 ▶] = 저장하고 이동 · [저장] = 다음 확인 필요 품목 열기 ===== */
@@ -3899,7 +3905,7 @@ function plOpen(id) {
     qty: it && it.qty || 1, all: !!(it && it.all), line: it ? it.line : (last ? last.line : '1호기'), note: it && it.note || '' };
   renderSheet(); $('detail').scrollTop = 0; plMark();
 }
-function plMark() { [].forEach.call(document.querySelectorAll('#f-plan [data-pid]'), function (r) { if (r.firstChild) r.firstChild.style.outline = SH && SH.mode === 'plan' && SH.pid === r.dataset.pid ? '3px solid var(--y)' : ''; }); }
+function plMark() { [].forEach.call(document.querySelectorAll('#f-plan [data-pid]'), function (r) { var on = SH && SH.mode === 'plan' && SH.pid === r.dataset.pid; r.style.background = on ? '#FFF8E1' : ''; r.style.boxShadow = on ? 'inset 4px 0 0 var(--y)' : ''; }); }
 function plQty(d) { SH.all = false; SH.qty = Math.max(1, SH.qty + d); renderSheet(); }
 function sheetPlan() {
   var it = plCur(), ord = planOrder(), k = it ? ord.indexOf(it) : -1;
@@ -4003,6 +4009,19 @@ function plSnip() {
   PLIMG_EL = new Image(); PLIMG_EL.onload = function () { if ($('pl-snipc')) draw(PLIMG_EL); }; PLIMG_EL.src = PLIMG;
 }
 
+/* 계획 품목 지종 · 제지사 선택칸 (공통 목록 selOpts · 제지사 빠짐 = 빨강) */
+function piSelect(it, i, k) {
+  var mk = planMk(it), cur = mk[k], kind = k === 'grade' ? '지종' : '제지사';
+  return '<select class="mini" style="flex:1; min-width:0' + (k === 'maker' && !cur ? '; border-color:#9A1C1C; color:#9A1C1C' : '') + '" aria-label="' + kind + '" onchange="setPV(' + i + ',\'' + k + '\',this)">' +
+    selOpts(S.quick[kind], kind, cur) + '</select>';
+}
+function setPV(i, k, el) {
+  var it = PL.items[i], v = el.value, kind = k === 'grade' ? '지종' : '제지사';
+  function go(x) { if (!('maker' in it)) fillMk(it); it[k] = x; if (k === 'maker' && x) delete it.weak; savePL(); renderPlan(); }
+  if (v !== '__new') return go(v);
+  ask({ title: kind + ' 입력' }, function (x) { if (!x) return renderPlan(); quickAddVal(kind, x, function () { go(x); }); });
+}
+function setPI(i, k, v) { PL.items[i][k] = v; savePL(); renderPlan(); }
 /* 호기 구분이 밀렸을 때: 이 품목부터 아래를 다음 호기로, 그 뒤 호기도 한 칸씩 */
 /* 이 품목부터 아래 전부를 고른 호기로 (위에서 아래로 경계마다 지정) */
 function planOrder() { return PL.items.slice().sort(function (a, b) { return LINES.indexOf(a.line) - LINES.indexOf(b.line) || a.planNo - b.planNo; }); }
