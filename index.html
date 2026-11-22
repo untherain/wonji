@@ -1792,11 +1792,17 @@ function tsrPlan(t, text) {
   t.rows.forEach(function (row) {
     var v = {}; row.forEach(function (x, i) { var k = f[i]; if (k && x) v[k] = v[k] ? v[k] + ' ' + x : x; });
     var m = String(v.spec || '').match(/(\d{2,3})\s*[*×xX＊ ]\s*(\d{3,4})/);
-    if (!m) return;   // 규격 없는 줄 = 소제목 · 빈 줄
     var q = String(v.qty || ''), all = /전\s*량/.test(q), qn = q.match(/\d{1,3}/);
     var name = (v.name || '') + (v.maker ? '(' + v.maker + ')' : '');
-    items.push({ planNo: items.length + 1, div: v.div || '', name: name.trim(), gsm: m[1], width: m[2],
-      qty: all ? null : qn ? +qn[0] : null, all: all, note: v.note || '', weak: !name && !all && !qn });
+    var gsm = m ? m[1] : '', width = m ? m[2] : '';
+    if (!m) {   // 규격 못 읽음: 내용(원지명 · 제지사 · 수량 · 규격 일부)이 있는 줄은 빈칸으로 남겨 사용자가 고침 (빈 줄 · 소제목만 제외)
+      var nums = String(v.spec || '').match(/\d{3,4}/g) || [];
+      nums.forEach(function (n) { if (!gsm && +n >= 30 && +n <= 500) gsm = n; else if (!width && +n > 500 && +n <= 3000) width = n; });
+      var body = !!(name.trim() || qn || all || gsm || width);
+      if (!body || (!gsm && !width && !qn && !all && /^\s*(\d\s*호\s*기|인\s*쇄\s*기|스\s*리\s*터)?\s*$/.test(name))) return;
+    }
+    items.push({ planNo: items.length + 1, div: v.div || '', name: name.trim(), gsm: gsm, width: width,
+      qty: all ? null : qn ? +qn[0] : null, all: all, note: v.note || '', miss: !m || undefined, weak: !!m && !name && !all && !qn });
   });
   if (!items.length) return null;
   var dm = String(text).match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2}(?:\s*[~\-]\s*\d{1,2})?)/);
@@ -3867,7 +3873,7 @@ function planRow(it) {
     '<div class="row" style="gap:4px">' +
     '<select class="mini" style="width:66px; flex:none; padding:0 2px" aria-label="호기 (아래 품목 모두)" onchange="setLineFrom(' + i + ',this.value)">' + lineOpts + '</select>' +
     '<input class="mini" type="number" inputmode="numeric" style="width:44px; flex:none; padding:0 2px; text-align:center" value="' + it.planNo + '" aria-label="계획 번호" onchange="setPI(' + i + ',\'planNo\',+this.value)">' +
-    '<input class="mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900; text-align:center" value="' + (it.gsm && it.width ? it.gsm + '×' + it.width : '') + '" placeholder="230×1220" aria-label="규격" onchange="setSpec(' + i + ',this.value)">' +
+    '<input class="mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900; text-align:center' + (it.gsm && it.width ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" value="' + (it.gsm || it.width ? (it.gsm || '') + '×' + (it.width || '') : '') + '" placeholder="규격 못 읽음 230×1220" aria-label="규격" onchange="setSpec(' + i + ',this.value)">' +
     '<input class="mini" inputmode="numeric" style="width:50px; flex:none; padding:0 2px; text-align:center" value="' + (it.all ? '전량' : (it.qty == null ? '' : it.qty)) + '" placeholder="수량" aria-label="수량" onchange="setQty(' + i + ',this.value)">' +
     '</div>' +
     // 2줄: 제지사 선택(넓게) · 지종 · 삭제,  3줄: 비고 (접힘)
@@ -3876,7 +3882,7 @@ function planRow(it) {
     noteFold('pe' + it.id, !!it.note, '<input class="mini" style="height:34px; font-size:14px" value="' + esc(it.note || '') + '" placeholder="비고" aria-label="비고" onchange="setPI(' + i + ',\'note\',this.value)">') +
     '<div class="row" style="margin-top:2px">' +
     (it.weak ? '<span style="color:#7A5200; font-size:12px; font-weight:700">필기 · 잡글자? — 진짜 품목이면 제지사 · 수량 입력</span>' :
-      ok ? '<span></span>' : '<span style="color:#9A1C1C; font-size:12px; font-weight:700">규격 · 수량 확인 필요</span>') +
+      ok ? '<span></span>' : '<span style="color:#9A1C1C; font-size:12px; font-weight:700">' + (!(it.gsm && it.width) ? '규격 못 읽음 — 사진 보고 입력' : '수량 확인 필요') + '</span>') +
 
     '</div></div>';
 }
@@ -3903,7 +3909,7 @@ function delWeak() {
 function setSpec(i, v) {
   var m = String(v).match(/(\d{2,4})\s*[*×xX\-]\s*(\d{3,4})/);
   if (!m) { toast('규격 형식: 230×1220', true); renderPlan(); return; }
-  PL.items[i].gsm = m[1]; PL.items[i].width = m[2]; delete PL.items[i].weak; savePL(); renderPlan();
+  PL.items[i].gsm = m[1]; PL.items[i].width = m[2]; delete PL.items[i].weak; delete PL.items[i].miss; savePL(); renderPlan();
 }
 function setQty(i, v) {
   v = String(v).trim();
@@ -3987,8 +3993,8 @@ function planPhoto(cam) {
         // 근거 없는 품목(손글씨 · 잡글자일 수 있음)은 맨 아래로
         var got = r.items.filter(function (it) { return !it.weak; }).concat(r.items.filter(function (it) { return it.weak; }));
         got.forEach(function (it) { PL.items.push(fillMk(Object.assign({}, it, { id: 'p' + (PL.seq++), line: line, planNo: ++no }))); });
-        var miss = r.items.filter(function (it) { return !(it.all || it.qty); }).length;
-        PL.msg = '✓ ' + r.items.length + '건 ' + (add ? '추가' : '인식') + (miss ? ' · 수량 확인 ' + miss + '건' : '') + ' — 2호기 · 3호기 시작 품목의 호기 선택';
+        var miss = r.items.filter(function (it) { return !(it.all || it.qty); }).length, smiss = r.items.filter(function (it) { return !(it.gsm && it.width); }).length;
+        PL.msg = '✓ ' + r.items.length + '건 ' + (add ? '추가' : '인식') + (smiss ? ' · 규격 확인 ' + smiss + '건' : '') + (miss ? ' · 수량 확인 ' + miss + '건' : '') + ' — 2호기 · 3호기 시작 품목의 호기 선택';
         PL.msgBad = false;
         savePL(); renderPlan();
       });
@@ -4093,7 +4099,7 @@ function confirmLine(line) {
   var dest = (S.quick['출고처'] || []).filter(function (d) { return d.replace(/\s/g, '').indexOf(line) >= 0; })[0] || line;
   var batch = [], lack = 0;
   its.forEach(function (it) {
-    var a = A[it.id]; lack += a.lack;
+    var a = A[it.id]; if (!a) return; lack += a.lack;   // 규격 빈 품목 = 배정 없음
     a.locs.forEach(function (l) {
       batch.push({ loc: l.loc, grade: l.grade, gsm: l.gsm, width: l.width, maker: l.maker || '', byMaker: l.maker != null, qty: l.qty, dest: dest,
         memo: '생산계획 ' + (PL.date || '') + ' · ' + line + ' 계획 #' + it.planNo });
