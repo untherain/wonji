@@ -191,6 +191,7 @@
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
   .stile.done .bar i { background:var(--ok); } .stile.done .sv { color:var(--ok); }
+  .lchip.lc { border:1px solid #D5D8DC; background:#fff; cursor:pointer; font:inherit; font-size:14px; font-weight:700; height:auto; } .lchip i { font-style:normal; color:var(--blue); margin-left:4px; } .lchip small { font-weight:500; color:#555B63; font-size:11px; }
   .lchip { display:inline-block; background:#F3F4F1; border-radius:6px; padding:2px 8px; margin:3px 4px 0 0; font-size:14px; font-weight:700; white-space:nowrap; }
   .pill { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
   .t-입고 { background:#DDEBFF; color:#163A7D; } .t-출고 { background:var(--ink); color:var(--y); }
@@ -1338,38 +1339,7 @@ var ST = null;   // 운용 정지 모드: { wh, zone, chg{code:'미사용'|''} }
 function sigOf(s) { return [s.gsm, s.width, s.grade || '', s.maker || '', s.rem ? 'Y' : ''].join('|'); }
 /* 같은 원지 판정 서명 (제지사·평량·지폭·지종·잔량) — 분산 배지용 */
 function distSig(s, maker) { return [s.gsm, s.width, s.grade || '', maker != null ? maker : (s.maker || ''), s.rem ? 'Y' : ''].join('|'); }
-/* 분산 배지 누름 → 그 원지의 위치 리스트만 표시 (검색 결과 리스트 부품 fLocList 재사용, 검색 UI는 안 띄움) */
-function distPop(enc) {
-  var p = decodeURIComponent(enc).split('|');   // 평량|지폭|지종|제지사|잔량
-  shOpen({ code: null, mode: 'dist', dist: { gsm: p[0], width: p[1], grade: p[2] || '', maker: p[3] || '', rem: p[4] === 'Y' } });
-}
 function distTitle(sig) { var p = sig.split('|'); return fmtItem({ maker: p[3], grade: p[2], gsm: p[0], width: p[1] }) + (p[2] ? ' · ' + p[2] : '') + (p[4] === 'Y' ? ' 잔량' : ''); }
-function sheetDist() {
-  var d = SH.dist, sig = [d.gsm, d.width, d.grade, d.maker, d.rem ? 'Y' : ''].join('|');
-  var hits = S.stock.filter(function (s) { return s.gsm == d.gsm && s.width == d.width && (s.grade || '') === d.grade && (s.maker || '') === d.maker && !!s.rem === d.rem; });
-  var whQ = {}; hits.forEach(function (s) { whQ[s.wh] = (whQ[s.wh] || 0) + s.qty; });
-  var whIds = Object.keys(whQ).map(Number).sort(function (a, b) { return a - b; });
-  if (!d.whs) d.whs = whIds.slice();                       // 기본 전체 창고 선택
-  d.whs = d.whs.filter(function (id) { return whQ[id] != null; });   // 없어진 창고 정리
-  if (!d.whs.length) d.whs = whIds.slice();
-  var sel = {}; d.whs.forEach(function (id) { sel[id] = 1; });
-  var fhits = hits.filter(function (s) { return sel[s.wh]; }), flocs = {};
-  fhits.forEach(function (s) { flocs[s.loc] = 1; });
-  // 창고가 2개 이상이면 창고 토글 (켠 창고만 리스트·병합 대상 · 하나만 켜면 창고 내 정리)
-  var whRow = whIds.length > 1 ? '<div class="cgf" style="margin:2px 0 10px"><span class="muted" style="align-self:center; margin-right:2px">창고</span>' +
-    whIds.map(function (id) { return '<button class="chip' + (sel[id] ? ' on' : '') + '" onclick="distWh(' + id + ')">' + esc(whName(id)) + ' ' + whQ[id] + '롤</button>'; }).join('') + '</div>' : '';
-  var partial = whIds.length > 1 && d.whs.length < whIds.length;
-  var job = MJ && MJ.sig === sig;
-  var merge = job || Object.keys(flocs).length > 1 ? '<button class="btn" style="width:100%; margin:4px 0 10px; background:var(--ink); color:#fff" onclick="startMerge(\'' + encodeURIComponent(sig) + '\')">↙ ' + (job ? '병합 작업 목록 · ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' 완료' : '원지 병합' + (partial ? ' (선택 창고)' : '')) + '</button>' : '';
-  $('detail').innerHTML = shHead(esc(distTitle(sig)), '', false) + whRow + merge + fLocList(fhits, true, true);
-}
-function distWh(id) {
-  var d = SH.dist; if (!d) return;
-  var i = (d.whs || []).indexOf(id);
-  if (i >= 0) { if (d.whs.length > 1) d.whs.splice(i, 1); }   // 최소 1개 창고는 켜 둠
-  else d.whs.push(id);
-  renderSheet();
-}
 /* 분산된 원지(같은 원지가 2곳 이상)만. 곳수 많은 순 → 같으면 평균 롤 적은(잘게 쪼개진) 순 (④ 우선순위) */
 function distAll() {
   var m = {};
@@ -1377,7 +1347,6 @@ function distAll() {
   return Object.keys(m).map(function (k) { return m[k]; }).filter(function (e) { return Object.keys(e.locs).length > 1; })
     .sort(function (a, b) { var la = Object.keys(a.locs).length, lb = Object.keys(b.locs).length; return lb - la || (a.qty / la) - (b.qty / lb); });
 }
-function distAllGo(i) { var e = DISTA[i]; if (e) distPop(encodeURIComponent(e.sig)); }
 var DISTA = [];
 /* ② 원지 병합 = 줄 정리: 적게 든 줄부터 비워 다른 줄 빈 자리로 → 줄 수 감소
    입고일 규칙: 자리 여유(운용 중 빈 줄 4줄 이상) → 입고일 같은 줄끼리만 · 자리 부족(빈 줄 3줄 이하) → 입고일 섞어도 됨 */
@@ -1406,21 +1375,33 @@ function mergePlan(recs, mix) {
     emptied: L.filter(function (r) { return r.gone; }).map(function (r) { return r.loc; }),
     rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0) };
 }
-function consolidate(enc) {
-  var sig = decodeURIComponent(enc), sel = (SH && SH.dist && SH.dist.whs) || null;   // 선택된 창고만
-  var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!sel || sel.indexOf(s.wh) >= 0); });
-  if (recs.length < 2) { toast('병합 대상 없음'); return; }
-  var ids = recs.map(function (s) { return String(s.wh); }), empty = 0;
-  S.whs.forEach(function (w) { if (ids.indexOf(String(w.id)) >= 0) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
-  var mix = empty <= 3, P = mergePlan(recs, mix);   // 빈 줄 3줄 이하 = 자리 부족
-  var rule = mix ? '빈 줄 ' + empty + '줄 · 입고일 혼합 허용' : '빈 줄 ' + empty + '줄 · 동일 입고일만 통합';
+/* 병합 계획 (범위 = 창고 id 목록 · 없으면 전체) · sep = 창고마다 따로 (다른 창고로 옮기지 않음)
+   입고일 규칙: 범위 창고의 빈 줄 3줄 이하 = 자리 부족 → 입고일 섞어도 됨 */
+function mergeCalc(sig, whs, sep) {
+  var recs = S.stock.filter(function (s) { return sigOf(s) === sig && (!whs || whs.indexOf(String(s.wh)) >= 0); });
+  var ids = {}; recs.forEach(function (s) { ids[String(s.wh)] = 1; });
+  var empty = 0;
+  S.whs.forEach(function (w) { if (ids[String(w.id)]) (w.zones || []).forEach(function (z) { empty += zoneStat(w, z).empty.length; }); });
+  var mix = empty <= 3, P;
+  if (sep) {
+    P = { moves: [], before: 0, after: 0 };
+    Object.keys(ids).forEach(function (id) {
+      var q = mergePlan(recs.filter(function (s) { return String(s.wh) === id; }), mix);
+      P.moves = P.moves.concat(q.moves); P.before += q.before; P.after += q.after;
+    });
+  } else P = mergePlan(recs, mix);
+  return { recs: recs, P: P, mix: mix, rule: mix ? '빈 줄 ' + empty + '줄 · 입고일 혼합 허용' : '빈 줄 ' + empty + '줄 · 동일 입고일만 통합' };
+}
+function consolidate(enc, whs, sep) {
+  var sig = decodeURIComponent(enc), c = mergeCalc(sig, whs, sep), P = c.P;
+  if (c.recs.length < 2) { toast('병합 대상 없음'); return; }
   if (!P.moves.length) {
-    var P2 = mix ? null : mergePlan(recs, true);
-    ask({ title: '원지 병합', input: false, chips: [], msg: '보관 ' + P.before + '줄 · 감소 불가\n' + rule +
+    var P2 = c.mix ? null : mergePlan(c.recs, true);
+    ask({ title: '원지 병합', input: false, chips: [], msg: '보관 ' + P.before + '줄 · 감소 불가\n' + c.rule +
       (P2 && P2.moves.length ? '\n입고일 혼합 시 ' + P2.before + '줄 → ' + P2.after + '줄 가능' : '') }, function () {});
     return;
   }
-  MJ = { sig: sig, before: P.before, after: P.after, rule: rule, skip: [],
+  MJ = { sig: sig, before: P.before, after: P.after, rule: c.rule + (sep ? ' · 창고마다 따로' : ''), skip: [],
     moves: P.moves.map(function (m) { return { from: m.from, to: m.to, qty: m.qty, mix: m.mix, d: m.d, td: m.td, done: 0, nos: [] }; }) };
   mjSave(); openMerge();
 }
@@ -1445,11 +1426,24 @@ function mjBusy(startNew) {
 function startMerge(enc) {
   var sig = decodeURIComponent(enc);
   if (MJ && MJ.sig === sig) return openMerge();
-  if (MJ && mjLeft()) {
-    mjBusy(function () { consolidate(enc); });
-    return;
-  }
-  consolidate(enc);
+  if (MJ && mjLeft()) { mjBusy(function () { mergeScope(enc); }); return; }
+  mergeScope(enc);
+}
+/* 병합 범위: 한 창고 = 바로 작업 목록 · 여러 창고 = 작은 선택 창 (선택지마다 결과 줄 수 · WMS 재고 통합과 같은 흐름) */
+function mergeScope(enc) {
+  var sig = decodeURIComponent(enc), whQ = {};
+  S.stock.forEach(function (s) { if (sigOf(s) === sig) whQ[String(s.wh)] = (whQ[String(s.wh)] || 0) + s.qty; });
+  var ids = Object.keys(whQ).sort(function (a, b) { return a - b; });
+  if (ids.length < 2) return consolidate(enc);
+  function opt(v, t, c) { var P = c.P, ok = P.moves.length > 0; return { v: v, t: t, tag: ok ? P.before + '줄 → ' + P.after + '줄' : '', sub: ok ? '' : '보관 ' + P.before + '줄 · 감소 불가', off: !ok }; }
+  var ch = [opt('sep', '창고마다 따로', mergeCalc(sig, null, true)), opt('all', '창고 합쳐서 (다른 창고로도 옮김)', mergeCalc(sig, null, false))];
+  ids.forEach(function (id) { var c = mergeCalc(sig, [id], false); var o = opt('w' + id, whName(id) + '만', c); o.sub = (o.sub ? o.sub + ' · ' : '') + c.recs.length + '줄 · ' + whQ[id] + '롤'; ch.push(o); });
+  ask({ title: '병합 범위 · ' + distTitle(sig), list: true, chips: ch }, function (v) {
+    if (!v) return;
+    if (v === 'sep') consolidate(enc, null, true);
+    else if (v === 'all') consolidate(enc, null, false);
+    else consolidate(enc, [v.slice(1)], false);
+  });
 }
 /* 병합 단계 화면: 한 화면 한 건 (출발 → 도착 크게) · 이동 완료 시 재고 반영 후 다음 건 */
 function mjDate(dk) { return String(dk || '').split(',').filter(String).map(function (d) { return d.slice(5); }).join(' · '); }
@@ -1491,6 +1485,15 @@ function sheetMerge() {
   $('detail').innerHTML = h;
 }
 /* 같은 원지(서명 같음)가 있는 다른 위치들 */
+/* 줄 창: 같은 원지의 다른 위치 칩 (누르면 그 줄 · ← 로 이 줄에 복귀) */
+function othLocs(s) {
+  var o = othersOf(s); if (!o.length) return '';
+  var by = {}; o.forEach(function (x) { var y = by[x.loc] || (by[x.loc] = { loc: x.loc, wh: x.wh, qty: 0 }); y.qty += x.qty; });
+  var L = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.loc.localeCompare(b.loc); });
+  var multi = L.some(function (l) { return String(l.wh) !== String(s.wh); });
+  return '<span style="display:block; font-size:13px; font-weight:800; margin-top:4px">타 위치 ' + L.length + '줄 · ' + L.reduce(function (a, l) { return a + l.qty; }, 0) + '롤</span>' +
+    L.map(function (l) { return '<button class="lchip lc" onclick="goLoc(\'' + l.loc + '\', [SH.items[' + SH.items.indexOf(s) + ']])">' + (multi ? '<small>' + esc(whName(l.wh)) + '</small> ' : '') + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>'; }).join('');
+}
 function othersOf(s) { var g = sigOf(s); return S.stock.filter(function (x) { return x.loc !== s.loc && sigOf(x) === g; }); }
 /* B. 여기로 병합: 이 줄을 목적지로 고정 · 적게 든 곳부터 통째로 옮김(줄 수 감소) · 빈 자리 넘으면 거기서 멈춤
    같은 창고 먼저 → 다른 창고 · 작업 목록(MJ)은 원지 병합와 같은 부품 */
@@ -1621,7 +1624,6 @@ function renderSheet() {
   d.style.display = 'block'; $('dim').style.display = 'block'; document.body.classList.add('shopen');
   if (SH.mode === 'cfg') { rowEditor(SH.code); return; }
   if (SH.mode === 'wh') { sheetWh(); return; }
-  if (SH.mode === 'dist') { sheetDist(); return; }
   if (SH.mode === 'merge') { sheetMerge(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
     SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : SH.mode === 'doc' ? sheetDoc() : sheetRow();
@@ -2034,7 +2036,7 @@ function itemBlock(s, i, ri) {
   var hl = SH.hl && SH.hl.some(function (x) { return sameItem(x, s); });   // 위치로 가기: 찾는 품목
   var h = '<div class="it' + (open ? ' open' : '') + (hl ? ' hl' : '') + '"><div class="row"><span>' + (hl ? '<span class="hltag">찾는 품목</span> ' : '') + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
-    '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 타 위치 ' + othersOf(s).length + '줄' : '') + '</span></span>' +
+    '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + '</span>' + othLocs(s) + '</span>' +
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
@@ -3729,19 +3731,36 @@ function drawRep() {
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
   seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
 }
-/* 분산 원지 카드: 곳수·롤수, 조각 많은 건 강조 · 누르면 위치 리스트 + 병합 */
+/* 분산 원지 목록 (기록 > 보고서): 위치 칩(누르면 지도의 그 줄 · ← 로 복귀) · 병합하면 N줄 → M줄 · [병합] 바로 작업 목록
+   병합 효과(줄 감소) 큰 순 · 병합 불가는 아래 흐리게 */
 function distCard() {
-  var A = DISTA = distAll();
+  var A = DISTA = distAll().map(function (e) {
+    var c = mergeCalc(e.sig, null, false), by = {};
+    c.recs.forEach(function (s) { var x = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, items: [] }); x.qty += s.qty; x.items.push(s); });
+    var locs = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.loc.localeCompare(b.loc); });
+    var whs = {}; locs.forEach(function (l) { whs[l.wh] = 1; });
+    return { sig: e.sig, qty: e.qty, n: Object.keys(e.locs).length, locs: locs, multi: Object.keys(whs).length > 1, P: c.P, cut: c.P.moves.length ? c.P.before - c.P.after : 0 };
+  }).sort(function (a, b) { return (b.cut > 0) - (a.cut > 0) || b.cut - a.cut || b.n - a.n; });
   var h = '<div class="card"><div class="row"><b>분산 원지 ' + A.length + '건</b>' +
-    (A.length ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>';
+    (A.length ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>' +
+    (A.length ? '<div class="muted" style="font-size:12px; margin:2px 0 6px">줄 감소 많은 순</div>' : '');
   h += A.length ? A.map(function (e, i) {
-    var c = Object.keys(e.locs).length, frag = e.qty <= c * 2;   // 평균 2롤 이하 = 조각 많음
-    return '<div class="card row" role="button" style="justify-content:flex-start; gap:10px; margin:0 0 6px; padding:8px 10px; cursor:pointer" onclick="distAllGo(' + i + ')">' +
-      '<span class="tag' + (frag ? ' hot' : '') + '"><small>' + c + '줄</small><b>' + e.qty + '롤</b></span>' +
-      '<div style="flex:1; min-width:0; font-weight:700">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</div><span class="muted">›</span></div>';
+    var job = MJ && MJ.sig === e.sig, frag = e.qty <= e.n * 2, enc = encodeURIComponent(e.sig);
+    var chips = e.locs.map(function (l, j) {
+      return '<button class="lchip lc" onclick="distLoc(' + i + ',' + j + ')">' + (e.multi ? '<small>' + esc(whName(l.wh)) + '</small> ' : '') + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>';
+    }).join('');
+    var eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">병합하면 ' + e.P.before + '줄 → ' + e.P.after + '줄 (−' + e.cut + ')</span>'
+      : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">병합 불가 — 빈 자리 부족</span>';
+    var btn = job ? '<button class="btn" style="height:38px; padding:0 12px; flex:none" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
+      : e.cut || e.multi ? '<button class="btn" style="height:38px; padding:0 14px; flex:none; background:var(--ink); color:var(--y)" onclick="startMerge(\'' + enc + '\')">병합 ▸</button>' : '';
+    return '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (e.cut || job || e.multi ? '' : '; opacity:.55') + '">' +
+      '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1; min-width:0">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</b>' +
+      '<span class="muted" style="font-size:13px; white-space:nowrap">' + e.n + '줄 · ' + e.qty + '롤</span></div>' +
+      '<div style="margin:4px 0">' + chips + '</div><div class="row" style="gap:8px">' + eff + btn + '</div></div>';
   }).join('') : '<div class="muted" style="padding:6px 0">분산 원지 없음</div>';
   return h + '</div>';
 }
+function distLoc(i, j) { var e = DISTA[i], l = e && e.locs[j]; if (l) goLoc(l.loc, l.items); }
 function repCsv(key) {
   var names = { io: '입출고_' + RP.from + '_' + RP.to, stock: '재고현황_' + todayStr(), aging: '장기재고_' + todayStr(), adj: '실사조정_' + RP.from + '_' + RP.to, dist: '분산원지_' + todayStr() };
   var rows = repTables()[key];
