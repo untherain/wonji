@@ -1478,10 +1478,9 @@ function sheetMerge() {
   if (!tot) {
     h += '<div class="card" style="margin-top:10px"><b>이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
   } else {
-    h += '<div class="card" style="padding:0; overflow:hidden; margin-top:10px">' +
-      '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + (j.here ? '도착 ' + esc(keyOf(j.here)) : '이동 ' + tot + '건') + '</b>' +
-      '<span style="font-size:12px; color:#C9CDD3">이동 ' + n + '/' + tot + ' 완료</span></div>' +
-      j.moves.map(function (m, i) {
+    h += grpCard({ title: j.here ? '도착 ' + esc(keyOf(j.here)) : '이동 ' + tot + '건', sub: '이동 ' + n + '/' + tot + ' 완료',
+      foot: n === tot ? '<b style="color:#1E5A33">전체 이동 완료</b>' : '',
+      rows: j.moves.map(function (m, i) {
         var body = '<div class="row"><b style="font-size:16px; white-space:nowrap">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b><b style="white-space:nowrap; flex:none">' + m.qty + '롤</b></div>' +
           (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
           (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '') +
@@ -1490,8 +1489,7 @@ function sheetMerge() {
           ? '<button class="btn2" style="height:40px; padding:0 10px; color:#9A1C1C; border-color:#9A1C1C" onclick="mjUndo(' + i + ')">이동 취소</button>'
           : '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjDone(' + i + ')">이동 완료</button>';
         return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : '#fff', body: body, side: side });
-      }).join('') +
-      (n === tot ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB; font-weight:900; color:#1E5A33">전체 이동 완료</div>' : '') + '</div>';
+      }).join('') });
   }
   if (j.skip && j.skip.length) h += '<div class="card" style="padding:8px 12px; margin:8px 0 0"><b>이동 불가 (자리 부족)</b><div class="muted">' +
     j.skip.map(function (x) { return esc(keyOf(x.loc)) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></div>';
@@ -3996,9 +3994,7 @@ function renderPlan() {
   LINES.forEach(function (line) {
     var its = PL.items.filter(function (it) { return it.line === line; }).sort(function (a, b) { return a.planNo - b.planNo; });
     if (!its.length) return;
-    h += '<div class="card" style="padding:0; overflow:hidden"><div style="background:var(--ink); color:#fff; padding:6px 12px; font-weight:900">' + line +
-      (line === '기타' ? ' <span style="font-weight:500; font-size:12px; color:#C9CDD3">인쇄기 · 스리터 등 — 피킹 제외</span>' : '') + '</div>' +
-      its.map(planRow).join('') + '</div>';
+    h += grpCard({ mt: 0, title: line, sub: line === '기타' ? '인쇄기 · 스리터 등 — 피킹 제외' : '', rows: its.map(planRow).join('') });
   });
   if (!PL.items.length) h += '<div class="card muted">계획 품목 없음</div>';
   if (PL.raw) h += '<details style="margin-top:6px"><summary class="muted">인식 원문</summary>' +
@@ -4249,13 +4245,12 @@ function renderPick(el) {
     if (!its.length) return;
     var pend = its.filter(function (it) { return !PL.done[it.id]; });
     var pickedN = pend.filter(function (it) { return PL.picked[it.id]; }).length;
-    h += '<div class="card" id="pk-' + line + '" style="padding:0; overflow:hidden; margin-top:10px">' +
-      '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + line + (PL.date && line === LINES.filter(function (l) { return PL.items.some(function (it) { return it.line === l; }); })[0] ? ' <span style="font-weight:500; font-size:13px; color:#C9CDD3">· ' + esc(PL.date) + '</span>' : '') + '</b>' +
-      '<span style="font-size:12px; color:#C9CDD3">적치 ' + its.map(function (it) { return it.planNo; }).join('→') + '</span></div>' +
-      its.map(function (it, k) { return pickRow(it, k + 1, A[it.id]); }).join('') +
-      (pend.length ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB"><button class="btn" style="height:48px; font-size:16px" onclick="confirmLine(\'' + line + '\')">' +
-        line + ' 출고 확정</button></div>' : '<div class="muted" style="padding:8px 12px">출고 확정 완료</div>') +
-      '</div>';
+    h += grpCard({ id: 'pk-' + line,
+      title: line + (PL.date && line === LINES.filter(function (l) { return PL.items.some(function (it) { return it.line === l; }); })[0] ? ' <span style="font-weight:500; font-size:13px; color:#C9CDD3">· ' + esc(PL.date) + '</span>' : ''),
+      sub: '적치 ' + its.map(function (it) { return it.planNo; }).join('→'),
+      rows: its.map(function (it, k) { return pickRow(it, k + 1, A[it.id]); }).join(''),
+      foot: pend.length ? '<button class="btn" style="height:48px; font-size:16px" onclick="confirmLine(\'' + line + '\')">' + line + ' 출고 확정</button>'
+        : '<span class="muted">출고 확정 완료</span>' });
   });
   el.innerHTML = h;
 }
@@ -4268,6 +4263,14 @@ function statTiles(t) {
       '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, x.pct || 0)) + '%"></i></div>' +
       (x.sub ? '<div class="muted" style="font-size:11px">' + esc(x.sub) + '</div>' : '') + '</div>';
   }).join('') + '</div>';
+}
+/* 공통 묶음 카드: 검은 머리줄(제목 · 오른쪽 보조 글) + 행들(seqRow 등) + 아래 칸(선택) — 병합 작업 목록 · 피킹 호기 · 계획 호기
+   o = { title, sub, rows, foot, id, mt(위 여백 · 기본 10) } — title · sub · foot 은 HTML (esc 는 부르는 쪽) */
+function grpCard(o) {
+  return '<div class="card"' + (o.id ? ' id="' + o.id + '"' : '') + ' style="padding:0; overflow:hidden; margin-top:' + (o.mt == null ? 10 : o.mt) + 'px">' +
+    '<div class="row" style="background:var(--ink); color:#fff; padding:8px 12px"><b style="font-size:16px">' + o.title + '</b>' +
+    (o.sub ? '<span style="font-size:12px; color:#C9CDD3">' + o.sub + '</span>' : '') + '</div>' +
+    (o.rows || '') + (o.foot ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB">' + o.foot + '</div>' : '') + '</div>';
 }
 /* 공통 번호 행: 왼쪽 번호 원(완료 = 초록 · 체크 = 초록 ✓) + 보조 라벨 · 가운데 내용 · 오른쪽(선택)
    o.tap = 줄 누름 동작 (접기 칸 누름은 제외) · o.check = 체크됨 · o.off = 누를 수 없음 */
