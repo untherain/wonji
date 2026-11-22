@@ -14,19 +14,24 @@
   var BASE = window.API_BASE || 'https://script.google.com/macros/s/';
   function fail(cb, msg) { if (cb) cb(new Error(msg)); }
   var needReload = false;
+  function isRead(fn) { return /^(get|loginNames$)/.test(fn); }
+  // 구글이 가끔 응답 없이 붙잡고 있음 → 읽기 요청은 12초 응답 없으면 같은 요청 하나 더 · 먼저 온 응답 사용
+  // (끊지 않음: 느린 폰 · 서버 깨어나는 중이어도 원래 요청은 끝까지 기다림)
+  function hedge(fn, args, ok, bad) {
+    var done = false, pend = 1;
+    var tm = setTimeout(function () { if (!done) { pend++; post(fn, args, o, b); } }, 12000);
+    function o(v) { if (done) return; done = true; clearTimeout(tm); if (ok) ok(v); }
+    function b(e) { if (done || --pend > 0) return; done = true; clearTimeout(tm); if (bad) bad(e); }
+    post(fn, args, o, b);
+  }
   function post(fn, args, ok, bad, again) {
     if (!API) return fail(bad, '앱 주소에 접속 키 없음 — 처음 받은 링크로 열기');
     // 구글이 가끔 JSON 대신 오류 화면을 줌 → 읽기 요청만 한 번 더 (저장은 중복 위험이 있어 다시 보내지 않음)
-    var read = /^(get|loginNames$)/.test(fn);
-    var retry = !again && read ? function () { post(fn, args, ok, bad, true); } : null;
+    var retry = !again && isRead(fn) ? function () { post(fn, args, ok, bad, true); } : null;
     var token = typeof tok === 'function' ? tok() : '';
-    // 구글이 가끔 응답 없이 붙잡고 있음 → 읽기 요청은 25초 넘으면 끊고 다시 (화면이 「처리 중」에 멈추지 않게)
-    var ctl = read && window.AbortController ? new AbortController() : null;
-    var tm = ctl ? setTimeout(function () { ctl.abort(); }, 25000) : null;
-    fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow', signal: ctl ? ctl.signal : undefined,
+    fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token }) })
       .then(function (r) { if (!r.ok) throw new Error('서버 응답 ' + r.status); return r.json(); })
-      .then(function (j) { clearTimeout(tm); return j; }, function (e) { clearTimeout(tm); throw e; })
       .catch(function (e) { if (retry) { retry(); retry = null; return new Promise(function () {}); } throw e; })
       .then(function (j) {
         if (!j.ok) {
@@ -60,7 +65,7 @@
     return new Proxy({}, { get: function (o, k) {
       if (k === 'withSuccessHandler') return function (f) { return runner(f, bad); };
       if (k === 'withFailureHandler') return function (f) { return runner(ok, f); };
-      return function () { post(k, [].slice.call(arguments), ok, bad); };
+      return function () { (isRead(k) ? hedge : post)(k, [].slice.call(arguments), ok, bad); };
     } });
   }
   window.google = { script: { run: runner(null, null), history: { replace: function (s, o) {
