@@ -183,6 +183,14 @@
   .cell .sl { display:flex; justify-content:space-between; gap:4px; font-size:12px; font-weight:700; color:#3E444B; white-space:nowrap; line-height:1.35; }
   .cell .sl span:first-child { overflow:hidden; text-overflow:ellipsis; }
   .cell .sl span:last-child { flex:none; font-weight:500; color:#6B7178; }
+  /* 이름(줄어듦) · 규격(고정) · 롤 수(고정) — 폭 좁으면 이름만 2·3단계로 줄임, 그래도 넘치면 이름만 … */
+  .cell .sl .mkc { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:900; color:var(--ink); margin-right:3px; }
+  .cell .sl .mkc.none { display:none; }
+  .cell .sl .mkc i { font-style:normal; }
+  .cell .sl .sp { flex:none; margin-right:auto; }
+  .cell .sl .m2, .cell .sl .m3, .cell.lv2 .sl .m1, .cell.lv3 .sl .m1, .cell.lv3 .sl .m2 { display:none; }
+  .cell.lv2 .sl .m2, .cell.lv3 .sl .m3 { display:inline; }
+  .cell .sl.shit .mkc { color:inherit; }
   /* 검색: 걸린 규격만 또렷하게 (셀은 노랑, 그 안에서 맞는 규격 강조 · 나머지 흐리게) */
   .cell .sl.shit { background:var(--ink); color:#fff; font-weight:900; border-radius:5px; padding:1px 5px; margin:0 -3px; }
   .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
@@ -1101,10 +1109,11 @@ function renderMap() {
       });
       var sk = Object.keys(byS).sort(function (a, b) { return byS[b].q - byS[a].q; });
       var anyHit = sk.some(function (k) { return byS[k].hit; });   // 걸린 규격이 있으면 나머지는 흐리게
+      var mkv = mkVariants(sk.map(function (k) { return byS[k].mk; }));   // 폭 좁을 때 이름 줄이기 (규격은 그대로)
       var specs = sk.map(function (k) {
         var x = byS[k];
         var q = (!MV && !ST && (DISTCNT[x.sig] || 1) > 1) ? '<span class="distb" title="여러 위치에 분산">' + x.q + '롤</span>' : x.q + '롤';
-        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '"><span>' + mkTag(x.mk) + x.sp + '</span><span>' + q + '</span></div>';
+        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '">' + mkCellTag(x.mk, mkv) + '<span class="sp">' + x.sp + '</span><span>' + q + '</span></div>';
       }).join('');
       var pct = ri.slots ? Math.min(100, Math.round(ri.used / ri.slots * 100)) : 0;
       var tag = ri.cfg.use && ri.cfg.use !== '원지' ? '<span class="utag">' + esc(ri.cfg.use) + '</span>' : '';
@@ -1182,6 +1191,7 @@ function renderMap() {
   });
   html += '<div class="mainent" data-lp="whs:' + w.id + ':zone">▲ 주 출입구</div>';   // 지도 = 주 출입구(상차 공간)에서 들어가며 본 평면도 · 주 출입구 항상 아래
   $('m-body').innerHTML = html;
+  fitCells($('m-body'));
   // 창고를 처음 보여 줄 때(앱 시작 · 창고 변경): 주 출입구(아래)에 맞춰 시작 · 다시 그릴 때는 현재 위치 유지
   if (renderMap.shownWh !== M.wh && !(fo && fh.length)) {
     var ent = $('m-body').querySelector('.mainent');
@@ -2865,6 +2875,55 @@ function makersOf(s) { return s.makers && s.makers.length ? s.makers : [{ maker:
 function mkTag(m) {
   var t = makerShort(m);
   return '<span class="mk' + (t ? '' : ' none') + '" title="' + esc(m || '제지사 없음') + '">' + (t ? esc(t) : '–') + '</span>';
+}
+/* 지도 줄 칸: 폭이 좁으면 규격 대신 이름을 줄임 — 1 전체 · 2 괄호 속 제지사 뺌(같은 칸에 겹치면 첫 글자) · 3 앞 글자 + 영문/숫자
+   예: 단무(무림) → 단무·무 → 단·무 / 단무FSC → 단무FSC → 단FSC / 단무(20) → 단무20 → 단20 / 한솔제지 → 한솔제지 → 한솔 */
+function mkVariants(makers) {
+  var HG = /[가-힣]/;
+  function parts(m) {
+    var t = makerShort(m), r = /^(.*?)\s*\(([^)]*)\)\s*$/.exec(t);
+    return { t: t, b: r ? r[1] : t, p: r ? r[2].trim() : '' };
+  }
+  function tail(x, dup) { return !x.p ? '' : HG.test(x.p) ? (dup ? '·' + x.p.charAt(0) : '') : x.p; }
+  function l3base(b, tl) {
+    if (!HG.test(b)) return b.slice(0, 3);
+    if (/^[가-힣]+$/.test(b)) return b.slice(0, tl ? 1 : 2);   // 한글만: 앞 2자 (한솔제지 → 한솔) · 뒤에 붙는 글자 있으면 1자 (단·무)
+    return (b.match(HG) || [''])[0] + b.replace(/[가-힣\s]/g, '');
+  }
+  var uniq = makers.filter(function (m, i) { return makers.indexOf(m) === i; }), ps = {}, out = {};
+  uniq.forEach(function (m) { ps[m] = parts(m); });
+  function cnt(f) { var c = {}; uniq.forEach(function (m) { var k = f(ps[m]); c[k] = (c[k] || 0) + 1; }); return c; }
+  var c2 = cnt(function (x) { return x.b + tail(x, false); });
+  uniq.forEach(function (m) { var x = ps[m]; x.l2 = x.b + tail(x, c2[x.b + tail(x, false)] > 1); });
+  function l3of(x) { var tl = tail(x, c2[x.b + tail(x, false)] > 1); return l3base(x.b, tl) + tl; }
+  var c3 = cnt(l3of);
+  uniq.forEach(function (m) {
+    var x = ps[m], l3 = l3of(x);
+    out[m] = { a: x.t, b: x.l2, c: c3[l3] > 1 ? x.l2 : l3 };   // 3단계에서 겹치면 2단계 이름 유지
+  });
+  return out;
+}
+function mkCellTag(m, v) {
+  var x = v[m], t = x && x.a;
+  if (!t) return '<span class="mkc none"></span>';
+  return '<span class="mkc" title="' + esc(m) + '"><i class="m1">' + esc(x.a) + '</i><i class="m2">' + esc(x.b) + '</i><i class="m3">' + esc(x.c) + '</i></span>';
+}
+/* 칸마다 이름이 넘치면 한 단계씩 줄임 (칸 안 모든 줄이 같은 단계 · 3단계도 넘치면 이름만 …) */
+function fitCells(root) {
+  if (!root || !root.offsetWidth) return;
+  var cells = [].slice.call(root.querySelectorAll('.cell'));
+  cells.forEach(function (c) { c.classList.remove('lv2', 'lv3'); });
+  function over(c) { return [].some.call(c.querySelectorAll('.mkc'), function (e) { return e.scrollWidth > e.clientWidth + 0.5; }); }
+  ['lv2', 'lv3'].forEach(function (lv, i) {
+    var tight = cells.filter(over);   // 먼저 모두 재고 → 한꺼번에 바꿈 (화면 다시 계산 최소화)
+    tight.forEach(function (c) { if (i) c.classList.remove('lv2'); c.classList.add(lv); });
+    cells = tight;
+  });
+  if (!fitCells.ro && window.ResizeObserver) {   // 폭 바뀜 · 탭 전환으로 처음 보일 때 다시 맞춤
+    var lastW = 0;
+    fitCells.ro = new ResizeObserver(function () { var w = root.offsetWidth; if (w && w !== lastW) { lastW = w; fitCells(root); } });
+    fitCells.ro.observe(root);
+  }
 }
 function mkTags(s) { return makersOf(s).map(function (m) { return mkTag(m.maker); }).join(''); }
 /* 제지사 이름: 하나면 이름, 여러 개면 "한국제지 4 · 무림 2롤" */
