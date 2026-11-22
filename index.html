@@ -287,6 +287,8 @@
   .sheet { overscroll-behavior:contain; }
   .sheet .it { padding:10px 0; border-bottom:1px solid #E6E8EB; }
   .sheet .it.open { background:#FFF8E1; margin:0 -16px; padding:10px 16px; }
+  .sheet .it.hl { background:#FFF8E1; margin:0 -16px; padding:10px 16px 10px 12px; border-left:4px solid var(--y); }
+  .hltag { display:inline-block; background:var(--y); color:var(--ink); font-size:11px; font-weight:900; padding:1px 6px; border-radius:6px; vertical-align:2px; }
   .sheet .sp { font-size:18px; }
   /* 적재순서 */
   .stkno { display:inline-block; min-width:20px; height:20px; line-height:20px; text-align:center; border-radius:5px; background:var(--ink); color:#fff; font-size:12px; font-weight:900; vertical-align:2px; }
@@ -953,7 +955,7 @@ function scanQR(cb) {
 
 /* ===== 탭 ===== */
 function show(t) {
-  TAB = t;
+  TAB = t; SHRET = null;
   ['map', 'in', 'plan', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
   $('title').textContent = TITLES[t];
@@ -972,16 +974,6 @@ new MutationObserver(function () { hdrFit(); }).observe($('hdrExtra'), { childLi
 new MutationObserver(function () { hdrFit(); }).observe($('hdrSrch'), { childList: true });
 $('i-step').outerHTML = stepper(1, 'I.qty=Math.max(1,I.qty-1);renderIn()', 'I.qty++;renderIn()', '롤 수', 'i-qty');
 
-/* ===== 1. 재고(지도) 작업 열기 — 검색 결과 줄에서 바로 출고 · 이동 · 실사 ===== */
-function actOn(mode, s) {
-  if (!s) return;
-  show('map'); M.wh = s.wh; renderMap();
-  openRow(s.loc);
-  var i = SH.items.map(function (x) { return sameItem(x, s); }).indexOf(true);
-  if (mode === '실사') shMode('cnt');
-  else if (i >= 0 && mode === '이동') startMove(i);
-  else if (i >= 0) openOut(i);
-}
 
 /* ===== 적재 계산: 줄 = 칸 여러 개, 칸 하나에 한 규격, 지폭별 최대 적재 단수 (줄 개별 설정 반영) ===== */
 function whOf(code) { var id = String(code || '').split('-')[0]; return S.whs.filter(function (x) { return String(x.id) === id; })[0]; }
@@ -1292,7 +1284,6 @@ function saveRowEditor(code) {
     call('saveRowConfig', code, cfg, pin).then(function (whs) { S.whs = whs; toast(locLabel(code) + ' 설정 저장됨'); renderMap(); showDetail(code); });
   });
 }
-function goIn(code) { I.loc = code; show('in'); }
 function searchBar() {
   if (!fOn()) return '<button class="srch" onclick="openFilter()">🔍 검색 (규격 · 제지사 · 문구)</button>';
   var fh = fHits(), hits = fh.list, locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
@@ -1591,8 +1582,9 @@ function openRow(code, mode) {
 }
 function showDetail(code) { openRow(code); }
 /* 배경 클릭으로 시트 닫기 — 입력 중(입고·실사·줄설정·창고설정·적재순서)만 실수 방지로 예외(✕/← 로 닫기) */
-function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan'].indexOf(SH.mode) >= 0)) return; closeSheet(); }
+function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan'].indexOf(SH.mode) >= 0)) return; shClose(); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
+  SHRET = null;   // 돌아갈 곳은 shClose(✕ · 바깥 누름)만 씀 · 작업 중 닫힘(이동 시작 등)은 버림
   var wasFilter = SH && SH.mode === 'filter', wasPlan = SH && SH.mode === 'plan';
   document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none';
   if (wasPlan && TAB === 'plan') renderPlan();   // 계획 품목 창 닫음 → 목록 표시(노란 줄) 원래대로 · 스크롤 위치 그대로
@@ -1617,7 +1609,7 @@ function shQty(d) {
   SH.qty = Math.max(1, Math.min(max, SH.qty + d)); renderSheet();
 }
 function shHead(title, sub, back, sum, box) {
-  return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'closeSheet()') + '">' + (back ? '←' : '✕') + '</button></div>' +
+  return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : SHRET ? '원래 창으로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'shClose()') + '">' + (back || SHRET ? '←' : '✕') + '</button></div>' +
     (box || '') + (sub ? '<div class="muted" style="padding:2px 0 0">' + sub + '</div>' : '') + '</div>';
 }
 function renderSheet() {
@@ -1983,7 +1975,8 @@ function itemBlock(s, i, ri) {
   var open = SH.mode === 'out' && sameItem(SH.it, s);
   var badge = n > 1 ? '<b class="stkno" title="적재 순서 (1=맨 위)">' + (i + 1) + '</b> ' : '';
   var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 먼저 출고</span>' : '';
-  var h = '<div class="it' + (open ? ' open' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
+  var hl = SH.hl && SH.hl.some(function (x) { return sameItem(x, s); });   // 위치로 가기: 찾는 품목
+  var h = '<div class="it' + (open ? ' open' : '') + (hl ? ' hl' : '') + '"><div class="row"><span>' + (hl ? '<span class="hltag">찾는 품목</span> ' : '') + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
     '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + (othersOf(s).length ? ' · 타 위치 ' + othersOf(s).length + '줄' : '') + '</span></span>' +
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
@@ -2509,7 +2502,27 @@ function fLocList(hits, force, dim) {
       '<div class="muted" style="font-size:12px">입고 ' + esc(g.date) + (i ? '' : ' · 선입선출 1순위') + (full ? ' · 빈 자리 없음' : '') + '</div></div><span class="muted">›</span></div>';
   }).join('');
 }
-function fGo(i) { var g = FLOCS[i]; if (!g) return; if (TAB !== 'map') show('map'); M.wh = g.wh; renderMap(); openRow(g.loc); }   // 다른 탭(피킹 대체 목록 등)에서 눌러도 지도로
+function fGo(i) { var g = FLOCS[i]; if (g) goLoc(g.loc, g.items); }
+/* ===== 공통 부품: 위치로 가기 — 다른 창 · 탭에서 지도의 그 줄을 열고 찾는 품목 강조 · [←] = 원래 창으로 돌아감
+   (검색 결과 · 타 위치 목록 · 피킹 대체 · 기준정보 사용 기록)  reopen = 원래 창을 다시 여는 함수 (작업창이 아닌 팝업일 때) ===== */
+var SHRET = null;   // 돌아갈 곳 { tab, y, sh, ds, reopen } — 다른 탭으로 가거나 창이 바뀌어 닫히면 지움
+function goLoc(loc, items, reopen) {
+  var ret = { tab: TAB, y: window.scrollY, sh: SH, ds: SH ? $('detail').scrollTop : 0, reopen: reopen || null };
+  if (TAB !== 'map') show('map');
+  var w = whOf(loc); if (w) M.wh = w.id;
+  renderMap(); openRow(loc);
+  SHRET = ret; SH.hl = (items || []).slice(); renderSheet();
+  var el = document.querySelector('#detail .it.hl'); if (el) el.scrollIntoView({ block: 'center' });
+}
+/* 창 닫기(✕ · 바깥 누름): 위치로 가기로 왔으면 원래 탭 · 스크롤 · 창으로 */
+function shClose() {
+  var r = SHRET; closeSheet();
+  if (!r) return;
+  if (TAB !== r.tab) show(r.tab);
+  window.scrollTo(0, r.y);
+  if (r.sh) { SH = r.sh; renderSheet(); $('detail').scrollTop = r.ds; }
+  else if (r.reopen) r.reopen();
+}
 /* 지도 검색창: 검색과 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
 function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
 function sheetFilter() {
@@ -4684,10 +4697,10 @@ function qeSeeUse(v, kind) {
   var st = kind === '지종' ? S.stock.filter(function (s) { return s.grade === v; })
     : kind === '제지사' ? S.stock.filter(function (s) { return makersOf(s).some(function (m) { return m.maker === v; }); }) : [];
   call('quickUsageHist', kind, v, 50).then(function (hs) {
-    var ch = st.map(function (s) { return { v: 's:' + s.loc, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 누르면 지도에서 열기' }; })
+    var ch = st.map(function (s, i) { return { v: 's:' + i, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 누르면 지도에서 열기' }; })
       .concat(hs.map(function (h) { return { v: '', t: '#' + h.no + ' ' + h.type + ' · ' + fmtItem({ maker: kind === '제지사' ? v : '', nomk: kind !== '제지사', gsm: h.gsm, width: h.width }, h.qty), sub: h.time + ' · ' + h.loc + (h.target ? ' · ' + h.target : '') }; }));
     ask({ title: '"' + v + '" 사용 중인 기록', msg: ch.length ? '' : '기록 없음', input: false, list: true, chips: ch, ok: '닫기' }, function (x) {
-      if (x && /^s:/.test(x)) { var loc = x.slice(2); show('map'); M.wh = whOf(loc).id; renderMap(); openRow(loc); }
+      if (x && /^s:/.test(x)) { var s = st[+x.slice(2)]; if (s) goLoc(s.loc, [s], function () { qeSeeUse(v, kind); }); }
     });
   });
 }
