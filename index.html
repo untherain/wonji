@@ -33,7 +33,7 @@
     tms.push(setTimeout(function () { if (!done) { stop(); if (bad) bad(new Error(c.msg)); } }, c.all));
     function stop() { done = true; tms.forEach(clearTimeout); if (read) ctl.forEach(function (a) { try { a && a(); } catch (e) {} }); }   // 읽기: 남은 요청 끊음
     function o(v) { if (done) return; stop(); if (ok) ok(v); }
-    function b(e) { if (done || --pend > 0) return; stop(); if (bad) bad(e); }
+    function b(e) { if (done) return; if (--pend > 0 && !(e && e.final)) return; stop(); if (bad) bad(e); }
     ctl.push(post(fn, args, o, b, false, rid, c.each));
   }
   // 요청 하나: each ms 안에 응답 없으면 끊음 · 끊는 함수를 돌려줌
@@ -52,7 +52,8 @@
       .then(function (j) {
         if (!j.ok) {
           if (/^로그인 필요/.test(j.err || '')) askLogin(fn);
-          return fail(bad, j.err || '서버 오류');
+          var er = new Error(j.err || '서버 오류'); er.final = true;   // 서버가 답한 오류 = 다시 보내도 같음 → 바로 끝냄
+          return bad && bad(er);
         }
         var v = j.v;
         if (v && typeof v === 'object' && 'appUrl' in v) v.appUrl = reloadUrl();   // [새 버전] = 이 화면 다시 열기
