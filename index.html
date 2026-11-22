@@ -409,6 +409,7 @@
   .shfoot .stepper { gap:6px; } .shfoot .stepper button { width:44px; height:50px; font-size:22px; } .shfoot .stepper span { font-size:24px; min-width:34px; }
   .shfoot .okline { margin:0 0 6px; } .shfoot .warnbox { margin:0 0 8px; }
   /* 기존 요소 위 작은 표시 (따로 줄 · 띠를 쓰지 않음) */
+  .stepper button.off { opacity:.3; } .mxb.over { background:#9A1C1C; } .mxb[data-lp] { pointer-events:auto; }
   .stw { position:relative; flex:none; } .mxb { position:absolute; top:-9px; right:-6px; background:var(--ok); color:#fff; font-style:normal; font-size:11px; font-weight:900; padding:1px 6px; border-radius:9px; white-space:nowrap; pointer-events:none; }
   header h1 { display:inline-block; vertical-align:middle; } #testBar { vertical-align:middle; margin-left:8px; background:#E8590C; color:#fff; font-size:12px; font-weight:900; padding:3px 9px; border-radius:10px; cursor:pointer; }
   .okline { color:var(--ok); font-weight:700; font-size:13px; margin-top:8px; }
@@ -864,9 +865,14 @@ function seg(el, items, cur, onPick, dark) {
   });
 }
 /* 공통 부품: 수량 − 값 + (minus/plus = onclick 코드) */
-function stepper(val, minus, plus, label, id) {
-  return '<div class="stepper"><button onclick="' + minus + '" aria-label="' + label + ' 줄이기">−</button><span' + (id ? ' id="' + id + '"' : '') + '>' + val + '</span>' +
-    '<button class="plus" onclick="' + plus + '" aria-label="' + label + ' 늘리기">+</button></div>';
+/* 공통 수량 ± · o.max = 상한 (도달 시 [+] 흐림 · 누르면 각 동작이 「최대」 안내 · 모서리 「최대 n」 · 넘으면 빨강) · o.lp = 「최대」 길게 누르기 (예: 'row:<줄>' = 그 줄 설정) */
+function stepper(val, minus, plus, label, id, o) {
+  o = o || {};
+  var mx = o.max != null, full = mx && +val >= o.max;
+  var s = '<div class="stepper"><button onclick="' + minus + '" aria-label="' + label + ' 줄이기">−</button><span' + (id ? ' id="' + id + '"' : '') + '>' + val + '</span>' +
+    '<button class="plus' + (full ? ' off' : '') + '" onclick="' + plus + '" aria-label="' + label + ' 늘리기">+</button></div>';
+  if (!mx) return s;
+  return '<div class="stw">' + s + '<i class="mxb' + (+val > o.max ? ' over' : '') + '"' + (o.lp ? ' data-lp="' + o.lp + '"' : '') + '>최대 ' + o.max + '</i></div>';
 }
 /* 선택 버튼 묶음. auto = 자동 추가 값 (점선, 기준정보 값 뒤)
    withEtc = [+ 입력]: 종류 이름('평량' · '폭' · '출고처' 등)이면 바로 등록 후 선택, true면 숫자만 받아 선택 */
@@ -975,7 +981,7 @@ function show(t) {
 ['i-kind', 'p-seg', 'l-seg', 'set-seg'].forEach(function (id) { $('hdrTab').appendChild($(id)); });
 new MutationObserver(function () { hdrFit(); }).observe($('hdrExtra'), { childList: true });
 new MutationObserver(function () { hdrFit(); }).observe($('hdrSrch'), { childList: true });
-$('i-step').outerHTML = stepper(1, 'I.qty=Math.max(1,I.qty-1);renderIn()', 'I.qty++;renderIn()', '롤 수', 'i-qty');
+$('i-step').outerHTML = stepper(1, 'inQty(-1)', 'inQty(1)', '롤 수', 'i-qty');
 
 
 /* ===== 적재 계산: 줄 = 칸 여러 개, 칸 하나에 한 규격, 지폭별 최대 적재 단수 (줄 개별 설정 반영) ===== */
@@ -1327,7 +1333,7 @@ function goNextRow() {
 function moveBand() {
   var s = MV.item;
   return '<div class="band"><div class="row"><b>이동 · ' + esc(keyOf(MV.from)) + ' · ' + esc(fmtItem(s)) + '</b><button class="btn2" style="height:34px; flex:none" onclick="cancelMove()">취소</button></div>' +
-    '<div class="row" style="margin-top:6px"><span style="font-weight:700">롤 수 <small>(최대 ' + s.qty + ')</small></span>' + stepper(MV.qty, 'mvQty(-1)', 'mvQty(1)', '이동 롤 수') + '</div>' +
+    '<div class="row" style="margin-top:6px"><span style="font-weight:700">롤 수</span>' + stepper(MV.qty, 'mvQty(-1)', 'mvQty(1)', '이동 롤 수', '', { max: s.qty }) + '</div>' +
     '<div style="font-size:13px; font-weight:700; margin-top:4px">도착 줄 누르면 저장 · 다른 창고는 위에서 선택</div></div>';
 }
 
@@ -1622,8 +1628,9 @@ function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비�
 function shBack() { if (SH.mode === 'doc') { SH.sel = null; return renderSheet(); }   // 문서 목록: 규격 위치 → 목록
   SH.mode = SH.mode === 'add' ? 'cnt' : ''; SH.it = null; renderSheet(); }
 function shQty(d) {
-  var max = SH.mode === 'out' && SH.it ? SH.it.qty : 999; if (SH.ocr) delete SH.ocr.qty;
-  SH.qty = Math.max(1, Math.min(max, SH.qty + d)); renderSheet();
+  var max = SH.mode === 'out' && SH.it ? SH.it.qty : SH.qmax != null ? Math.max(SH.qmax, 1) : 999; if (SH.ocr) delete SH.ocr.qty;
+  if (d > 0 && SH.qty >= max) { toast('최대 ' + max + '롤', true); return; }
+  SH.qty = Math.max(1, Math.min(Math.max(max, SH.qty), SH.qty + d)); renderSheet();
 }
 function shHead(title, sub, back, sum, box) {
   return '<div class="shtop"><div class="row" style="align-items:flex-start"><span class="ttl">' + title + (sum ? ' ' + sum : '') + '</span><button class="btn2 xb" aria-label="' + (back ? '뒤로' : SHST.length ? '이전 창으로' : '닫기') + '" onclick="' + (back ? 'shBack()' : 'shClose()') + '">' + (back || SHST.length ? '←' : '✕') + '</button></div>' +
@@ -2063,7 +2070,7 @@ function itemBlock(s, i, ri) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
     var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 적재 · 먼저 이동 필요</div>' : '';
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
-    h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수') +
+    h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수', '', { max: s.qty }) +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
       '<div class="muted" style="margin:10px 0 6px; font-weight:700">출고처 — 누르면 저장</div>' +
       '<div class="cgf">' +
@@ -2153,7 +2160,7 @@ function pickMaker(i) { assignMaker(SH.items[i], SH.items[i].loc); }
 
 /* --- 이동: 작업창 접고 지도에서 도착 줄 누름 --- */
 function startMove(i) { var s = SH.items[i]; MV = { from: s.loc, item: s, qty: 1 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
-function mvQty(d) { MV.qty = Math.max(1, Math.min(MV.item.qty, MV.qty + d)); renderMap(); }
+function mvQty(d) { if (d > 0 && MV.qty >= MV.item.qty) { toast('최대 ' + MV.item.qty + '롤', true); return; } MV.qty = Math.max(1, Math.min(MV.item.qty, MV.qty + d)); renderMap(); }
 function cancelMove() { var c = MV.from; MV = null; M.wh = whOf(c).id; renderMap(); openRow(c); }
 function moveTo(code) {
   var s = MV.item, q = MV.qty, from = MV.from;
@@ -2443,22 +2450,23 @@ function shClear() { var sp = SH.sp; sp.gsm = sp.width = null; sp.maker = ''; sp
 function sheetIn() {
   var code = SH.code, sp = SH.sp, ready = sp.gsm && sp.width, bad = false;
   var h = shHead(esc(keyOf(code)) + ' ' + (SH.rem ? '반납' : '입고'), '', true, '', shBox());
+  SH.qmax = null;
   if (SH.cont) {   // 연속 입고: 저장 뒤에도 규격 유지 → 같은 줄 다른 규격 / 다음 줄
     var nx = nextRow(code);
     h += '<div class="grid2" style="margin:8px 0 4px"><button class="btn2" onclick="newSpec()">다른 규격</button>' +
       (nx ? '<button class="btn2 dk" onclick="goNextRow()">다음 줄 ' + esc(keyOf(nx)) + ' →</button>' : '<button class="btn2" disabled style="opacity:.45">구역 끝</button>') + '</div>';
   }
   h += photoBar('shPhoto', phNote('')) + pickerHtml(true);
-  var f = '', maxB = '';
+  var f = '', qmax = null;
   if (ready) {
-    var free = freeFor(code, sp.gsm, sp.width, sp.grade || '');
+    var free = SH.qmax = qmax = freeFor(code, sp.gsm, sp.width, sp.grade || '');
     var sameHere = rowInfo(code).items.some(function (s) { return s.gsm == sp.gsm && s.width == sp.width; });
     if (SH.qty > free) {
       bad = true;
       var sug = suggestFor(sp, SH.qty, code);
       f += '<div class="warnbox"><b>공간 부족 — 최대 ' + free + '롤</b>' + (sug ? '<div class="row" style="margin-top:6px"><span>추천: <b>' + esc(locLabel(sug)) + '</b> (' +
         freeFor(sug, sp.gsm, sp.width, sp.grade || '') + '롤 가능)</span><button class="btn2" style="height:38px; flex:none" onclick="SH.code=\'' + sug + '\';M.wh=whOf(\'' + sug + '\').id;renderMap();renderSheet()">' + keyOf(sug) + '로</button></div>' : '<div>빈 줄 없음</div>') + '</div>';
-    } else maxB = '<i class="mxb">최대 ' + free + '</i>';   // 적재 가능 롤 수 = 롤 수 버튼 모서리 표시 (따로 줄 안 씀)
+    }
     // ③ 분산 예방: 같은 원지가 다른 곳에 이미 있으면 알림 (거기에 넣으면 분산 안 됨)
     var elsew = {};
     S.stock.forEach(function (s) {
@@ -2481,7 +2489,8 @@ function sheetIn() {
       '<button class="chip etc" onclick="destAdd(function (v) { SH.from = v; renderSheet(); })">+ 입력</button></div>' : '') +
     '</details>';
   var label = SH.rem ? '잔량 반납 저장' : '입고 저장';
-  return h + '<div class="shfoot">' + f + '<div class="fr" id="sh-qtyrow"><div class="stw">' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '롤 수') + (maxB || '') + '</div>' +
+  return h + '<div class="shfoot">' + f + '<div class="fr" id="sh-qtyrow">' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '롤 수', '', { max: qmax, lp: 'row:' + code }) +   // 적재 가능 롤 수 = 버튼 모서리 「최대」
+
     '<button class="btn" id="sh-save"' + (!ready || bad || (SH.rem && !SH.from) ? ' style="opacity:.45" disabled' : '') + ' onclick="doIn()">' + label + '</button></div></div>';
 }
 function doIn() {
@@ -3403,57 +3412,100 @@ function curGrade() { var g = $('i-grade').value; return g === '__new' ? '' : g;
    직접 고치기 전까지 추천(한 줄 · 분산) 자동 반영 · 고치면 유지 + [추천 위치로] */
 function inPick() { I.locManual = true; inHint(); }
 function autoLoc() {
-  if (I.locManual && I.parts && I.parts.length) {
-    if (I.parts.length === 1) I.parts[0].qty = I.qty;
-    else if (I.pq != null && I.pq !== I.qty) refitParts();   // 전량 롤 수가 바뀜 → 고른 줄 유지 · 수량만 맞춤
-    I.pq = I.qty; return;
+  if (I.locManual && I.parts && I.parts.length) {   // 직접 고른 줄 유지 · 전량 롤 수가 바뀌면 수량만 맞춤
+    var d = I.qty - partsSum();
+    if (d) { var left = refitParts(d, -1); if (left > 0) I.parts[I.parts.length - 1].qty += left; }
+    return;
   }
   var sug = suggestLoc(), prev = I.parts && I.parts[0] && I.parts[0].loc;
   if (sug) I.parts = [{ loc: sug, qty: I.qty }];
   else I.parts = splitPlan() || [{ loc: prev || null, qty: I.qty }];
-  I.pq = I.qty;
 }
-/* 직접 고친 분산 줄 + 전량 변경: 늘면 앞 줄부터 빈 자리만큼 → 남으면 마지막 줄 · 줄면 마지막 줄부터 빼고 0롤 줄 삭제
-   (줄별 롤 수를 직접 고친 경우는 그대로 · 합계 불일치로 표시) */
-function refitParts() {
-  var d = I.qty - partsSum(), g = curGrade(), last = I.parts[I.parts.length - 1];
+/* 분산 줄 남은 자리 (적재 가능 − 이 입고에 배정한 롤) */
+function partRoom(x) { return x.loc && I.width ? Math.max(0, freeFor(x.loc, I.gsm, I.width, curGrade()) - x.qty) : 0; }
+function partMax(x) { return x.loc && I.width ? freeFor(x.loc, I.gsm, I.width, curGrade()) : null; }
+/* 분할 합계 유지 (WMS 분할 적치: 합계 = 전량 항상 일치) · keep = 건드리지 않는 줄 번호
+   d > 0 (넣을 롤): 앞 줄부터 남은 자리만큼 → 모자라면 다음 추천 줄 자동 추가 · 남는 롤 수 반환 (0 = 모두 배치)
+   d < 0 (뺄 롤): 마지막 줄부터 빼고 0롤 줄 삭제 · skip = 새 줄 후보에서 뺄 위치 (방금 지우거나 바꾼 줄) */
+function refitParts(d, keep, skip) {
   if (d > 0) {
-    I.parts.forEach(function (x) {
-      if (d <= 0 || !I.width) return;
-      var a = Math.min(Math.max(0, freeFor(x.loc, I.gsm, I.width, g) - x.qty), d); x.qty += a; d -= a;
-    });
-    if (d > 0) last.qty += d;
-  } else {
-    for (var k = I.parts.length - 1; k >= 0 && d < 0; k--) { var t = Math.min(I.parts[k].qty, -d); I.parts[k].qty -= t; d += t; }
-    I.parts = I.parts.filter(function (x) { return x.qty > 0; });
-    if (!I.parts.length) I.parts = [{ loc: last.loc, qty: I.qty }];
+    I.parts.forEach(function (x, k) { if (d > 0 && k !== keep) { var a = Math.min(partRoom(x), d); x.qty += a; d -= a; } });
+    if (d > 0 && I.gsm && I.width) {
+      var used = I.parts.map(function (x) { return x.loc; }).concat(skip || []), g = curGrade();
+      sugCands().forEach(function (c) {
+        if (d <= 0 || used.indexOf(c) >= 0) return;
+        var a = Math.min(freeFor(c, I.gsm, I.width, g), d); if (a > 0) { I.parts.push({ loc: c, qty: a }); d -= a; }
+      });
+    }
+    return d;
   }
+  for (var k = I.parts.length - 1; k >= 0 && d < 0; k--) { if (k === keep) continue; var t = Math.min(I.parts[k].qty, -d); I.parts[k].qty -= t; d += t; }
+  I.parts = I.parts.filter(function (x) { return x.qty > 0; });
+  return 0;
+}
+/* 입고 전량 롤 수: 전 창고 빈 자리(추천 후보 + 고른 줄) 넘으면 막음 */
+function inCap() {
+  var g = curGrade(), seen = {}, n = 0;
+  sugCands().concat(I.parts ? I.parts.map(function (x) { return x.loc; }) : []).forEach(function (c) {
+    if (c && !seen[c]) { seen[c] = 1; n += freeFor(c, I.gsm, I.width, g); }
+  });
+  return n;
+}
+function inQty(d) {
+  var q = Math.max(1, I.qty + d);
+  if (q > I.qty && I.gsm && I.width && !inMissing().length) {
+    var cap = inCap(); if (q > cap) { toast('전 창고 적재 공간 부족 (최대 ' + cap + '롤)', true); return; }
+  }
+  I.qty = q; renderIn();
 }
 function useSug() { I.locManual = false; inHint(); }
 function partsSum() { return I.parts.reduce(function (a, x) { return a + (+x.qty || 0); }, 0); }
+/* 줄 추가: 다음 추천 후보 줄 (자리 있는 줄) · 마지막 줄 롤의 절반을 옮겨 옴 (합계 유지) */
 function addPart() {
-  // 새 줄 위치 = 목록에 없는 다음 추천 후보 (자리 있는 줄) · 없으면 마지막 줄
   var used = I.parts.map(function (x) { return x.loc; }), g = curGrade();
   var next = (I.gsm && I.width ? sugCands() : []).filter(function (c) { return used.indexOf(c) < 0 && freeFor(c, I.gsm, I.width, g) > 0; })[0];
-  I.parts.push({ loc: next || I.parts[I.parts.length - 1].loc, qty: Math.max(1, I.qty - partsSum()) }); I.locManual = true; inHint();
+  if (!next) { toast('추가 가능한 빈 자리 없음', true); return; }
+  var src = I.parts.slice().reverse().filter(function (x) { return x.qty > 1; })[0];
+  if (!src) { toast('나눌 롤 없음 (줄마다 1롤)', true); return; }
+  var q = Math.min(Math.floor(src.qty / 2), freeFor(next, I.gsm, I.width, g));
+  src.qty -= q; I.parts.push({ loc: next, qty: q }); I.locManual = true; inHint();
 }
-function delPart(k) { I.parts.splice(k, 1); I.locManual = true; inHint(); }
+/* 줄 삭제: 그 줄 롤은 다른 줄 빈 자리로 (모자라면 다음 추천 줄) */
+function delPart(k) {
+  var q = I.parts[k].qty, gone = I.parts[k].loc; I.parts.splice(k, 1);
+  var left = refitParts(q, -1, [gone]); if (left > 0) I.parts[I.parts.length - 1].qty += left;
+  I.locManual = true; inHint();
+}
+/* 줄별 롤 수: 그 줄 적재 가능 수량까지 · 바뀐 만큼 다른 줄이 받거나 내줌 (합계 = 전량 유지) */
 function setPartQty(k, v) {
-  v = Math.max(0, parseInt(v, 10) || 0);
-  if (I.parts.length === 1) { I.qty = Math.max(1, v); renderIn(); return; }   // 한 줄 = 전량 롤 수와 같음
-  I.parts[k].qty = v; I.locManual = true; inHint();
+  v = parseInt(v, 10) || 0;
+  if (I.parts.length === 1) { inQty(v - I.qty); return; }   // 한 줄 = 전량 롤 수와 같음
+  var x = I.parts[k], old = x.qty, mx = partMax(x);
+  v = Math.max(1, Math.min(v, I.qty, mx == null ? Infinity : mx));
+  if (v === old) { if (mx != null && v >= mx) toast(keyOf(x.loc) + ' 최대 ' + mx + '롤 (길게 누르면 줄 설정)', true); return; }
+  x.qty = v;
+  var left = refitParts(old - v, k);
+  if (left > 0) { x.qty += left; toast('다른 줄 빈 자리 없음', true); }
+  I.locManual = true; inHint();
+}
+/* 줄 위치 변경: 새 줄 적재 가능 수량 초과분은 다른 줄로 */
+function setPartLoc(k, c) {
+  var x = I.parts[k], was = x.loc; x.loc = c;
+  var mx = partMax(x);
+  if (mx && x.qty > mx) { var d = x.qty - mx; x.qty = mx; var left = refitParts(d, k, [was]); if (left > 0) x.qty += left; }
+  inPick();
 }
 function renderParts() {
   var multi = I.parts.length > 1;
   $('i-loc').innerHTML = I.parts.map(function (x, k) {
     // 롤 수 = 공통 수량 ± (위치 하나면 위 롤 수와 같아 생략)
     return '<div class="prow"><div class="pl" id="i-p' + k + '"></div>' +
-      (multi ? '<div class="pqrow"><span class="muted">' + (k + 1) + '번 위치 롤 수</span>' + stepper(x.qty, 'setPartQty(' + k + ',I.parts[' + k + '].qty-1)', 'setPartQty(' + k + ',I.parts[' + k + '].qty+1)', (k + 1) + '번 위치 롤 수') +
+      (multi ? '<div class="pqrow"><span class="muted">' + (k + 1) + '번 위치 롤 수</span>' + stepper(x.qty, 'setPartQty(' + k + ',I.parts[' + k + '].qty-1)', 'setPartQty(' + k + ',I.parts[' + k + '].qty+1)', (k + 1) + '번 위치 롤 수', '', { max: partMax(x), lp: x.loc ? 'row:' + x.loc : '' }) +
         '<button class="xbtn" onclick="delPart(' + k + ')" aria-label="줄 삭제">×</button></div>' : '') + '</div>';
   }).join('') + '<button class="btn2" style="width:100%; height:34px; font-size:13px" onclick="addPart()">+ 줄 추가</button>';
   I.parts.forEach(function (x, k) {
     var sub = $('i-p' + k);
-    locPicker(sub, x.loc, function (c) { I.parts[k].loc = c; inPick(); });
+    locPicker(sub, x.loc, function (c) { setPartLoc(k, c); });
     x.loc = sub.dataset.code;
   });
 }
