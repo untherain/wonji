@@ -420,7 +420,7 @@
   .mdh { font-size:13px; font-weight:800; color:var(--sub); padding:6px 2px 0; }
   .mded { position:absolute; right:4px; top:50%; transform:translateY(-50%); width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--sub); border-radius:8px; }
   #md-search { height:48px; font-size:17px; }
-  select[aria-label="지종"], select[aria-label="제지사"] { pointer-events:none; }   /* 운영체제 목록 대신 앱 선택 창 (누름은 문서에서 받음) */
+  .selw { display:block; min-width:0; cursor:pointer; } .selw select { pointer-events:none; width:100%; }   /* 지종 · 제지사: 누름은 감싼 틀이 받음 */   /* 운영체제 목록 대신 앱 선택 창 (누름은 문서에서 받음) */
   #modal .chip.opt { height:auto; min-height:58px; padding:8px 14px; text-align:left; white-space:normal; display:flex; flex-direction:column; justify-content:center; gap:2px; }
   .chip.opt b { font-size:18px; font-weight:900; }
   .chip.opt i { font-style:normal; font-size:12px; font-weight:800; background:var(--y); border-radius:6px; padding:1px 6px; vertical-align:2px; }
@@ -464,8 +464,8 @@
     <div id="i-fromWrap" style="display:none"><h2>반납 호기</h2><div class="grid2" id="i-from" data-qk="출고처"></div></div>
     <h2>지종 · 제지사</h2>
     <div class="grid2">
-      <select id="i-grade" aria-label="지종"></select>
-      <select id="i-maker" aria-label="제지사"></select>
+      <span class="selw"><select id="i-grade" aria-label="지종"></select></span>
+      <span class="selw"><select id="i-maker" aria-label="제지사"></select></span>
     </div>
     <h2>평량 (g/m²)</h2><div class="grid4" id="i-gsm"></div>
     <h2>지폭 (mm)</h2><div class="grid4" id="i-width"></div>
@@ -2184,8 +2184,8 @@ function pickerBody(sp, withMaker, re, withGrade) {
 function mkGrSel(sp) {
   var f = sp === F;
   return lbl('지종 · 제지사', '') + '<div class="grid2" style="margin-bottom:6px">' +
-    '<select id="sp-gr" aria-label="지종" onchange="spSel(\'grade\', this)">' + selOpts(S.quick['지종'], '지종', sp.grade || '', f ? '지종 전체' : '') + '</select>' +
-    '<select id="sp-mk" aria-label="제지사" onchange="spSel(\'maker\', this)">' + selOpts(S.quick['제지사'], '제지사', sp.maker || '', f ? '제지사 전체' : '') + '</select></div>';
+    '<span class="selw"><select id="sp-gr" aria-label="지종" onchange="spSel(\'grade\', this)">' + selOpts(S.quick['지종'], '지종', sp.grade || '', f ? '지종 전체' : '') + '</select></span>' +
+    '<span class="selw"><select id="sp-mk" aria-label="제지사" onchange="spSel(\'maker\', this)">' + selOpts(S.quick['제지사'], '제지사', sp.maker || '', f ? '제지사 전체' : '') + '</select></span></div>';
 }
 function spSel(k, el) {
   var t = pkt(), v = el.value, kind = k === 'grade' ? '지종' : '제지사', search = t.sp === F;
@@ -2649,17 +2649,11 @@ function valPick(kind, o, cb) {
     cb(v);
   });
 }
-/* 선택칸은 화면에 그대로 두고 누름만 가로챔 (운영체제 목록 안 뜸)
-   누른 자리에서 맨 위에 보이는 것이 그 선택칸일 때만 — 작업창 · 팝업 뒤에 가려진 선택칸은 무시 (가려진 칸이 대신 열리던 문제) */
+/* 지종 · 제지사 선택칸: 운영체제 목록 대신 앱 선택 창
+   선택칸은 누름 통과 → 감싼 틀(.selw)이 누름을 받아 그 칸의 선택 창을 엶 (좌표 계산 없음 · 작업창 뒤에 가려진 칸은 눌리지 않음) */
 document.addEventListener('click', function (e) {
-  var top = document.elementFromPoint(e.clientX, e.clientY);
-  var hit = [].filter.call(document.querySelectorAll('select[aria-label="지종"], select[aria-label="제지사"]'), function (s) {
-    if (!s.offsetParent || s.disabled) return false;
-    if (e.target === s) return true;
-    var r = s.getBoundingClientRect(); if (!(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)) return false;
-    return !!top && (top === s || s.contains(top));
-  })[0];
-  if (!hit) return;
+  var w = e.target && e.target.closest ? e.target.closest('.selw') : null; if (!w) return;
+  var hit = w.querySelector('select'); if (!hit || hit.disabled) return;
   e.preventDefault(); e.stopPropagation(); pickSel(hit);
 }, true);
 /* 값 편집 (선택 창 ✎ · 길게 누르기): 이름 고치기(있는 이름이면 합치기) · 약칭 · 다른 이름 · 기본 제지사(지종) · 사용 중지 · 삭제 */
@@ -4016,8 +4010,8 @@ function plSnip() {
 /* 계획 품목 지종 · 제지사 선택칸 (공통 목록 selOpts · 제지사 빠짐 = 빨강) */
 function piSelect(it, i, k) {
   var mk = planMk(it), cur = mk[k], kind = k === 'grade' ? '지종' : '제지사';
-  return '<select class="mini" style="flex:1; min-width:0' + (k === 'maker' && !cur ? '; border-color:#9A1C1C; color:#9A1C1C' : '') + '" aria-label="' + kind + '" onchange="setPV(' + i + ',\'' + k + '\',this)">' +
-    selOpts(S.quick[kind], kind, cur) + '</select>';
+  return '<span class="selw" style="flex:1"><select class="mini" style="' + (k === 'maker' && !cur ? 'border-color:#9A1C1C; color:#9A1C1C' : '') + '" aria-label="' + kind + '" onchange="setPV(' + i + ',\'' + k + '\',this)">' +
+    selOpts(S.quick[kind], kind, cur) + '</select></span>';
 }
 function setPV(i, k, el) {
   var it = PL.items[i], v = el.value, kind = k === 'grade' ? '지종' : '제지사';
