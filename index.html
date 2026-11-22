@@ -581,11 +581,13 @@
 var S = { whs: [], quick: {}, stock: [] };
 var F = { gsm: null, width: null, maker: '', grade: '', q: '' };   // 검색 필터 (재고 검색 공통)
 /* 공통 검색 조건: 평량 · 지폭 · 제지사 · 지종 + 문구(띄어쓰기로 나눈 낱말 모두 포함) */
-function fWords() { return String(F.q || '').toUpperCase().split(/\s+/).filter(String); }
+function fWords(f) { return String((f || F).q || '').toUpperCase().split(/\s+/).filter(String); }
 function fOn() { return !!(F.gsm || F.width || F.maker || F.grade || fWords().length); }
-function fMatch(s) {
-  if ((F.gsm && s.gsm != F.gsm) || (F.width && s.width != F.width) || (F.maker && s.maker !== F.maker) || (F.grade && s.grade !== F.grade)) return false;
-  var qs = fWords(); if (!qs.length) return true;
+function fMatch(s) { return fMatchBy(s, F); }
+/* 검색 조건 f 에 맞는 재고인가 (F = 지도 검색 · 문서 목록은 규격별 조건) */
+function fMatchBy(s, f) {
+  if ((f.gsm && s.gsm != f.gsm) || (f.width && s.width != f.width) || (f.maker && s.maker !== f.maker) || (f.grade && s.grade !== f.grade)) return false;
+  var qs = fWords(f); if (!qs.length) return true;
   var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no), keyOf(s.loc),
     s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
   return qs.every(function (w) { return t.indexOf(w) >= 0; });
@@ -1603,7 +1605,8 @@ function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비�
   SH.sp = { gsm: null, width: null, maker: SH.sp.maker || '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = '';
   renderSheet(); $('detail').scrollTop = 0;
 }
-function shBack() { SH.mode = SH.mode === 'add' ? 'cnt' : ''; SH.it = null; renderSheet(); }
+function shBack() { if (SH.mode === 'doc') { SH.sel = null; return renderSheet(); }   // 문서 목록: 규격 위치 → 목록
+  SH.mode = SH.mode === 'add' ? 'cnt' : ''; SH.it = null; renderSheet(); }
 function shQty(d) {
   var max = SH.mode === 'out' && SH.it ? SH.it.qty : 999; if (SH.ocr) delete SH.ocr.qty;
   SH.qty = Math.max(1, Math.min(max, SH.qty + d)); renderSheet();
@@ -1622,7 +1625,7 @@ function renderSheet() {
   if (SH.mode === 'dist') { sheetDist(); return; }
   if (SH.mode === 'merge') { sheetMerge(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
-    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : sheetRow();
+    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : SH.mode === 'doc' ? sheetDoc() : sheetRow();
   if (SH.mode === 'plan') plAfter();
 }
 
@@ -1865,9 +1868,9 @@ function ocrCall(kind, d) {
 }
 if (ocrEng() !== 'drive') setTimeout(padReady, 4000);   // 앱 열 때 미리 모델 준비 (첫 촬영 대기 줄임)
 /* 라벨 사진 읽기 (공통): 평량 · 지폭 · 제지사 · 지종 · 롤 수 · 롤번호 등 → cb(r) · 나중에 고른 사진 결과만 반영 */
-function readLabel(cam, cb) {
+function readLabel(cam, cb, doc) {   // doc = 비추기 화면 [문서] 버튼 (문서 전체 읽기)
   function photo(d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) cb(r || {}); }); }
-  if (cam && liveOK()) return liveScan({ title: '라벨 비추기', onResult: function (r) { cb(r); }, shot: photo });
+  if (cam && liveOK()) return liveScan({ title: '라벨 비추기', onResult: function (r) { cb(r); }, shot: photo, doc: doc });
   pickPhoto(photo, cam);
 }
 function labelMemo(r) { return [r.rollNo ? '롤번호 ' + r.rollNo : '', r.weight ? r.weight + 'kg' : '', r.length ? r.length + 'm' : ''].filter(String).join(', '); }
@@ -1893,16 +1896,70 @@ function shPhoto(cam, only) {
 /* 사진 안내 줄: 못 읽음(빨강) → 라벨 메모 → 기본 안내 */
 function phNote(def) { return SH && SH.phmsg ? '<span class="bad">' + esc(SH.phmsg) + '</span>' : SH && SH.memo ? '라벨: ' + esc(SH.memo) : def; }
 /* 지도 검색: 라벨 찍으면 같은 규격이 있는 줄 표시 */
+/* 검색 사진: 카메라 = 라벨 비추기 ([문서] 버튼 = 문서 전체) · 앨범 = 문서처럼 전체 읽기
+   규격 1개 → 바로 검색 · 2개 이상 → 문서 목록 (규격별 재고 · 문서 수량 대조) */
 function filterPhoto(cam) {
-  readLabel(cam, function (r) {
-    if (!SH) return;
-    if (r.gsm) F.gsm = String(r.gsm); if (r.width) F.width = String(r.width);
-    SH.sp = F;
-    if (r.gsm && r.width) { SH.phmsg = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); return; }   // 결과 = 지도 노란 줄 + 위쪽 검색 줄
-    SH.phmsg = (!r.gsm ? '평량' : '') + (!r.gsm && !r.width ? ' · ' : '') + (!r.width ? '지폭' : '') + ' 못 읽음 — 다시 촬영 또는 아래 버튼';
-    renderMap(); renderSheet();
+  if (cam) return readLabel(true, fLabel, function () { docPhoto(docRead, true); });
+  docPhoto(docRead, false);
+}
+/* 등록된 제지사 이름으로 (없는 이름이면 검색 조건에 안 넣음 — 결과 0건 방지) */
+function knownMk(m) { var c = m ? canonMaker(m) : ''; return c && (S.quick['제지사'] || []).indexOf(c) >= 0 ? c : ''; }
+/* 규격 하나 → 검색 (평량 · 지폭 · 제지사) */
+function fLabel(r) {
+  if (r.gsm) F.gsm = String(r.gsm); if (r.width) F.width = String(r.width);
+  F.maker = knownMk(r.maker);
+  if (r.gsm && r.width) { if (SH) SH.phmsg = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); return; }   // 결과 = 지도 노란 줄 + 위쪽 검색 줄
+  if (!SH || SH.mode !== 'filter') openFilter();
+  SH.sp = F;
+  SH.phmsg = (!r.gsm ? '평량' : '') + (!r.gsm && !r.width ? ' · ' : '') + (!r.width ? '지폭' : '') + ' 못 읽음 — 다시 촬영 또는 아래 버튼';
+  renderMap(); renderSheet();
+}
+/* 문서 읽기 (계획서와 같은 해석기) → 규격 목록 · 규격 없으면 라벨로 다시 해석 */
+function docRead(d) {
+  var my = ++ocrSeq;
+  ocrCall('ocrPlan', d).then(function (r) {
+    if (my !== ocrSeq) return;
+    r = r || {};
+    var by = {}, list = [];
+    (r.items || []).filter(function (it) { return it.gsm && it.width; }).forEach(function (it) {
+      var pm = fillMk(Object.assign({}, it)), mk = knownMk(pm.maker), k = it.gsm + '|' + it.width + '|' + mk, x = by[k];
+      if (!x) { x = by[k] = { gsm: String(it.gsm), width: String(it.width), maker: mk, qty: 0, all: false, has: false }; list.push(x); }
+      if (it.all) x.all = true; else if (it.qty) { x.qty += +it.qty; x.has = true; }
+    });
+    if (list.length === 1) return fLabel(list[0]);
+    if (!list.length) {
+      var lp = labelParse(String(r.raw || '').replace(/^\[표 머리글\][^\n]*\n*/, ''));
+      if (lp.gsm && lp.width) return fLabel(lp);
+      toast('규격 못 읽음 — 다시 촬영 (문서 전체가 보이게)', true); return;
+    }
+    SH = { code: null, mode: 'doc', list: list, sel: null }; renderSheet(); $('detail').scrollTop = 0;
   });
 }
+function docF(x) { return { gsm: x.gsm, width: x.width, maker: x.maker || '', grade: '', q: '' }; }
+function docStock(x) { var h = S.stock.filter(function (s) { return fMatchBy(s, docF(x)); }), L = {}; h.forEach(function (s) { L[s.loc] = 1; }); return { hits: h, rolls: h.reduce(function (a, s) { return a + s.qty; }, 0), locs: Object.keys(L).length }; }
+/* 문서 목록 (공통 작업창): 규격 · 문서 수량 · 재고 → 누르면 그 규격 위치 목록 → 위치 누르면 지도 ([←] 로 목록에 돌아옴) */
+function sheetDoc() {
+  var L = SH.list;
+  if (SH.sel != null) {
+    var x = L[SH.sel], st = docStock(x);
+    return shHead(esc(fmtItem(x)) + ' 위치', '', true) +
+      '<button class="btn2" style="width:100%; margin:8px 0" onclick="docSearch(' + SH.sel + ')">이 규격으로 지도 검색</button>' + fLocList(st.hits, true);
+  }
+  var ok = 0, lack = 0, none = 0;
+  var rows = L.map(function (x, i) {
+    var st = docStock(x), need = x.has ? x.qty : null, cls, tag;
+    if (!st.rolls) { none++; cls = 'color:#9A1C1C'; tag = '재고 없음'; }
+    else if (need != null && st.rolls < need) { lack++; cls = 'color:#9A1C1C'; tag = '부족 ' + (need - st.rolls); }
+    else { ok++; cls = 'color:var(--ok)'; tag = need != null || x.all ? '충분 ✓' : ''; }
+    return '<div class="card row" role="button" style="gap:8px; margin-bottom:6px; padding:8px 10px; cursor:pointer' + (st.rolls ? '' : '; opacity:.75') + '" onclick="docSel(' + i + ')">' +
+      '<div style="flex:1; min-width:0"><b style="font-size:16px">' + itemHtml(x) + '</b>' +
+      '<div class="muted" style="font-size:13px">' + (x.all ? '필요 전량 · ' : need != null ? '필요 ' + need + '롤 · ' : '') + '재고 ' + st.rolls + '롤' + (st.locs ? ' · ' + st.locs + '곳' : '') + '</div></div>' +
+      (tag ? '<b style="flex:none; ' + cls + '">' + tag + '</b>' : '') + '<span class="muted">›</span></div>';
+  }).join('');
+  return shHead('문서에서 찾은 규격 ' + L.length + '개', '충분 ' + ok + ' · 부족 ' + lack + ' · 없음 ' + none, false) + '<div style="margin-top:8px">' + rows + '</div>';
+}
+function docSel(i) { SH.sel = i; renderSheet(); $('detail').scrollTop = 0; }
+function docSearch(i) { var x = SH.list[i]; F.gsm = x.gsm; F.width = x.width; F.maker = x.maker || ''; F.grade = ''; F.q = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); }
 /* 피킹: 집어 든 롤 라벨 → 계획 품목과 비교 (규격 · 제지사) → 맞으면 자동 체크 */
 var PKMSG = null;   // 마지막 촬영 결과 { t, bad }
 function pkSay(t, bad) { PKMSG = { t: t, bad: bad }; renderPlan(); }
@@ -2872,7 +2929,7 @@ function lvBuild() {
       '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
       '<button class="lv-st" id="lv-st"></button><div class="lv-card" id="lv-card"></div>' +
       '<div class="lv-bar"><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
-      '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn" id="lv-shot">찍기</button></div>';
+      '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">찍기</button></div>';
     document.body.appendChild(el);
   }
   return el;
@@ -2890,6 +2947,9 @@ function liveScan(o) {
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
   $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
   $('lv-shot').onclick = lvShot;
+  // [문서]: 라벨 대신 문서(주문서 · 계획서) 전체 읽기 — 종이 찾아 반듯하게 (계획서 촬영과 같은 방식)
+  $('lv-doc').style.display = o.doc ? '' : 'none';
+  $('lv-doc').onclick = function () { var f = LV && LV.o.doc; liveClose(); if (f) f(); };
   $('lv-st').onclick = function () { if (LV && LV.cand) lvConfirm(LV.cand.r, LV.cand.d); };
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   padReady();
@@ -3061,7 +3121,7 @@ function docScan(o) {
   $('lv-title').textContent = o.title; $('lv-prog').textContent = '';
   $('live').style.display = 'flex'; document.body.classList.add('cropopen');
   $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none';
-  $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null;
+  $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null; $('lv-doc').style.display = 'none';
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
   $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
   lvSay('문서 인식 준비 중… (처음 한 번 약 9MB)');
