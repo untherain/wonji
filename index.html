@@ -3834,10 +3834,15 @@ function renderPlan() {
   if (PL.stage === 'pick') return renderPick(el);
   var h = photoBar('planPhoto', PL.msg ? (PL.msgBad ? '<span class="bad">' + esc(PL.msg) + '</span>' : '<b style="color:var(--ok)">' + esc(PL.msg) + '</b>')  : '');
   // 품목 입력 (입고 화면과 같은 순서 · 모양)
+  if (pqEditIt()) h += '<div class="card" id="pq-edit" style="margin-top:8px; border:2px solid var(--y); background:#FFF8E1"><b>' + esc(pqEditIt().line) + ' 계획 #' + pqEditIt().planNo + ' 수정 중</b>' +
+    (pqEditIt().name ? ' <span class="muted">' + esc(pqEditIt().name) + '</span>' : '') + '<div class="muted" style="font-size:12px">아래에서 고른 뒤 [수정 저장]</div></div>';
   h += lbl('호기', '') + '<div class="grid4" id="pq-line"></div>' +
     pickerBody(PQ, true, 'renderPlan()', true) +
-    '<div class="card row" style="margin-top:12px"><b>수량</b>' + stepper(PQ.qty, 'PQ.all=false; PQ.qty=Math.max(1,PQ.qty-1); renderPlan()', 'PQ.all=false; PQ.qty++; renderPlan()', '수량') + '</div>' +
-    '<button class="btn" id="pq-add" style="margin-top:8px" onclick="addPQ()">계획 품목 추가</button>';
+    '<div class="card row" style="margin-top:12px"><b>수량</b>' + stepper(PQ.all ? '전량' : PQ.qty, 'PQ.all=false; PQ.qty=Math.max(1,PQ.qty-1); renderPlan()', 'PQ.all=false; PQ.qty++; renderPlan()', '수량') +
+    '<button class="btn2' + (PQ.all ? ' on' : '') + '" style="height:52px; padding:0 10px; flex:none' + (PQ.all ? '; background:var(--y)' : '') + '" onclick="PQ.all=!PQ.all; renderPlan()">전량</button></div>' +
+    (pqEditIt() ? '<div class="grid2" style="grid-template-columns:1fr 2fr; margin-top:8px"><button class="btn2" onclick="pqEditEnd()">취소</button>' +
+      '<button class="btn" id="pq-add" onclick="addPQ()">' + esc(pqEditIt().line) + ' 계획 #' + pqEditIt().planNo + ' 수정 저장</button></div>'
+    : '<button class="btn" id="pq-add" style="margin-top:8px" onclick="addPQ()">계획 품목 추가</button>');
   // 계획 품목 (근거 없는 품목이 있으면 한 번에 삭제 버튼)
   var weakN = PL.items.filter(function (it) { return it.weak; }).length;
   if (weakN) h += '<div class="card" style="margin-top:10px; border:1px solid #9A6700; background:#FFF6DD">' +
@@ -3868,13 +3873,13 @@ function planRow(it) {
   var i = PL.items.indexOf(it), ok = it.gsm && it.width && (it.all || it.qty), mk = planMk(it);
   var lineOpts = LINES.map(function (l) { return '<option' + (l === it.line ? ' selected' : '') + '>' + l + '</option>'; }).join('');
   var L = LINES.indexOf(it.line);
-  return '<div style="padding:8px 10px; border-top:1px solid #E6E8EB">' +
+  return '<div data-pid="' + it.id + '" style="padding:8px 10px; border-top:1px solid #E6E8EB' + (PQ.edit === it.id ? '; background:#FFF8E1; box-shadow:inset 4px 0 0 var(--y)' : '') + '">' +
     // 1줄: 호기 · 번호 · 규격(넓게) · 수량
     '<div class="row" style="gap:4px">' +
     '<select class="mini" style="width:66px; flex:none; padding:0 2px" aria-label="호기 (아래 품목 모두)" onchange="setLineFrom(' + i + ',this.value)">' + lineOpts + '</select>' +
     '<input class="mini" type="number" inputmode="numeric" style="width:44px; flex:none; padding:0 2px; text-align:center" value="' + it.planNo + '" aria-label="계획 번호" onchange="setPI(' + i + ',\'planNo\',+this.value)">' +
-    '<input class="mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900; text-align:center' + (it.gsm && it.width ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" value="' + (it.gsm || it.width ? (it.gsm || '') + '×' + (it.width || '') : '') + '" placeholder="규격 못 읽음 230×1220" aria-label="규격" onchange="setSpec(' + i + ',this.value)">' +
-    '<input class="mini" inputmode="numeric" style="width:50px; flex:none; padding:0 2px; text-align:center" value="' + (it.all ? '전량' : (it.qty == null ? '' : it.qty)) + '" placeholder="수량" aria-label="수량" onchange="setQty(' + i + ',this.value)">' +
+    '<button class="btn2 mini" style="flex:1; min-width:0; padding:0 3px; font-weight:900' + (it.gsm && it.width ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="규격 선택" onclick="pqEdit(' + i + ')">' + (it.gsm || it.width ? (it.gsm || '?') + '×' + (it.width || '?') : '규격 선택') + '</button>' +
+    '<button class="btn2 mini" style="width:54px; flex:none; padding:0 2px' + (it.all || it.qty ? '' : '; border-color:#9A1C1C; color:#9A1C1C') + '" aria-label="수량 선택" onclick="pqEdit(' + i + ')">' + (it.all ? '전량' : it.qty ? it.qty + '롤' : '수량') + '</button>' +
     '</div>' +
     // 2줄: 제지사 선택(넓게) · 지종 · 삭제,  3줄: 비고 (접힘)
     '<div class="row" style="gap:4px; margin-top:4px">' + piSelect(it, i, 'grade') + piSelect(it, i, 'maker') +
@@ -3905,18 +3910,6 @@ function delWeak() {
     PL.items = PL.items.filter(function (it) { return !it.weak; });
     savePL(); renderPlan(); toast(rm.length + '건 삭제');
   });
-}
-function setSpec(i, v) {
-  var m = String(v).match(/(\d{2,4})\s*[*×xX\-]\s*(\d{3,4})/);
-  if (!m) { toast('규격 형식: 230×1220', true); renderPlan(); return; }
-  PL.items[i].gsm = m[1]; PL.items[i].width = m[2]; delete PL.items[i].weak; delete PL.items[i].miss; savePL(); renderPlan();
-}
-function setQty(i, v) {
-  v = String(v).trim();
-  if (/전\s*량/.test(v)) { PL.items[i].all = true; PL.items[i].qty = null; delete PL.items[i].weak; }
-  else if (/^\d{1,3}$/.test(v) && +v > 0) { PL.items[i].all = false; PL.items[i].qty = +v; delete PL.items[i].weak; }
-  else toast('수량: 1 이상 숫자 또는 "전량"', true);
-  savePL(); renderPlan();
 }
 /* 제지사 선택칸: 기준정보 제지사 목록 (인식된 제지사가 목록에 없으면 그것도 넣음) · 비어 있으면 빨간 테두리 */
 /* 계획 품목 지종 · 제지사 선택칸 (공통 목록 selOpts · 제지사 빠짐 = 빨강) */
@@ -3958,12 +3951,29 @@ function pqType(v) {
   renderPlan();
 }
 function pqHdr() { sumBox('plan', 'pq-sum', '예시: 1호기 230-1210 20롤', { type: 'pqType', clear: 'pqClear', blur: 'pqHdr()', enter: 'addPQ()', text: pqSumText(), miss: !PQ.gsm || !PQ.width }); }
-function pqClear() { PQ.gsm = PQ.width = null; PQ.qty = 1; PQ.maker = ''; PQ.grade = ''; PQ.all = false; renderPlan(); }
+function pqClear() { PQ.edit = null; PQ.gsm = PQ.width = null; PQ.qty = 1; PQ.maker = ''; PQ.grade = ''; PQ.all = false; renderPlan(); }
 function pqSumText() {
   if (!PQ.gsm && !PQ.width) return '';
   return PQ.line + ' ' + (PQ.maker ? PQ.maker + ' ' : '') + (PQ.gsm || '평량') + '×' + (PQ.width || '지폭') + ' · ' + (PQ.all ? '전량' : PQ.qty + '롤');
 }
+/* 계획 품목 수정: 위 입력란(공통 규격 선택기 · 수량)으로 불러와 고침 — 직접 입력 칸 대신 */
+function pqEditIt() { return PQ.edit ? PL.items.filter(function (x) { return x.id === PQ.edit; })[0] || null : null; }
+function pqEdit(i) {
+  var it = PL.items[i], pm = planMk(it);
+  Object.assign(PQ, { edit: it.id, line: it.line, gsm: it.gsm || null, width: it.width || null, maker: pm.maker || '', grade: pm.grade || '', qty: it.qty || 1, all: !!it.all });
+  renderPlan(); jumpTo('pq-edit');
+}
+function pqEditEnd() { PQ.edit = null; pqClear(); }
 function addPQ() {
+  var eit = pqEditIt();
+  if (eit) {
+    if (!PQ.gsm || !PQ.width) { toast('평량 · 지폭 선택 필요', true); return; }
+    Object.assign(eit, { line: PQ.line, gsm: PQ.gsm, width: PQ.width, maker: PQ.maker || '', grade: PQ.grade || '', qty: PQ.all ? null : PQ.qty, all: !!PQ.all });
+    delete eit.weak; delete eit.miss;
+    useSpec(PQ); savePL(); toast(eit.line + ' 계획 #' + eit.planNo + ' 수정됨');
+    var id = eit.id; pqEditEnd(); setTimeout(function () { var r = document.querySelector('[data-pid="' + id + '"]'); if (r) r.scrollIntoView({ block: 'center' }); }, 50);
+    return;
+  }
   if (!PQ.gsm || !PQ.width) { toast('평량 · 지폭 선택 필요', true); return; }
   var max = PL.items.filter(function (it) { return it.line === PQ.line; }).reduce(function (m, it) { return Math.max(m, it.planNo); }, 0);
   // 제지사 · 지종은 버튼으로 고른 값 그대로 (원지명 글자 입력 없음)
