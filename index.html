@@ -288,8 +288,8 @@
   .sheet { overscroll-behavior:contain; }
   .sheet .it { padding:10px 0; border-bottom:1px solid #E6E8EB; }
   .sheet .it.open { background:#FFF8E1; margin:0 -16px; padding:10px 16px; }
+  .fold2 { display:flex; width:100%; align-items:center; padding:12px 0; border:0; border-bottom:1px solid #E6E8EB; background:none; font:inherit; font-size:15px; font-weight:800; color:#555B63; text-align:left; } .fold2 span { flex:1; }
   .sheet .it.hl { background:#FFF8E1; margin:0 -16px; padding:10px 16px 10px 12px; border-left:4px solid var(--y); }
-  .hltag { display:inline-block; background:var(--y); color:var(--ink); font-size:11px; font-weight:900; padding:1px 6px; border-radius:6px; vertical-align:2px; }
   .sheet .sp { font-size:18px; }
   /* 적재순서 */
   .stkno { display:inline-block; min-width:20px; height:20px; line-height:20px; text-align:center; border-radius:5px; background:var(--ink); color:#fff; font-size:12px; font-weight:900; vertical-align:2px; }
@@ -2005,11 +2005,20 @@ function sheetRow() {
   var notes = [];
   if (ri.cfg.use) notes.push(ri.cfg.use);
   if (ri.cfg.off) notes.push(ri.cfg.st || '사용 불가');   // 통로 · 비사용 · 미사용
-  var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : '');
+  // 위치로 가기: 찾는 품목만 위에 (적재 번호 그대로) · 나머지 접기 · 제목 아래에 무엇을 어디서 찾아왔는지
+  var hlI = SH.hl && !SH.ord ? items.map(function (s, i) { return SH.hl.some(function (x) { return sameItem(x, s); }) ? i : -1; }).filter(function (i) { return i >= 0; }) : [];
+  var prev = SHST.length ? SHST[SHST.length - 1].sh : null, from = prev && prev.code && prev.code !== code ? prev.code : '';
+  var hsub = hlI.length ? '← ' + (from ? esc(whName(whOf(from) ? whOf(from).id : '')) + ' ' + esc(keyOf(from)) + '에서 · ' : '') + esc(fmtItem(items[hlI[0]])) : '';
+  var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', [hsub, notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : ''].filter(String).join('<br>'));
   if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
     h += '<div class="stkhint"><b>맨 위</b>가 먼저 출고 · 신규 입고분은 맨 위에 추가</div>' +
       (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
       '<button class="btn" style="width:100%; margin-top:12px; background:var(--ink); color:#fff" onclick="ordDone()">완료</button>';
+    return h;
+  }
+  if (hlI.length && !SH.hlAll && items.length > hlI.length) {
+    h += hlI.map(function (i) { return itemBlock(items[i], i, ri); }).join('') +
+      '<button class="fold2" onclick="SH.hlAll=true; renderSheet()"><span>이 줄의 다른 품목 ' + (items.length - hlI.length) + '개</span>▾</button>';
     return h;
   }
   h += items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '<div class="muted" style="padding:12px 0">비어 있음</div>';
@@ -2033,7 +2042,7 @@ function itemBlock(s, i, ri) {
   var badge = n > 1 ? '<b class="stkno" title="적재 순서 (1=맨 위)">' + (i + 1) + '</b> ' : '';
   var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 먼저 출고</span>' : '';
   var hl = SH.hl && SH.hl.some(function (x) { return sameItem(x, s); });   // 위치로 가기: 찾는 품목
-  var h = '<div class="it' + (open ? ' open' : '') + (hl ? ' hl' : '') + '"><div class="row"><span>' + (hl ? '<span class="hltag">찾는 품목</span> ' : '') + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
+  var h = '<div class="it' + (open ? ' open' : '') + (hl ? ' hl' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
     '<br><span class="muted">' + (gradeSub(s) ? esc(gradeSub(s)) + ' · ' : '') + lotText(s) + ' · ' + lv + '단' + '</span>' + othLocs(s) + '</span>' +
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
