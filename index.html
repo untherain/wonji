@@ -4,6 +4,8 @@
 <title>원지 창고</title>
 <meta name="apple-mobile-web-app-title" content="원지 창고">
 <meta name="robots" content="noindex">
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <meta charset="utf-8">
 <script>
 (function () {
@@ -18,26 +20,35 @@
   // 구글이 가끔 요청을 서버 코드에 넘기지 않고 삼킴 (2026-11-23 측정: 2번에 1번 · 서버 시작 기록 없음 = 실행 안 됨)
   // → 응답 없으면 같은 요청 다시 (읽기 10·25초 / 저장 15·35초) · 먼저 온 응답 사용 · 앞 요청은 끊지 않음
   // 저장은 같은 요청 번호(rid) → 서버가 이미 처리(중)이면 그 결과만 돌려줌 (중복 저장 없음)
+  // 2026-11-23 측정: 정상 응답 1.6~2.8초 · 막히면 60초 넘게 무응답(몇 분씩 몰려서) · 브라우저는 요청에 시간 제한이 없어
+  // 최대 5분 "처리 중"으로 화면이 멈춤 → 요청마다 시간 제한 + 읽기는 빨리 다시 보내기 + 끝내 응답 없으면 오류로 풀어 줌
+  var CFG = { read: { at: [5000, 12000, 22000], each: 25000, all: 40000, msg: '서버 응답 없음 (구글 지연) — 잠시 후 다시 시도' },
+              write: { at: [15000, 35000], each: 50000, all: 70000, msg: '서버 응답 없음 — 저장됐을 수 있음 · 기록 탭에서 확인 후 다시' } };
   function hedge(fn, args, ok, bad) {
-    var read = isRead(fn), rid = read ? '' : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-    var done = false, pend = 1;
-    var tms = (read ? [10000, 25000] : [15000, 35000]).map(function (ms) {
-      return setTimeout(function () { if (!done) { pend++; post(fn, args, o, b, false, rid); } }, ms);
+    var read = isRead(fn), c = read ? CFG.read : CFG.write, rid = read ? '' : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    var done = false, pend = 1, ctl = [];
+    var tms = c.at.map(function (ms) {
+      return setTimeout(function () { if (!done) { pend++; ctl.push(post(fn, args, o, b, false, rid, c.each)); } }, ms);
     });
-    function stop() { done = true; tms.forEach(clearTimeout); }
+    tms.push(setTimeout(function () { if (!done) { stop(); if (bad) bad(new Error(c.msg)); } }, c.all));
+    function stop() { done = true; tms.forEach(clearTimeout); if (read) ctl.forEach(function (a) { try { a && a(); } catch (e) {} }); }   // 읽기: 남은 요청 끊음
     function o(v) { if (done) return; stop(); if (ok) ok(v); }
     function b(e) { if (done || --pend > 0) return; stop(); if (bad) bad(e); }
-    post(fn, args, o, b, false, rid);
+    ctl.push(post(fn, args, o, b, false, rid, c.each));
   }
-  function post(fn, args, ok, bad, again, rid) {
+  // 요청 하나: each ms 안에 응답 없으면 끊음 · 끊는 함수를 돌려줌
+  function post(fn, args, ok, bad, again, rid, each) {
     if (!API) return fail(bad, '앱 주소에 접속 키 없음 — 처음 받은 링크로 열기');
     // 구글이 가끔 JSON 대신 오류 화면을 줌 → 읽기 요청만 한 번 더 (저장은 중복 위험이 있어 다시 보내지 않음)
-    var retry = !again && isRead(fn) ? function () { post(fn, args, ok, bad, true, rid); } : null;
+    var retry = !again && isRead(fn) ? function () { post(fn, args, ok, bad, true, rid, each); } : null;
     var token = typeof tok === 'function' ? tok() : '';
-    fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow',
+    var ac = window.AbortController ? new AbortController() : null, killed = false;
+    var tm = ac && each ? setTimeout(function () { ac.abort(); }, each) : null;
+    fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow', signal: ac ? ac.signal : undefined,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token, rid: rid || '' }) })
       .then(function (r) { if (!r.ok) throw new Error('서버 응답 ' + r.status); return r.json(); })
-      .catch(function (e) { if (retry) { retry(); retry = null; return new Promise(function () {}); } throw e; })
+      .then(function (j) { clearTimeout(tm); return j; }, function (e) { clearTimeout(tm); throw e; })
+      .catch(function (e) { if (killed) return new Promise(function () {}); if (retry) { retry(); retry = null; return new Promise(function () {}); } throw e; })
       .then(function (j) {
         if (!j.ok) {
           if (/^로그인 필요/.test(j.err || '')) askLogin(fn);
@@ -47,7 +58,8 @@
         if (v && typeof v === 'object' && 'appUrl' in v) v.appUrl = reloadUrl();   // [새 버전] = 이 화면 다시 열기
         if (ok) ok(v);
         if (fn === 'login' && needReload) setTimeout(function () { location.reload(); }, 300);   // 첫 화면을 못 불렀으면 로그인 뒤 다시 열기
-      }, function () { fail(bad, '연결 실패 — 네트워크 확인'); });
+      }, function (e) { fail(bad, e && e.name === 'AbortError' ? '서버 응답 없음 (구글 지연)' : '연결 실패 — 네트워크 확인'); });
+    return ac ? function () { killed = true; clearTimeout(tm); ac.abort(); } : null;
   }
   // 로그인 키 없음 · 만료: 그 자리에서 이름 · PIN 로그인 (앱의 quickLogin 사용)
   var asking = false;
@@ -676,7 +688,8 @@ function refreshStock(force) {
   if (BUSY) return;
   S.loadedAt = Date.now();
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
-  call('getStock', tok()).then(function (r) {
+  if (!force) call.quiet = true;   // 자동 새로 고침 실패는 알림 없이 다음 번에 다시 (구글 지연 때 1분마다 오류 알림 방지)
+  call('getStock', tok()).catch(function () { return new Promise(function () {}); }).then(function (r) {
     if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force) toast('재고 새로 고침 완료');
@@ -762,6 +775,7 @@ function call(fn) {
   var html = null;
   if (btn) { html = btn.innerHTML; btn.disabled = true; btn.classList.add('working'); btn.innerHTML = '<span class="spin"></span>처리 중…'; lastBtn = null; }
   busy(true, !NO_BLOCK[fn]);
+  var quiet = call.quiet; call.quiet = false;
   function done() {
     busy(false);
     if (btn) { btn.disabled = false; btn.classList.remove('working'); btn.innerHTML = html; }
@@ -769,7 +783,7 @@ function call(fn) {
   return new Promise(function (res, rej) {
     var r = google.script.run
       .withSuccessHandler(function (v) { done(); res(v); if (QSYNC[fn]) quickSync(); })
-      .withFailureHandler(function (e) { done(); toast((e && e.message) || String(e), true); rej(e); });
+      .withFailureHandler(function (e) { done(); if (!quiet) toast((e && e.message) || String(e), true); rej(e); });
     r[fn].apply(r, args);
   });
 }
@@ -5390,7 +5404,15 @@ function saveLocal() {
 /* ===== 시작 ===== */
 function reload() {
   $('loading').style.display = 'block';
-  call('getInit', tok()).then(function (d) {
+  $('loading').textContent = '불러오는 중...';
+  call('getInit', tok()).catch(function (e) {
+    // 첫 화면을 못 받음 (구글 지연 등): 멈춘 채 두지 않고 다시 시도 버튼 + 10초 뒤 자동 다시 시도 · 로그인 필요는 로그인 창이 처리
+    if (/^로그인 필요/.test((e && e.message) || '')) return new Promise(function () {});
+    var el = $('loading');
+    el.innerHTML = '서버 응답 없음 — 10초 뒤 다시 시도<br><button class="btn" style="margin-top:10px" onclick="clearTimeout(reload.h); reload()">지금 다시 시도</button>';
+    clearTimeout(reload.h); reload.h = setTimeout(reload, 10000);
+    return new Promise(function () {});
+  }).then(function (d) {
     var me = d.me;   // S와 d는 같은 객체 — 먼저 꺼내 둠
     S = d; S.me = ''; setStock(d.stock, d.at); $('loading').style.display = 'none';
     navBadge();
