@@ -1490,9 +1490,8 @@ function othLocs(s) {
   var o = othersOf(s); if (!o.length) return '';
   var by = {}; o.forEach(function (x) { var y = by[x.loc] || (by[x.loc] = { loc: x.loc, wh: x.wh, qty: 0 }); y.qty += x.qty; });
   var L = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.loc.localeCompare(b.loc); });
-  var multi = L.some(function (l) { return String(l.wh) !== String(s.wh); });
   return '<span style="display:block; font-size:13px; font-weight:800; margin-top:4px">타 위치 ' + L.length + '줄 · ' + L.reduce(function (a, l) { return a + l.qty; }, 0) + '롤</span>' +
-    L.map(function (l) { return '<button class="lchip lc" onclick="goLoc(\'' + l.loc + '\', [SH.items[' + SH.items.indexOf(s) + ']])">' + (multi ? '<small>' + esc(whName(l.wh)) + '</small> ' : '') + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>'; }).join('');
+    L.map(function (l) { return '<button class="lchip lc" onclick="goLoc(\'' + l.loc + '\', [SH.items[' + SH.items.indexOf(s) + ']])">' + '<small>' + esc(whName(l.wh)) + '</small> ' + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>'; }).join('');
 }
 function othersOf(s) { var g = sigOf(s); return S.stock.filter(function (x) { return x.loc !== s.loc && sigOf(x) === g; }); }
 /* B. 여기로 병합: 이 줄을 목적지로 고정 · 적게 든 곳부터 통째로 옮김(줄 수 감소) · 빈 자리 넘으면 거기서 멈춤
@@ -3747,12 +3746,12 @@ function distCard() {
   h += A.length ? A.map(function (e, i) {
     var job = MJ && MJ.sig === e.sig, frag = e.qty <= e.n * 2, enc = encodeURIComponent(e.sig);
     var chips = e.locs.map(function (l, j) {
-      return '<button class="lchip lc" onclick="distLoc(' + i + ',' + j + ')">' + (e.multi ? '<small>' + esc(whName(l.wh)) + '</small> ' : '') + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>';
+      return '<button class="lchip lc" onclick="distLoc(' + i + ',' + j + ')">' + '<small>' + esc(whName(l.wh)) + '</small> ' + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>';
     }).join('');
     var eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">병합하면 ' + e.P.before + '줄 → ' + e.P.after + '줄 (−' + e.cut + ')</span>'
       : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">병합 불가 — 빈 자리 부족</span>';
-    var btn = job ? '<button class="btn" style="height:38px; padding:0 12px; flex:none" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
-      : e.cut || e.multi ? '<button class="btn" style="height:38px; padding:0 14px; flex:none; background:var(--ink); color:var(--y)" onclick="startMerge(\'' + enc + '\')">병합 ▸</button>' : '';
+    var btn = job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
+      : e.cut || e.multi ? '<button class="btn" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startMerge(\'' + enc + '\')">병합 ▸</button>' : '';
     return '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (e.cut || job || e.multi ? '' : '; opacity:.55') + '">' +
       '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1; min-width:0">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</b>' +
       '<span class="muted" style="font-size:13px; white-space:nowrap">' + e.n + '줄 · ' + e.qty + '롤</span></div>' +
