@@ -2649,11 +2649,15 @@ function valPick(kind, o, cb) {
     cb(v);
   });
 }
-/* 선택칸은 화면에 그대로 두고 누름만 가로챔 (운영체제 목록 안 뜸) */
+/* 선택칸은 화면에 그대로 두고 누름만 가로챔 (운영체제 목록 안 뜸)
+   누른 자리에서 맨 위에 보이는 것이 그 선택칸일 때만 — 작업창 · 팝업 뒤에 가려진 선택칸은 무시 (가려진 칸이 대신 열리던 문제) */
 document.addEventListener('click', function (e) {
+  var top = document.elementFromPoint(e.clientX, e.clientY);
   var hit = [].filter.call(document.querySelectorAll('select[aria-label="지종"], select[aria-label="제지사"]'), function (s) {
     if (!s.offsetParent || s.disabled) return false;
-    var r = s.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (e.target === s) return true;
+    var r = s.getBoundingClientRect(); if (!(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)) return false;
+    return !!top && (top === s || s.contains(top));
   })[0];
   if (!hit) return;
   e.preventDefault(); e.stopPropagation(); pickSel(hit);
