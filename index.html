@@ -186,6 +186,8 @@
   .mkg { color:var(--sub); font-weight:600; }
   .pkl2 { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; margin-top:2px; }
   .pkl2 .lchip { margin:0; } .pkl2 details.note { margin:0; } .pkl2 details[open] { flex-basis:100%; }
+  .pkln { display:block; width:100%; height:auto; margin:2px 0 0; padding:0; border:0; background:none; text-align:left; font:inherit; font-size:12px; color:#5B6168; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pkln b { color:var(--ink); font-weight:800; margin-right:2px; }
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
   .stile.done .bar i { background:var(--ok); } .stile.done .sv { color:var(--ok); }
@@ -1628,7 +1630,7 @@ function renderSheet() {
   if (SH.mode === 'dist') { sheetDist(); return; }
   if (SH.mode === 'merge') { sheetMerge(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
-    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : sheetRow();
+    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : sheetRow();
   if (SH.mode === 'plan') plAfter();
 }
 
@@ -2507,7 +2509,7 @@ function fLocList(hits, force, dim) {
       '<div class="muted" style="font-size:12px">입고 ' + esc(g.date) + (i ? '' : ' · 선입선출 1순위') + (full ? ' · 빈 자리 없음' : '') + '</div></div><span class="muted">›</span></div>';
   }).join('');
 }
-function fGo(i) { var g = FLOCS[i]; if (!g) return; M.wh = g.wh; renderMap(); openRow(g.loc); }
+function fGo(i) { var g = FLOCS[i]; if (!g) return; if (TAB !== 'map') show('map'); M.wh = g.wh; renderMap(); openRow(g.loc); }   // 다른 탭(피킹 대체 목록 등)에서 눌러도 지도로
 /* 지도 검색창: 검색과 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
 function openFilter() { SH = { code: null, mode: 'filter', sp: F, phmsg: '' }; renderSheet(); }
 function sheetFilter() {
@@ -4157,7 +4159,7 @@ function pickRow(it, seq, a) {
   var done = PL.done[it.id], picked = PL.picked[it.id], pm = planMk(it);
   var bg = done ? '#F2FAF4' : picked ? '#EEF7F1' : a && a.lack ? '#FDF1F1' : '#fff';
   var warn = String(it.note || '').split(/\s+/).filter(function (w) { return /주의/.test(w); }).join(' ');
-  // 1줄: 제지사 규격 · 수량 / 2줄: 위치 칩 · 부족 · ⚠ 주의 · 지종 · 계획 번호 · 비고(접기) · 대체 후보(접기)
+  // 1줄: 제지사 규격 · 수량 / 2줄: 위치 칩 · 부족 · ⚠ 주의 · 지종 · 계획 번호 / 3줄: 비고 / 4줄: 대체 (부족할 때)
   var h = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0">' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b>' +
     '<b style="white-space:nowrap; flex:none">' + (it.all ? '전량' + (a && !done ? ' ' + a.got + '롤' : '') : it.qty + '롤') + '</b></div>';
   var l2 = [];
@@ -4168,10 +4170,12 @@ function pickRow(it, seq, a) {
   }
   if (warn) l2.push('<span style="font-size:13px; font-weight:900; color:#E8590C">⚠ ' + esc(warn) + '</span>');
   l2.push('<span class="muted" style="font-size:12px">' + esc([gradeSub(pm), '계획 ' + it.planNo].filter(String).join(' · ')) + '</span>');
-  if (it.note) l2.push(noteFold('pk' + it.id, true, '<div class="muted" style="font-size:12px">' + esc(it.note) + '</div>'));
-  if (!done && a && a.alts.length && (a.lack || !a.got)) l2.push('<details class="note"><summary>대체 ' + a.alts.length + '</summary><div class="muted" style="font-size:12px">' +
-    a.alts.map(function (x) { return esc(locLabel(x.loc)) + ' ' + esc(x.maker) + ' ' + x.qty + '롤'; }).join(' · ') + '</div></details>');
   h += '<div class="pkl2">' + l2.join('') + '</div>';
+  // 비고 · 대체: 접지 않고 한 줄씩 (길면 …) · 누르면 아래 창에 자세히 (비고 전체 · 대체 위치 → 지도)
+  var alt = !done && a && a.alts.length && (a.lack || !a.got) ? a.alts : null;
+  if (it.note) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>비고</b> ' + esc(it.note) + '</button>';
+  if (alt) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>대체</b> ' + esc(locLabel(alt[0].loc) + ' ' + alt[0].maker + ' ' + alt[0].qty + '롤') +
+    (alt.length > 1 ? ' 외 ' + (alt.length - 1) + '곳' : '') + ' ›</button>';
   return seqRow({ seq: seq, done: done, check: picked, off: !done && !(a && a.got), bg: bg, body: h, tap: done ? '' : 'togglePick(\'' + it.id + '\')', tight: true });
 }
 /* 공통 부품: 비고 접기 — 평소 접힘 · 펼친 상태는 다시 그려도 유지 (key별) · 내용 있으면 제목 옆 ● */
@@ -4180,13 +4184,25 @@ function noteFold(key, has, body) {
   key = String(key).replace(/[^\w가-힣-]/g, '_');
   return '<details class="note"' + (NOTE_OPEN[key] ? ' open' : '') + ' ontoggle="NOTE_OPEN[\'' + key + '\']=this.open"><summary>비고' + (has ? ' ●' : '') + '</summary>' + body + '</details>';
 }
-/* 비고: "주의"가 들어간 말은 주황 강조(항상 표시), 나머지(작업명 · 절단규격 등)는 접힘 */
-function noteHtml(note) {
-  note = String(note || '').trim();
-  if (!note) return '';
-  var warn = note.split(/\s+/).filter(function (w) { return /주의/.test(w); });
-  return (warn.length ? '<div style="font-size:13px; font-weight:900; color:#E8590C">⚠ ' + esc(warn.join(' · ')) + '</div>' : '') +
-    noteFold('pk' + note, true, '<div class="muted" style="font-size:12px">' + esc(note) + '</div>');
+/* 피킹 품목 자세히 (공통 작업창): 비고 전체 · 배정 위치 · 대체 위치 목록(검색 결과와 같은 목록 · 누르면 지도의 그 줄) */
+function pkDetail(id) { SH = { code: null, mode: 'pkd', pid: id }; renderSheet(); $('detail').scrollTop = 0; }
+function sheetPkd() {
+  var it = PL.items.filter(function (x) { return x.id === SH.pid; })[0];
+  if (!it) return shHead('품목 없음', '', false);
+  var a = allocPlan()[it.id], pm = planMk(it);
+  var h = shHead(esc(it.line) + ' 계획 #' + it.planNo + ' · ' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + ' · ' + (it.all ? '전량' : it.qty + '롤'), '', false);
+  if (it.note) h += '<div class="card" style="margin-top:8px"><div class="muted" style="font-size:12px; font-weight:700">비고</div><div style="font-size:16px; white-space:pre-wrap">' + esc(it.note) + '</div></div>';
+  if (a) {
+    h += '<div class="card" style="margin-top:8px"><div class="muted" style="font-size:12px; font-weight:700">배정</div>' +
+      (a.locs.length ? a.locs.map(function (l) { return '<span class="lchip">' + esc(locLabel(l.loc)) + ' ' + l.qty + '롤</span>'; }).join(' ') : '<span class="muted">없음</span>') +
+      (a.lack ? ' <b style="color:#9A1C1C">부족 ' + a.lack + '</b>' : '') + '</div>';
+    // 대체 = 같은 규격 · 다른 제지사(또는 잔량) 재고 → 검색 결과와 같은 위치 목록
+    var hits = a.alts.length ? S.stock.filter(function (s) {
+      return s.gsm == it.gsm && s.width == it.width && a.alts.some(function (x) { return x.loc === s.loc && x.maker === (s.rem ? '잔량 ' : '') + (s.maker || '?'); });
+    }) : [];
+    if (hits.length) h += fLocList(hits, true).replace('<h2 style="margin:14px 0 6px">결과 ', '<h2 style="margin:14px 0 6px">대체 ');
+  }
+  return h;
 }
 function togglePick(id) { PL.picked[id] = !PL.picked[id]; savePL(); renderPlan(); }
 function confirmLine(line) {
