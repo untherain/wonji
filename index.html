@@ -15,22 +15,27 @@
   function fail(cb, msg) { if (cb) cb(new Error(msg)); }
   var needReload = false;
   function isRead(fn) { return /^(get|loginNames$)/.test(fn); }
-  // 구글이 가끔 응답 없이 붙잡고 있음 → 읽기 요청은 12초 응답 없으면 같은 요청 하나 더 · 먼저 온 응답 사용
-  // (끊지 않음: 느린 폰 · 서버 깨어나는 중이어도 원래 요청은 끝까지 기다림)
+  // 구글이 가끔 요청을 서버 코드에 넘기지 않고 삼킴 (2026-11-23 측정: 2번에 1번 · 서버 시작 기록 없음 = 실행 안 됨)
+  // → 응답 없으면 같은 요청 다시 (읽기 10·25초 / 저장 15·35초) · 먼저 온 응답 사용 · 앞 요청은 끊지 않음
+  // 저장은 같은 요청 번호(rid) → 서버가 이미 처리(중)이면 그 결과만 돌려줌 (중복 저장 없음)
   function hedge(fn, args, ok, bad) {
+    var read = isRead(fn), rid = read ? '' : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     var done = false, pend = 1;
-    var tm = setTimeout(function () { if (!done) { pend++; post(fn, args, o, b); } }, 12000);
-    function o(v) { if (done) return; done = true; clearTimeout(tm); if (ok) ok(v); }
-    function b(e) { if (done || --pend > 0) return; done = true; clearTimeout(tm); if (bad) bad(e); }
-    post(fn, args, o, b);
+    var tms = (read ? [10000, 25000] : [15000, 35000]).map(function (ms) {
+      return setTimeout(function () { if (!done) { pend++; post(fn, args, o, b, false, rid); } }, ms);
+    });
+    function stop() { done = true; tms.forEach(clearTimeout); }
+    function o(v) { if (done) return; stop(); if (ok) ok(v); }
+    function b(e) { if (done || --pend > 0) return; stop(); if (bad) bad(e); }
+    post(fn, args, o, b, false, rid);
   }
-  function post(fn, args, ok, bad, again) {
+  function post(fn, args, ok, bad, again, rid) {
     if (!API) return fail(bad, '앱 주소에 접속 키 없음 — 처음 받은 링크로 열기');
     // 구글이 가끔 JSON 대신 오류 화면을 줌 → 읽기 요청만 한 번 더 (저장은 중복 위험이 있어 다시 보내지 않음)
-    var retry = !again && isRead(fn) ? function () { post(fn, args, ok, bad, true); } : null;
+    var retry = !again && isRead(fn) ? function () { post(fn, args, ok, bad, true, rid); } : null;
     var token = typeof tok === 'function' ? tok() : '';
     fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token }) })
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token, rid: rid || '' }) })
       .then(function (r) { if (!r.ok) throw new Error('서버 응답 ' + r.status); return r.json(); })
       .catch(function (e) { if (retry) { retry(); retry = null; return new Promise(function () {}); } throw e; })
       .then(function (j) {
@@ -51,7 +56,7 @@
     if (asking || typeof quickLogin !== 'function') return;
     asking = true;
     try { localStorage.removeItem('token'); } catch (e) {}
-    post('loginNames', [], function (names) {
+    hedge('loginNames', [], function (names) {
       asking = false;
       S.workers = Object.assign({ approved: [], pending: [], stopped: [], noPin: [] }, S.workers || {}, { approved: names || [] });
       quickLogin();
@@ -65,7 +70,7 @@
     return new Proxy({}, { get: function (o, k) {
       if (k === 'withSuccessHandler') return function (f) { return runner(f, bad); };
       if (k === 'withFailureHandler') return function (f) { return runner(ok, f); };
-      return function () { (isRead(k) ? hedge : post)(k, [].slice.call(arguments), ok, bad); };
+      return function () { hedge(k, [].slice.call(arguments), ok, bad); };
     } });
   }
   window.google = { script: { run: runner(null, null), history: { replace: function (s, o) {
