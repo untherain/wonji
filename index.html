@@ -1431,18 +1431,33 @@ function startMerge(enc) {
 }
 /* 병합 범위: 한 창고 = 바로 작업 목록 · 여러 창고 = 작은 선택 창 (선택지마다 결과 줄 수 · WMS 재고 통합과 같은 흐름) */
 function mergeScope(enc) {
-  var sig = decodeURIComponent(enc), whQ = {};
-  S.stock.forEach(function (s) { if (sigOf(s) === sig) whQ[String(s.wh)] = (whQ[String(s.wh)] || 0) + s.qty; });
+  var sig = decodeURIComponent(enc), whQ = {}, by = {};
+  S.stock.forEach(function (s) {
+    if (sigOf(s) !== sig) return;
+    whQ[String(s.wh)] = (whQ[String(s.wh)] || 0) + s.qty;
+    var x = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, s: s }); x.qty += s.qty;
+  });
   var ids = Object.keys(whQ).sort(function (a, b) { return a - b; });
-  if (ids.length < 2) return consolidate(enc);
-  function opt(v, t, c) { var P = c.P, ok = P.moves.length > 0; return { v: v, t: t, tag: ok ? P.before + '줄 → ' + P.after + '줄' : '', sub: ok ? '' : '보관 ' + P.before + '줄 · 감소 불가', off: !ok }; }
-  var ch = [opt('sep', '창고마다 따로', mergeCalc(sig, null, true)), opt('all', '창고 합쳐서 (다른 창고로도 옮김)', mergeCalc(sig, null, false))];
-  ids.forEach(function (id) { var c = mergeCalc(sig, [id], false); var o = opt('w' + id, whName(id) + '만', c); o.sub = (o.sub ? o.sub + ' · ' : '') + c.recs.length + '줄 · ' + whQ[id] + '롤'; ch.push(o); });
-  ask({ title: '병합 범위 · ' + distTitle(sig), list: true, chips: ch }, function (v) {
+  if (Object.keys(by).length < 2) { toast('병합 대상 없음'); return; }
+  // 자동: 적게 옮기는 쪽 (창고 여럿이면 창고마다 따로 · 합쳐서)
+  function auto(v, t, sub, c) { var P = c.P, ok = P.moves.length > 0; return { v: v, t: t, sub: sub + ' · ' + (ok ? P.before + '줄 → ' + P.after + '줄' : '감소 불가'), off: !ok, cut: ok ? P.before - P.after : 0 }; }
+  var autos = ids.length > 1 ? [auto('sep', '자동 · 창고마다 따로', '다른 창고로 옮기지 않음', mergeCalc(sig, null, true)), auto('all', '자동 · 창고 합쳐서', '다른 창고로도 옮김', mergeCalc(sig, null, false))]
+    : [auto('all', '자동', '적게 든 줄부터 빈 자리 큰 줄로', mergeCalc(sig, null, false))];
+  var rec = autos.filter(function (o) { return !o.off; })[0]; if (rec) rec.tag = '추천';   // 창고 안 정리 먼저 (안 되면 합쳐서)
+  // 도착 위치 지정: 이 원지가 있는 위치마다 "여기로 모으기" 결과 (좋은 순 · 자리 없으면 흐리게)
+  var dst = Object.keys(by).map(function (k) {
+    var x = by[k], J = hereJob(x.loc, sig, ids), ok = J.moves.length > 0;
+    return { v: 'h:' + x.loc, t: whName(x.wh) + ' ' + keyOf(x.loc), sub: x.qty + '롤 · 빈 자리 ' + J.free + ' · ' + (ok ? J.before + '줄 → ' + J.after + '줄' : '모을 자리 없음'), off: !ok, after: ok ? J.after : 99, free: J.free };
+  }).sort(function (a, b) { return a.after - b.after || b.free - a.free; });
+  ask({ title: '병합 · ' + distTitle(sig), msg: Object.keys(by).length + '줄 · ' + ids.reduce(function (a, id) { return a + whQ[id]; }, 0) + '롤' +
+      (ids.length > 1 ? ' · ' + ids.map(function (id) { return whName(id) + ' ' + Object.keys(by).filter(function (k) { return String(by[k].wh) === id; }).length + '줄'; }).join(' · ') : ''),
+    list: true, chips: [{ h: '자동 (적게 옮기는 쪽으로)' }].concat(autos, [{ h: '도착 위치 지정 (여기로 모으기)' }], dst) }, function (v) {
     if (!v) return;
-    if (v === 'sep') consolidate(enc, null, true);
-    else if (v === 'all') consolidate(enc, null, false);
-    else consolidate(enc, [v.slice(1)], false);
+    if (v === 'sep') return consolidate(enc, null, true);
+    if (v === 'all') return consolidate(enc, null, false);
+    var J = hereJob(v.slice(2), sig, ids);   // 도착 위치 · 대상 창고는 작업 목록에서 켜고 끔
+    if (!J.moves.length) { toast('모을 자리 없음', true); return; }
+    MJ = J; mjSave(); openMerge();
   });
 }
 /* 병합 단계 화면: 한 화면 한 건 (출발 → 도착 크게) · 이동 완료 시 재고 반영 후 다음 건 */
