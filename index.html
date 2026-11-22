@@ -118,13 +118,15 @@
 .seg .ndot { margin-left:4px; }
   .locbox { display:flex; flex-direction:column; gap:6px; }
   .sugtag { font-size:12px; font-weight:800; color:var(--ink); background:var(--y); border-radius:6px; padding:2px 8px; }
-  #i-loc.sug select, #i-loc.sug .pq { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
+  #i-loc.sug select { border-color:var(--y); box-shadow:0 0 0 2px var(--y) inset; }
   .locwait { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:12px; border:1.5px dashed #C9CDD3; border-radius:12px; color:var(--sub); font-size:14px; font-weight:700; }
   .locwait .btn2 { height:32px; padding:0 12px; font-size:13px; color:#9A1C1C; }
   .locwait span { width:100%; }
   .card.full { opacity:.5; }
   .prow { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
-  .prow .pl { flex:1; min-width:0; } .prow .pq { width:62px; flex:none; text-align:center; padding:0 4px; }
+  .prow { flex-wrap:wrap; } .prow .pl { flex:1 1 100%; min-width:0; }
+  .pqrow { display:flex; align-items:center; gap:8px; width:100%; justify-content:flex-end; } .pqrow > .muted { flex:1; font-size:13px; }
+  .pqrow .stepper { gap:6px; } .pqrow .stepper button { width:42px; height:42px; font-size:22px; } .pqrow .stepper span { font-size:22px; min-width:36px; }
   .tag { display:inline-block; width:66px; height:62px; border-radius:10px; background:#E6E8EB; text-align:center; padding-top:6px; flex:none; }
   .tag b { display:block; font-size:19px; }
   .tag.hot { background:var(--ink); color:var(--y); }
@@ -3291,9 +3293,10 @@ function setPartQty(k, v) {
 function renderParts() {
   var multi = I.parts.length > 1;
   $('i-loc').innerHTML = I.parts.map(function (x, k) {
+    // 롤 수 = 공통 수량 ± (위치 하나면 위 롤 수와 같아 생략)
     return '<div class="prow"><div class="pl" id="i-p' + k + '"></div>' +
-      '<input class="mini pq" type="number" inputmode="numeric" value="' + x.qty + '" onchange="setPartQty(' + k + ', this.value)" aria-label="롤 수"><span class="muted" style="flex:none">롤</span>' +
-      (multi ? '<button class="xbtn" onclick="delPart(' + k + ')" aria-label="줄 삭제">×</button>' : '') + '</div>';
+      (multi ? '<div class="pqrow"><span class="muted">' + (k + 1) + '번 위치 롤 수</span>' + stepper(x.qty, 'setPartQty(' + k + ',I.parts[' + k + '].qty-1)', 'setPartQty(' + k + ',I.parts[' + k + '].qty+1)', (k + 1) + '번 위치 롤 수') +
+        '<button class="xbtn" onclick="delPart(' + k + ')" aria-label="줄 삭제">×</button></div>' : '') + '</div>';
   }).join('') + '<button class="btn2" style="width:100%; height:34px; font-size:13px" onclick="addPart()">+ 줄 추가</button>';
   I.parts.forEach(function (x, k) {
     var sub = $('i-p' + k);
