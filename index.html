@@ -330,6 +330,7 @@
   #modal #md-msg { font-size:15px; color:var(--ink); }
   #modal .chip { height:54px; font-size:17px; }
   #modal .btn, #modal .btn2 { height:52px; font-size:17px; }
+  #modal #md-x { height:36px; width:40px; font-size:18px; flex:none; }   /* 선택형 팝업 닫기 = 작업창 ✕ 와 같은 크기 */
   #modal input, #modal select { height:52px; font-size:18px; }
   @media (min-width:600px) { #modal { align-items:center; padding:24px; } #modal .mbox { max-width:480px; border-radius:16px; padding:22px; } }
   .sheet { margin:0 auto; max-width:640px; }
@@ -623,7 +624,7 @@
 <div id="busy-block"></div>
 <div id="modal" role="dialog" aria-modal="true" aria-labelledby="md-title">
   <div class="mbox">
-    <div id="md-title" class="big"></div>
+    <div class="row" style="align-items:flex-start; gap:8px"><div id="md-title" class="big" style="flex:1; min-width:0"></div><button class="btn2 xb" id="md-x" aria-label="닫기" style="display:none">✕</button></div>
     <div id="md-msg" class="muted" style="white-space:pre-line"></div>
     <select id="md-select" aria-label="선택" style="display:none"></select>
     <div id="md-chips" style="display:none"></div>
@@ -663,7 +664,7 @@ function fSum(tail) {
 }
 function fHits() { var hits = S.stock.filter(fMatch), locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; }); return { list: hits, locs: Object.keys(locs).length, qty: hits.reduce(function (a, s) { return a + s.qty; }, 0) }; }
 /* 문구 검색칸: 재고 검색 (글자 칠 때 결과만 갱신 · 입력칸은 그대로) */
-function fQ(v) { F.q = v; renderMap(); var c = $('fq-cnt'), h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '곳 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); }
+function fQ(v) { F.q = v; renderMap(); var c = $('fq-cnt'), h = fHits(), l = $('fq-list'); if (c) c.textContent = fOn() ? h.locs + '줄 · ' + h.qty + '롤' : ''; if (l) l.innerHTML = fLocList(h.list); }
 var M = { wh: null };                               // 위치 현황 창고
 var I = { gsm: null, width: null, qty: 1, rem: false, from: null, locManual: false }; // 입고 (rem = 잔량 반납 · locManual = 보관 위치 직접 선택)
 var LG = { mode: '이력' };   // 기록 (이력 · 보고서)
@@ -1058,7 +1059,8 @@ function ask(o, cb) {
   m.querySelector('.mbox').insertBefore(srch, chs);
   if (o.chips) { inp.style.display = 'none'; ok.style.display = 'none'; }
   else ok.style.display = '';
-  ok.parentNode.style.gridTemplateColumns = o.chips ? '1fr' : '';   // 확인 버튼 없으면 취소 전체 폭
+  // 닫기 표준: 선택형(목록에서 하나 선택 · 선택 즉시 닫힘) = 상단 ✕ (작업창과 동일) · 확인 · 입력형 = 하단 [취소][확인]
+  $('md-x').style.display = o.chips ? '' : 'none'; ok.parentNode.style.display = o.chips ? 'none' : '';
   var box = m.querySelector('.mbox');
   if (o.extra) box.appendChild(chs); else box.insertBefore(chs, inp);   // 추가 버튼(숨기기 등)은 맨 아래
   if (o.extra) { chs.style.display = 'grid'; o.extra.forEach(function (x) {
@@ -1102,12 +1104,12 @@ function ask(o, cb) {
   m.onclick = function (e) { if (e.target === m && o.dismiss !== false) close(null); };   // 바깥(배경) 클릭 → 취소 (특별한 경우만 dismiss:false)
   // 터치 처리 안에서 바로 포커스해야 모바일 키보드가 같이 뜸 (setTimeout을 거치면 iOS가 키보드를 막음)
   if (o.input !== false && !o.chips) { inp.focus(); if (inp.value) try { inp.select(); } catch (e) {} }
-  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = inp.onkeydown = m.onclick = srch.oninput = srch.onkeydown = null; cb(v); }
+  function close(v) { m.style.display = 'none'; ok.onclick = $('md-cancel').onclick = $('md-x').onclick = inp.onkeydown = m.onclick = srch.oninput = srch.onkeydown = null; cb(v); }
   ok.onclick = function () {
     if (o.choices) { var d = o.input === false ? '' : inp.value.trim(); return close(sel.value + (d ? ' — ' + d : '')); }
     close(o.input === false ? true : inp.value.trim());
   };
-  $('md-cancel').onclick = function () { close(null); };
+  $('md-cancel').onclick = $('md-x').onclick = function () { close(null); };
   inp.onkeydown = function (e) { if (e.key === 'Enter') ok.onclick(); };
 }
 
@@ -1342,7 +1344,7 @@ function renderMap() {
   seg($('m-whseg'), S.whs.map(function (x) {
     if (PKM) {   // 피킹 위치 선택: 창고마다 후보 줄 수
       var pn = Object.keys(PKM.locs).filter(function (c) { return c.split('-')[0] == x.id; }).length;
-      return [x.id, '<span style="' + (pn ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (pn ? '<b class="fhit">후보 ' + pn + '곳</b>' : '없음') + '</small></span>', 'wh:' + x.id];
+      return [x.id, '<span style="' + (pn ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (pn ? '<b class="fhit">후보 ' + pn + '줄</b>' : '없음') + '</small></span>', 'wh:' + x.id];
     }
     if (fo) {
       var q = fh.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
@@ -1588,7 +1590,7 @@ function searchBar() {
   var fh = fHits(), hits = fh.list, locs = {}; hits.forEach(function (s) { locs[s.loc] = 1; });
   var lab = [F.maker, (F.gsm || F.width) ? (F.gsm || '전체') + ' × ' + (F.width || '전체') : '', F.grade, F.q ? '"' + F.q + '"' : ''].filter(Boolean).join(' ');
   return '<div class="srch" role="button" onclick="openFilter()"><b>' + esc(lab) + '</b><span class="cnt">' +
-    Object.keys(locs).length + '곳 · ' + hits.reduce(function (a, s) { return a + s.qty; }, 0) + '롤</span><button class="clr" aria-label="검색 해제" onclick="clearFilter(event)">✕</button></div>';
+    Object.keys(locs).length + '줄 · ' + hits.reduce(function (a, s) { return a + s.qty; }, 0) + '롤</span><button class="clr" aria-label="검색 해제" onclick="clearFilter(event)">✕</button></div>';
 }
 /* 오늘 입고 진행 한 줄: 몇 줄 · 몇 롤 · 마지막 입고 → [이어서] = 그 줄 입고창을 같은 규격으로 */
 function progLine() {
@@ -1624,7 +1626,7 @@ function moveBand() {
   var s = MV.item;
   return '<div class="band"><div class="row"><b>이동 · ' + esc(keyOf(MV.from)) + ' · ' + esc(fmtItem(s)) + '</b><button class="btn2" style="height:34px; flex:none" onclick="cancelMove()">취소</button></div>' +
     '<div class="row" style="margin-top:6px"><span style="font-weight:700">롤 수</span>' + stepper(MV.qty, 'mvQty(-1)', 'mvQty(1)', '이동 롤 수', '', { max: s.qty }) + '</div>' +
-    '<div style="font-size:13px; font-weight:700; margin-top:4px">도착 줄 누르면 저장 · 다른 창고는 위에서 선택</div></div>';
+    '<div style="font-size:13px; font-weight:700; margin-top:4px">도착 줄 선택 시 저장 · 타 창고는 상단에서 선택</div></div>';
 }
 
 /* ===== 지도 작업창: 줄 누르면 출고 · 이동 · 입고 · 실사 (모든 작업을 지도에서) ===== */
@@ -2263,7 +2265,7 @@ function sheetDoc() {
     else { ok++; cls = 'color:var(--ok)'; tag = need != null || x.all ? '충분 ✓' : ''; }
     return '<div class="card row" role="button" style="gap:8px; margin-bottom:6px; padding:8px 10px; cursor:pointer' + (st.rolls ? '' : '; opacity:.75') + '" onclick="docSel(' + i + ')">' +
       '<div style="flex:1; min-width:0"><b style="font-size:16px">' + itemHtml(x) + '</b>' +
-      '<div class="muted" style="font-size:13px">' + (x.all ? '필요 전량 · ' : need != null ? '필요 ' + need + '롤 · ' : '') + '재고 ' + st.rolls + '롤' + (st.locs ? ' · ' + st.locs + '곳' : '') + '</div></div>' +
+      '<div class="muted" style="font-size:13px">' + (x.all ? '필요 전량 · ' : need != null ? '필요 ' + need + '롤 · ' : '') + '재고 ' + st.rolls + '롤' + (st.locs ? ' · ' + st.locs + '줄' : '') + '</div></div>' +
       (tag ? '<b style="flex:none; ' + cls + '">' + tag + '</b>' : '') + '<span class="muted">›</span></div>';
   }).join('');
   return shHead('문서에서 찾은 규격 ' + L.length + '개', '충분 ' + ok + ' · 부족 ' + lack + ' · 없음 ' + none, false) + '<div style="margin-top:8px">' + rows + '</div>';
@@ -2362,7 +2364,7 @@ function itemBlock(s, i, ri) {
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
     h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수', '', { max: s.qty }) +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
-      '<div class="muted" style="margin:10px 0 6px; font-weight:700">출고처 — 누르면 저장</div>' +
+      '<div class="muted" style="margin:10px 0 6px; font-weight:700">출고처 — 선택 시 저장</div>' +
       '<div class="cgf">' +
       ds.map(function (d, j) { return '<button class="chip' + (d === last ? ' last' : '') + '" data-qk="출고처" data-qv="' + esc(d) + '" onclick="doOut(' + j + ')">' + esc(d) + '</button>'; }).join('') +
       '<button class="chip etc" onclick="destAdd(function (v) { var j = (S.quick[\'출고처\'] || []).indexOf(v); if (j >= 0) doOut(j); })">+ 입력</button></div>' +
@@ -3002,7 +3004,7 @@ function fLocList(hits, force, dim) {
   hits.forEach(function (s) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, date: s.date, items: [] }); g.qty += s.qty; g.items.push(s); if (s.date < g.date) g.date = s.date; });
   var L = FLOCS = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.loc.localeCompare(b.loc); });
   if (!L.length) return '<div class="card muted" style="margin-top:12px">해당 재고 없음</div>';
-  return '<h2 style="margin:14px 0 6px">결과 ' + L.length + '곳</h2>' + L.map(function (g, i) {
+  return '<h2 style="margin:14px 0 6px">결과 ' + L.length + '줄</h2>' + L.map(function (g, i) {
     var s0 = g.items[0], full = dim && freeFor(g.loc, s0.gsm, s0.width, s0.grade) === 0;
     return '<div class="card row' + (full ? ' full' : '') + '" role="button" style="justify-content:flex-start; gap:10px; margin-bottom:6px; padding:8px 10px; cursor:pointer" onclick="fGo(' + i + ')">' +
       '<span class="tag' + (i ? '' : ' hot') + '"><small>' + esc(whName(g.wh)) + '</small><b>' + esc(keyOf(g.loc)) + '</b></span>' +
@@ -3053,12 +3055,12 @@ function sheetFilter() {
 function fText(h) {
   if (!fOn()) return '';
   var spec = F.gsm && F.width ? F.gsm + '×' + F.width : F.gsm || F.width || '';
-  return [[F.maker, spec].filter(Boolean).join(' '), F.grade, F.q].filter(Boolean).join(' · ') + ' · ' + h.locs + '곳 · ' + h.qty + '롤';
+  return [[F.maker, spec].filter(Boolean).join(' '), F.grade, F.q].filter(Boolean).join(' · ') + ' · ' + h.locs + '줄 · ' + h.qty + '롤';
 }
 function fType(v) {
   var p = parseLine(v);
   F.gsm = p.gsm || null; F.width = p.width || null; F.maker = p.maker || ''; F.grade = '';
-  var rest = String(v).replace(/(\d{2,3})\s*[-\/~×xX*＊ ]\s*(\d{3,4})/, ' ').replace(/\d+\s*(곳|롤)/g, ' ').replace(/전체/g, ' ');
+  var rest = String(v).replace(/(\d{2,3})\s*[-\/~×xX*＊ ]\s*(\d{3,4})/, ' ').replace(/\d+\s*(곳|줄|롤)/g, ' ').replace(/전체/g, ' ');
   if (p.maker) rest = rest.split(/\s+/).filter(function (w) { return normMk(canonMaker(w)) !== normMk(p.maker); }).join(' ');
   // 숫자 하나만: 500 미만 세 자리 이하 = 평량 · 500~3000 = 지폭
   rest = rest.split(/\s+/).filter(function (w) {
@@ -4110,7 +4112,7 @@ function inHint() {
       if (I.qty > free) bad = true;
     } else if (ri.w) h += '빈 칸 ' + Math.max(0, ri.slots - ri.used) + '/' + ri.slots;
     if (ri.cfg.use && ri.cfg.use !== '원지') h += ' · [' + ri.cfg.use + '] 줄';
-    if (sameHere) h += ' · 같은 규격 있음';
+    if (sameHere) h += ' · 동일 규격 보관';
   } else {
     var over = I.parts.filter(function (x) { return I.width && x.qty > freeFor(x.loc, I.gsm, I.width, g); }).map(function (x) { return keyOf(x.loc); });
     h = '전량 ' + I.qty + '롤 · ' + I.parts.length + '줄 분산' + (sum !== I.qty ? ' · 합계 ' + sum + '롤 (불일치)' : '') + (over.length ? ' · 적재 공간 부족: ' + over.join(', ') : '');
@@ -4261,7 +4263,7 @@ function repTables() {
   var aj = [['일시', '위치', '규격', '조정', '사유', '작업자']];
   (r.adj || []).forEach(function (x) { aj.push([x.time, locLabel(x.loc), x.gsm + '×' + x.width + (x.rem ? ' 잔량' : ''), x.qty, x.reason, x.worker]); });
   T.adj = aj;
-  var di = [['규격', '지종', '제지사', '곳수', '롤 수', '위치']];   // 분산 원지 (현재 재고 기준)
+  var di = [['규격', '지종', '제지사', '줄 수', '롤 수', '위치']];   // 분산 원지 (현재 재고 기준)
   distAll().forEach(function (e) { var p = e.sig.split('|'); di.push([p[0] + '×' + p[1] + (p[4] === 'Y' ? ' 잔량' : ''), p[2], p[3], Object.keys(e.locs).length, e.qty, Object.keys(e.locs).map(keyOf).join(' ')]); });
   T.dist = di;
   return T;
@@ -4595,16 +4597,16 @@ function fillMk(it) {
 /* ===== 재고 배분 (WMS: 시스템 배정 + 작업자 위치 지정 · 규칙 어김 사유 기록) =====
    순서: 1호기 → 2호기 → 3호기, 계획 번호 순
    ① 작업자 지정(PL.pin[id] = [{ k: 재고 키, qty }] · qty 0 = 그 위치 제외)을 먼저 잡음 → 다른 품목이 그 롤을 가져가지 않음
-   ② 나머지 수량은 배정 규칙(PL.opt.rule)대로 자동: 선입선출 · 잔량 먼저 · 한 곳에서 · 줄 비우기
+   ② 나머지 수량은 배정 규칙(PL.opt.rule)대로 자동: 선입선출 · 잔량 우선 · 단일 줄 우선 · 줄 정리 우선
    등급(tier): 1 같은 제지사 · 지종 / 2 같은 제지사 / 3 재고 제지사 미기록(제지사 확인) / 9 제지사 다름 · 잔량 = 대체 후보 (자동 배정 안 함) */
-var PK_RULES = [['fifo', '선입선출'], ['rem', '잔량 먼저'], ['one', '한 곳에서'], ['empty', '줄 비우기']];
+var PK_RULES = [['fifo', '선입선출'], ['rem', '잔량 우선'], ['one', '단일 줄 우선'], ['empty', '줄 정리 우선']];
 function pkRule() { var r = (PL.opt || {}).rule; return PK_RULES.some(function (x) { return x[0] === r; }) ? r : 'fifo'; }
 function stkKey(s) { return s.loc + '|' + (s.grade || '') + '|' + s.gsm + '|' + s.width + '|' + (s.rem ? 'Y' : '') + '|' + (s.maker || ''); }
 function pkActive() {
   return PL.items.filter(function (it) { return it.line !== '기타' && !PL.done[it.id] && it.gsm && it.width; })
     .sort(function (a, b) { return LINES.indexOf(a.line) - LINES.indexOf(b.line) || a.planNo - b.planNo; });
 }
-/* 같은 규격 재고 후보 + 등급 (배정 규칙 '잔량 먼저' = 같은 제지사 잔량 롤을 맨 앞으로) */
+/* 같은 규격 재고 후보 + 등급 (배정 규칙 '잔량 우선' = 같은 제지사 잔량 롤을 맨 앞으로) */
 function pkCands(it) {
   var nm = planMk(it), rule = pkRule();
   return S.stock.filter(function (s) { return s.gsm == it.gsm && s.width == it.width; }).map(function (s) {
@@ -4952,21 +4954,21 @@ function renderPick(el) {
   el.innerHTML = h; pkOptSeg(view);
 }
 function pkOptSeg(view) {
-  seg($('pk-view'), [['line', '호기 순'], ['loc', '위치 순 (동선)']], view, function (v) { lsSet('pkView', v === 'loc' ? 'loc' : ''); renderPlan(); });
+  seg($('pk-view'), [['line', '호기 순'], ['loc', '동선 순']], view, function (v) { lsSet('pkView', v === 'loc' ? 'loc' : ''); renderPlan(); });
   seg($('pk-rule'), PK_RULES, pkRule(), function (v) {
     PL.opt = PL.opt || {}; if (v === 'fifo') delete PL.opt.rule; else PL.opt.rule = v;
     plMt('o', 'rule'); savePL(); renderPlan();
-    toast('배정 규칙 · ' + PK_RULES.filter(function (x) { return x[0] === v; })[0][1] + ' (📌 지정 품목은 그대로)');
+    toast('배정 규칙 · ' + PK_RULES.filter(function (x) { return x[0] === v; })[0][1] + ' (📌 지정 품목 유지)');
   });
 }
-/* 위치 순 보기 (WMS 피킹 동선): 배정 위치를 창고 → 구역 → 줄 순서로 · 누르면 그 품목 피킹 체크 · 한 품목이 여러 곳이면 각각 표시 */
+/* 동선 순 보기 (WMS 피킹 동선): 배정 위치를 창고 → 구역 → 줄 순서로 · 누르면 그 품목 피킹 체크 · 한 품목이 여러 곳이면 각각 표시 */
 function pkLocView(A) {
   var rows = [];
   PL.items.forEach(function (it) {
     if (PL.done[it.id] || !A[it.id]) return;
     A[it.id].locs.forEach(function (l) { rows.push({ it: it, l: l, n: A[it.id].locs.length }); });
   });
-  if (!rows.length) return '<div class="card muted" style="margin-top:10px">꺼낼 위치 없음 (모두 출고 확정 · 재고 없음)</div>';
+  if (!rows.length) return '<div class="card muted" style="margin-top:10px">피킹 대상 없음 (전량 출고 확정 · 재고 없음)</div>';
   function ord(code) {
     var p = String(code).split('-'), wi = S.whs.map(function (w) { return String(w.id); }).indexOf(p[0]), w = S.whs[wi] || { zones: [] };
     var zi = w.zones.map(function (z) { return z.code; }).indexOf(p[1]);
@@ -4978,17 +4980,17 @@ function pkLocView(A) {
   S.whs.forEach(function (w, wi) {
     var rs = rows.filter(function (r) { return r.o[0] === wi; }); if (!rs.length) return;
     var picked = rs.filter(function (r) { return PL.picked[r.it.id]; }).length;
-    h += grpCard({ title: esc(w.name), sub: rs.length + '곳 · ' + rs.reduce(function (x, r) { return x + r.l.qty; }, 0) + '롤 · 체크 ' + picked + '/' + rs.length,
+    h += grpCard({ title: esc(w.name), sub: rs.length + '줄 · ' + rs.reduce(function (x, r) { return x + r.l.qty; }, 0) + '롤 · 체크 ' + picked + '/' + rs.length,
       rows: rs.map(function (r) {
         var it = r.it, pm = planMk(it);
         var body = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0"><span class="lchip" style="margin:0 6px 0 0">' + (r.l.pin ? '📌' : '') + esc(keyOf(r.l.loc)) + '</span>' +
           itemHtml({ maker: r.l.maker || pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b><b style="white-space:nowrap; flex:none">' + r.l.qty + '롤</b></div>' +
-          '<div class="muted" style="font-size:12px">' + esc(it.line + ' 계획 #' + it.planNo) + (r.n > 1 ? ' · ' + r.n + '곳 중' : '') + (r.l.alt ? ' · 대체' : '') + (r.l.check ? ' · 제지사 확인' : '') + '</div>';
+          '<div class="muted" style="font-size:12px">' + esc(it.line + ' 계획 #' + it.planNo) + (r.n > 1 ? ' · 분할 ' + r.n + '줄' : '') + (r.l.alt ? ' · 대체' : '') + (r.l.check ? ' · 제지사 확인' : '') + '</div>';
         return seqRow({ seq: ++seq, check: PL.picked[it.id], bg: PL.picked[it.id] ? '#EEF7F1' : '#fff', body: body, tap: 'togglePick(\'' + it.id + '\')', tight: true,
           side: '<button class="btn2" style="height:32px; padding:0 8px; font-size:12px" onclick="pkDetail(\'' + it.id + '\')">변경</button>' });
       }).join('') });
   });
-  return h + '<div class="muted" style="font-size:12px; margin-top:6px">출고 확정은 [호기 순]에서 호기별로</div>';
+  return h + '<div class="muted" style="font-size:12px; margin-top:6px">출고 확정: [호기 순] 화면에서 호기별 진행</div>';
 }
 /* 공통 부품: 상태 칸 한 줄 — 같은 너비 칸에 이름 · 값 · 진행 막대 · 보조 글 (창고 적재율 · 피킹 진행)
    t = [{ name, val, pct, sub, done, tap(onclick 코드), lp(길게 누르기) }] */
@@ -5041,7 +5043,7 @@ function pickRow(it, seq, a) {
   var alt = !done && a && a.alts.length && (a.lack || !a.got) ? a.alts : null;
   if (it.note) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>비고</b> ' + esc(it.note) + '</button>';
   if (alt) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>대체</b> ' + esc(locLabel(alt[0].loc) + ' ' + alt[0].maker + ' ' + alt[0].qty + '롤') +
-    (alt.length > 1 ? ' 외 ' + (alt.length - 1) + '곳' : '') + ' ›</button>';
+    (alt.length > 1 ? ' 외 ' + (alt.length - 1) + '줄' : '') + ' ›</button>';
   return seqRow({ seq: seq, done: done, check: picked, off: !done && !(a && a.got), bg: bg, body: h, tap: done ? 'pkDone(\'' + it.id + '\')' : 'togglePick(\'' + it.id + '\')', tight: true });
 }
 /* 공통 부품: 비고 접기 — 평소 접힘 · 펼친 상태는 다시 그려도 유지 (key별) · 내용 있으면 제목 옆 ● */
@@ -5058,17 +5060,17 @@ function sheetPkd() {
   var A = allocPlan(), a = A[it.id], pm = planMk(it), want = it.all ? '전량' : it.qty + '롤';
   var h = shHead(esc(it.line) + ' 계획 #' + it.planNo + ' · ' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + ' · ' + want, '', false);
   if (it.note) h += '<div class="card" style="margin-top:8px"><div class="muted" style="font-size:12px; font-weight:700">비고</div><div style="font-size:16px; white-space:pre-wrap">' + esc(it.note) + '</div></div>';
-  if (PL.done[it.id]) return h + '<div class="card muted" style="margin-top:8px">출고 확정 완료 · 수정은 품목을 누름</div>';
+  if (PL.done[it.id]) return h + '<div class="card muted" style="margin-top:8px">출고 확정 완료 · 수정: 품목 선택</div>';
   if (!a) return h;
   // 배정 요약: 몇 롤 · 지정 여부 · 규칙 · 사유
   var rn = PK_RULES.filter(function (x) { return x[0] === pkRule(); })[0][1];
   h += '<div class="card" style="margin-top:8px"><div class="row" style="gap:6px"><span><b>배정 ' + a.got + '롤</b>' + (a.lack ? ' <b style="color:#9A1C1C">부족 ' + a.lack + '</b>' : '') +
     ' <span class="muted" style="font-size:12px">' + (a.pinned ? '📌 작업자 지정' : '자동 · ' + rn) + '</span>' +
     (PL.why && PL.why[it.id] ? '<br><span style="font-size:13px; font-weight:800; color:#9A6700">예외 사유 · ' + esc(PL.why[it.id]) + '</span>' : '') + '</span>' +
-    (a.pinned ? '<button class="btn2" style="height:34px; flex:none" onclick="pkAuto()">자동 배정으로</button>' : '') + '</div>' +
-    (a.pinShort ? '<div style="font-size:13px; color:#9A1C1C; font-weight:800; margin-top:4px">지정 위치 재고 ' + a.pinShort + '롤 줄어듦 → 나머지 자동 보충</div>' : '') + '</div>';
-  h += '<div class="row" style="margin:14px 0 6px"><h2 style="margin:0">위치 후보</h2><button class="btn2" style="height:34px; flex:none" onclick="pkMap()">지도에서 선택</button></div>';
-  h += '<div class="muted" style="font-size:12px; margin-bottom:6px">누르면 그 위치에서 꺼냄 · −/+ = 나눠 꺼내기 · 위치 칸 = 지도의 그 줄</div>';
+    (a.pinned ? '<button class="btn2" style="height:34px; flex:none" onclick="pkAuto()">자동 배정 복원</button>' : '') + '</div>' +
+    (a.pinShort ? '<div style="font-size:13px; color:#9A1C1C; font-weight:800; margin-top:4px">지정 위치 재고 ' + a.pinShort + '롤 감소 → 부족분 자동 배정</div>' : '') + '</div>';
+  h += '<div class="row" style="margin:14px 0 6px"><h2 style="margin:0">위치 후보</h2><button class="btn2" style="height:34px; flex:none" onclick="pkMap()">지도 선택</button></div>';
+  h += '<div class="muted" style="font-size:12px; margin-bottom:6px">선택 시 해당 위치 지정 · −/+ = 분할 피킹 · 위치 칸 선택 시 지도 표시</div>';
   h += pkCandList(it, A) || '<div class="card muted">같은 규격 재고 없음</div>';
   return h;
 }
@@ -5086,7 +5088,7 @@ function pkCandList(it, A) {
   return cs.map(function (c, i) {
     var s = c.s, age = s.date ? Math.round((today - new Date(s.date)) / 864e5) : '', fl = [];
     if (c === first) fl.push('<b style="color:var(--ok)">선입선출 1순위</b>');
-    if (c.tier === 9) fl.push('<b style="color:#9A6700">' + (s.rem ? '잔량' : '제지사 다름') + ' · 대체</b>');
+    if (c.tier === 9) fl.push('<b style="color:#9A6700">' + (s.rem ? '잔량' : '타 제지사') + ' · 대체</b>');
     if (c.tier === 3) fl.push('<b style="color:#9A6700">제지사 확인</b>');
     c.others.forEach(function (o) { fl.push('<span style="color:#5A6470">' + esc(o.it.line) + ' #' + o.it.planNo + ' 배정 ' + o.qty + '롤</span>'); });
     if (mv[s.loc]) fl.push('<b style="color:#9A1C1C">병합 이동 예정</b>');
@@ -5096,16 +5098,16 @@ function pkCandList(it, A) {
       '<span class="tag' + (on ? ' hot' : '') + '" role="button" onclick="pkGo(' + i + ')"><small>' + esc(whName(s.wh)) + '</small><b>' + esc(keyOf(s.loc)) + '</b></span>' +
       '<div class="pkcb" role="button" onclick="pkPick(' + i + ')">' +
       '<div style="font-weight:700">' + (on && mine[c.k].pin ? '📌 ' : '') + itemHtml(s) + remTag(s) + (s.grade ? ' <span class="muted" style="font-weight:500">' + esc(s.grade) + '</span>' : '') + '</div>' +
-      '<div class="muted" style="font-size:12px">입고 ' + esc(s.date || '-') + (age !== '' ? ' (' + age + '일)' : '') + ' · 재고 ' + s.qty + '롤' + (c.free !== s.qty ? ' · 가능 ' + Math.max(0, c.free) + '롤' : '') + '</div>' +
+      '<div class="muted" style="font-size:12px">입고 ' + esc(s.date || '-') + (age !== '' ? ' (' + age + '일)' : '') + ' · 재고 ' + s.qty + '롤' + (c.free !== s.qty ? ' · 가용 ' + Math.max(0, c.free) + '롤' : '') + '</div>' +
       (fl.length ? '<div style="font-size:12px">' + fl.join(' · ') + '</div>' : '') + '</div>' +
       '<div class="pkcs">' +
-      (on || c.free > 0 ? stepper(c.mine, 'pkQty(' + i + ',-1)', 'pkQty(' + i + ',1)', '꺼낼 롤 수', '', { max: Math.max(0, c.free) }) : '') +
-      '<button class="btn2 pkno" onclick="pkMissing(' + i + ')">현장 없음</button></div></div>';
+      (on || c.free > 0 ? stepper(c.mine, 'pkQty(' + i + ',-1)', 'pkQty(' + i + ',1)', '피킹 롤 수', '', { max: Math.max(0, c.free) }) : '') +
+      '<button class="btn2 pkno" onclick="pkMissing(' + i + ')">결품 신고</button></div></div>';
   }).join('');
 }
 function pkItem() { return SH && PL.items.filter(function (x) { return x.id === SH.pid; })[0]; }
 /* 지정 저장 공통: 더 오래된 재고를 남기거나 대체 원지를 쓰면 사유 한 번 (WMS 예외 사유) → 출고 기록 메모에 남음 */
-var PK_WHY = ['꺼내기 어려움', '가까운 위치', '잔량 먼저 소진', '기타'];
+var PK_WHY = ['하역 곤란', '근거리 위치', '잔량 우선 소진', '기타'];
 function pkSet(it, pins) {
   var save = function (why) {
     PL.pin = PL.pin || {}; PL.why = PL.why || {};
@@ -5128,7 +5130,7 @@ function pkSet(it, pins) {
   var sub = a2.locs.some(function (l) { return l.alt; });
   if (!older && !sub) return save('');
   if (PL.why && PL.why[it.id]) return save(PL.why[it.id]);
-  ask({ title: sub ? '대체 원지 사용 사유' : '선입선출 예외 사유', msg: sub ? '제지사 다름 · 잔량 롤 사용' : '더 오래된 재고가 남음', chips: sub ? ['작업 지시', '원래 원지 부족', '잔량 먼저 소진', '기타'] : PK_WHY },
+  ask({ title: sub ? '대체 원지 사용 사유' : '선입선출 예외 사유', msg: sub ? '타 제지사 · 잔량 롤 사용' : '선입선출 선순위 재고 잔존', chips: sub ? ['작업 지시', '지정 원지 부족', '잔량 우선 소진', '기타'] : PK_WHY },
     function (r) { if (r) save(r); });
 }
 /* 지금 배정 그대로를 지정으로 굳힘 (수량 바꾸기 기준) · 제외(0) 표시는 유지 */
@@ -5139,7 +5141,7 @@ function pkFreeze(it) {
 }
 function pkPick(i) {   // 이 위치에서 꺼냄 (모자라면 나머지는 자동)
   var it = pkItem(), c = SH.pc[i]; if (!it || !c) return;
-  if (c.free <= 0) { toast('다른 품목에 모두 배정됨 · 그 품목 위치를 먼저 변경', true); return; }
+  if (c.free <= 0) { toast('타 품목 전량 배정 · 해당 품목 위치 선행 변경 필요', true); return; }
   var need = it.all ? c.free : Number(it.qty) || 0;
   pkSet(it, [{ k: c.k, qty: Math.min(c.free, need) }]);
 }
@@ -5148,7 +5150,7 @@ function pkQty(i, d) {
   var pins = pkFreeze(it), p = pins.filter(function (x) { return x.k === c.k; })[0];
   if (!p) { p = { k: c.k, qty: 0 }; pins.push(p); }
   var nq = Math.max(0, Math.min(c.free, p.qty + d));
-  if (nq === p.qty) { if (d > 0) toast('이 위치 가능 수량 ' + Math.max(0, c.free) + '롤', true); return; }
+  if (nq === p.qty) { if (d > 0) toast('해당 위치 가용 ' + Math.max(0, c.free) + '롤', true); return; }
   p.qty = nq;
   // 늘리면 총량 유지: 다른 위치 중 가장 새 입고부터 덜어냄 (전량 품목 제외)
   if (d > 0 && !it.all) {
@@ -5176,17 +5178,17 @@ function pkBand() {
   var it = PL.items.filter(function (x) { return x.id === PKM.id; })[0] || {}, pm = planMk(it);
   return '<div class="band"><div class="row"><b>피킹 위치 선택 · ' + esc(it.line + ' #' + it.planNo) + ' · ' + esc(fmtItem({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width })) + ' · ' + (it.all ? '전량' : it.qty + '롤') + '</b>' +
     '<button class="btn2" style="height:34px; flex:none" onclick="pkMapEnd()">취소</button></div>' +
-    '<div style="font-size:13px; font-weight:700; margin-top:4px">노란 줄 = 후보 · 누르면 그 위치에서 꺼냄 · 다른 창고는 위에서 선택</div></div>';
+    '<div style="font-size:13px; font-weight:700; margin-top:4px">노란 줄 = 후보 · 선택 시 해당 위치 지정 · 타 창고는 상단에서 선택</div></div>';
 }
 function pkMapEnd(after) {
   var id = PKM && PKM.id; PKM = null;
   show('plan'); if (id) { pkDetail(id); if (after) after(); }
 }
 function pkMapTap(code) {
-  if (!PKM.locs[code]) { toast('이 줄에 같은 규격 없음', true); return; }
+  if (!PKM.locs[code]) { toast('해당 줄 동일 규격 없음', true); return; }
   pkMapEnd(function () {
     var ix = SH.pc.map(function (c, i) { return c.s.loc === code && c.free > 0 ? i : -1; }).filter(function (i) { return i >= 0; });
-    if (!ix.length) { toast('이 줄 재고는 다른 품목에 모두 배정됨', true); return; }
+    if (!ix.length) { toast('해당 줄 재고 타 품목 전량 배정', true); return; }
     if (ix.length === 1) return pkPick(ix[0]);
     ask({ title: keyOf(code) + ' · 품목 선택', list: true, chips: ix.map(function (i) { var c = SH.pc[i]; return { v: String(i), t: fmtItem(c.s, c.free), sub: '입고 ' + c.s.date + (c.s.grade ? ' · ' + c.s.grade : '') }; }) },
       function (v) { if (v != null) pkPick(Number(v)); });
@@ -5197,11 +5199,11 @@ function pkMissing(i) {
   if (!requireWorker()) return;
   var c = SH.pc[i]; if (!c) return;
   var s = c.s, code = s.loc;
-  ask({ title: '현장 재고 확인 · ' + keyOf(code), msg: fmtItem(s) + (s.grade ? ' · ' + s.grade : '') + (s.rem ? ' · 잔량' : '') + '\n전산 ' + s.qty + '롤 → 현장 실제 롤 수', value: '0', type: 'number', numeric: true, ok: '다음' }, function (v) {
+  ask({ title: '결품 신고 · ' + keyOf(code), msg: fmtItem(s) + (s.grade ? ' · ' + s.grade : '') + (s.rem ? ' · 잔량' : '') + '\n전산 ' + s.qty + '롤 → 실물 롤 수 입력', value: '0', type: 'number', numeric: true, ok: '다음' }, function (v) {
     if (v === null || v === '') return;
     var n = Number(v);
     if (!(n >= 0) || Math.floor(n) !== n) { toast('0 이상 정수 입력', true); return; }
-    if (n === s.qty) { toast('전산과 같음 · 변경 없음'); return; }
+    if (n === s.qty) { toast('전산 수량과 동일 · 변경 없음'); return; }
     adjSave(code, [Object.assign(itemP(s), { actual: n })], [fmtItem(s) + ' ' + (n > s.qty ? '+' : '') + (n - s.qty) + '롤'], n > s.qty, n < s.qty,
       function () { renderPlan(); if (SH && SH.mode === 'pkd') renderSheet(); });
   });
@@ -5220,16 +5222,16 @@ function pkDone(id) {
   var pm = planMk(it), what = it.line + ' #' + it.planNo + ' · ' + fmtItem({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }, it.all ? null : it.qty);
   pkRecs(it, function (recs) {
     var sum = recs.map(function (h) { return '#' + h.no + ' ' + plain(locLabel(h.loc)) + ' ' + h.qty + '롤'; }).join('\n');
-    ask({ title: '출고 확정 품목', msg: what + '\n' + (recs.length ? sum : '출고 기록 없음 (이미 취소 · 수정됨)'), chips: recs.length ? ['수량 · 위치 수정', '출고 확정 취소'] : ['다시 피킹 (확정 해제)'] }, function (v) {
+    ask({ title: '출고 확정 품목', msg: what + '\n' + (recs.length ? sum : '출고 기록 없음 (기취소 · 기수정)'), chips: recs.length ? ['수량 · 위치 수정', '출고 확정 취소'] : ['재피킹 (확정 해제)'] }, function (v) {
       if (!v) return;
       var reopen = function () { delete PL.done[id]; plMt('d', id); savePL(); renderPlan(); };
-      if (v === '다시 피킹 (확정 해제)') return reopen();
+      if (v === '재피킹 (확정 해제)') return reopen();
       if (v === '출고 확정 취소') {
         var past = recs.some(function (h) { return h.day !== todayStr(); }), tot = recs.reduce(function (x, h) { return x + h.qty; }, 0);
         var go = function () {
           undoCall(recs.map(function (h) { return h.no; })).then(function (r) { setStock(r && r.stock ? r.stock : r); reopen(); toast('출고 확정 취소 · 재고 복구 ' + tot + '롤'); });
         };
-        return ask({ title: '출고 확정 취소', msg: sum + '\n→ 재고 복구 · 피킹 목록으로' + (past ? '\n(지난 날짜 건: 관리자 PIN 필요)' : ''), input: false, ok: '확정 취소', danger: true },
+        return ask({ title: '출고 확정 취소', msg: sum + '\n→ 재고 복구 · 피킹 목록 복귀' + (past ? '\n(지난 날짜 건: 관리자 PIN 필요)' : ''), input: false, ok: '확정 취소', danger: true },
           function (y) { if (!y) return; if (past) needPin(go); else go(); });
       }
       // 수량 · 위치 수정 = 기록 탭 이력 수정 (공통) · 1건이면 바로 수정 화면
@@ -6092,7 +6094,7 @@ function drawOpening(r, title) {
       r.errors.map(function (e) { return '<div class="muted">' + e.row + '행: ' + esc(e.msg) + '</div>'; }).join('') +
       (r.errorCount > r.errors.length ? '<div class="muted">외 ' + (r.errorCount - r.errors.length) + '건 (시트 결과 열 확인)</div>' : '')
       : r.rows ? '<div style="color:var(--ok); font-weight:700; margin-top:6px">오류 없음 — [등록] 가능</div>' : '') +
-    (r.warns.length ? '<div style="color:#7A4B00; font-weight:700; margin-top:6px">적재 기준 초과 ' + r.warns.length + '곳 (등록은 가능 · 수량·위치 확인)</div>' +
+    (r.warns.length ? '<div style="color:#7A4B00; font-weight:700; margin-top:6px">적재 기준 초과 ' + r.warns.length + '줄 (등록 가능 · 수량 · 위치 확인 필요)</div>' +
       r.warns.slice(0, 10).map(function (w) { return '<div class="muted">' + esc(w) + '</div>'; }).join('') : '') +
     '</div>';
   checkOpening.last = r;
@@ -6106,7 +6108,7 @@ function commitOpening() {
     drawOpening(r, '검사 결과 · 기준일 ' + opBase());
     if (r.errorCount) { toast('오류 ' + r.errorCount + '건 — 시트 수정 후 재검사', true); return; }
     if (!r.rows) { toast('등록 대상 행 없음', true); return; }
-    ask({ title: '기초재고 등록', msg: r.rows + '행 · ' + r.rolls + '롤 등록\n입고일 빈 칸 → ' + opBase() + (r.warns.length ? '\n적재 기준 초과 ' + r.warns.length + '곳 있음' : ''), input: false, ok: '등록' }, function (y) {
+    ask({ title: '기초재고 등록', msg: r.rows + '행 · ' + r.rolls + '롤 등록\n입고일 빈 칸 → ' + opBase() + (r.warns.length ? '\n적재 기준 초과 ' + r.warns.length + '줄' : ''), input: false, ok: '등록' }, function (y) {
       if (!y) return;
       needPin(function (pin) {
         call('commitOpening', { base: opBase(), pin: pin, worker: worker(), test: isTest() }).then(function (x) {
