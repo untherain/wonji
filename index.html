@@ -25,7 +25,7 @@
   var CFG = { read: { at: [5000, 12000, 22000], each: 25000, all: 40000, msg: '서버 응답 없음 (구글 지연) — 잠시 후 다시 시도' },
               write: { at: [15000, 35000], each: 50000, all: 70000, msg: '서버 응답 없음 — 저장됐을 수 있음 · 기록 탭에서 확인 후 다시' } };
   function hedge(fn, args, ok, bad) {
-    var read = isRead(fn), c = read ? CFG.read : CFG.write, rid = read ? '' : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    var read = isRead(fn), c = read ? CFG.read : CFG.write, rid = read ? '' : (args[0] && args[0].__rid) || Date.now().toString(36) + Math.random().toString(36).slice(2, 10);   // 앱 대기열 저장 = 그 저장의 고정 번호
     var done = false, pend = 1, ctl = [];
     var tms = c.at.map(function (ms) {
       return setTimeout(function () { if (!done) { pend++; ctl.push(post(fn, args, o, b, false, rid, c.each)); } }, ms);
@@ -298,6 +298,9 @@
   @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
   #busy .pill { position:absolute; top:10px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; font-size:14px; font-weight:700; padding:6px 14px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
   #busy-block { position:fixed; inset:0; z-index:15; display:none; }
+  /* 빠른 저장 전송 상태 (처리 중 알약과 같은 모양 · 아래쪽 탭 위) — 보내는 중 = 흐리게 · 미전송(다시 시도 중) = 빨강 */
+  #obb { position:fixed; bottom:calc(74px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:29; display:none; border:0; background:var(--ink); color:#fff; font:inherit; font-size:13px; font-weight:700; padding:5px 12px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.25); opacity:.75; }
+  #obb.late { background:#9A1C1C; opacity:1; }
   #toast.ok { background:var(--ok); }
   #modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:20; padding:16px; }
   #modal .mbox { background:#fff; border-radius:14px; padding:16px; width:100%; max-width:360px; display:flex; flex-direction:column; gap:10px; }
@@ -681,23 +684,33 @@ function setStock(stock, at) {
   if (stock && !Array.isArray(stock) && stock.today) S.today = stock.today;   // 오늘 입고 진행 (저장 · 되돌리기 결과)
   if (stock && !Array.isArray(stock) && stock.stock) stock = stock.stock;   // 저장 결과 { stock, nos }
   S.stock = stock; S.loadedAt = Date.now(); S.at = at || hhmm();
+  if (typeof cacheS === 'function' && reload.shown) cacheS();   // 다음에 앱 열 때 바로 보일 데이터
 }
-/* 다른 작업자 입력 반영: 탭 이동 · 앱 복귀 때 15초 지났으면 새로 고침, ↻ 누르면 바로 */
+/* 서버 재고 다시 받기: 앱 복귀 때 5분 지났으면 (시트 직접 수정 반영) · 당겨서 새로 고침 = 바로
+   전송 대기 중인 저장이 있으면 받지 않음 (서버 재고에 아직 없는 저장이 화면에서 사라지는 것 방지 · 다 보내면 서버 결과로 맞춰짐) */
 function refreshStock(force) {
   if (!S.whs || !S.whs.length) return;
-  if (!force && Date.now() - (S.loadedAt || 0) < 15000) return;
-  if (BUSY) return;
+  if (!force && Date.now() - (S.loadedAt || 0) < 300000) return;
+  if (BUSY || refreshStock.on) return;
+  if (OB.q.length) { if (force) { obKick(); toast('미전송 ' + OB.q.length + '건 보내는 중 — 끝나면 서버 기준으로 맞춤'); } return; }
   S.loadedAt = Date.now();
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
-  if (!force) call.quiet = true;   // 자동 새로 고침 실패는 알림 없이 다음 번에 다시 (구글 지연 때 1분마다 오류 알림 방지)
-  call('getStock', tok()).catch(function () { return new Promise(function () {}); }).then(function (r) {
+  if (!force) call.quiet = true;   // 자동 새로 고침: 알림 · 처리 중 표시 없음 (실패하면 다음 번에 다시)
+  refreshStock.on = true;
+  call('getStock', tok()).then(function (r) {
+    refreshStock.on = false;
+    if (OB.q.length) return;   // 받는 사이 새 저장 → 이번 결과는 버림
     if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force) toast('재고 새로 고침 완료');
-    if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
-    else if (TAB === 'in') inHint();
-    else if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
-  });
+    rerender();
+  }, function () { refreshStock.on = false; });
+}
+/* 재고가 바뀐 뒤 지금 화면 다시 그리기 (설정 편집 · 입력 중엔 건너뜀) */
+function rerender() {
+  if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
+  else if (TAB === 'in') inHint();
+  else if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshStock(false); });
 /* 위쪽 버튼: 재고 탭 = [🔍 검색](검색 팝업) · 새 버전 배포 감지 시 모든 탭 = [↑ 새 버전](앱 다시 열기) · 그 외 숨김
@@ -726,8 +739,7 @@ function syncTap() {   // 당겨서 새로고침
   if (NEWVER) return $('newVer').click();
   refreshStock(true);
 }
-/* 1분마다 자동 새로 고침 (작업창 · 이동 중에는 건너뜀) */
-setInterval(function () { if (document.visibilityState === 'visible' && !SH && !MV) refreshStock(false); }, 60000);
+/* 1분 자동 새로 고침 없음 (1인 사용 · 로컬 우선): 재고는 폰이 바로 계산 · 서버는 앱 복귀(5분 경과) · 당겨서 새로 고침 때만 확인 */
 /* 화면 맨 위에서 아래로 당기면 새로 고침 */
 (function () {
   var y0 = null, dy = 0, P = $('ptr');
@@ -775,10 +787,10 @@ function call(fn) {
   var btn = (fn !== 'getInit' && lastBtn && lastBtn.isConnected && !lastBtn.disabled && !inClosedModal && Date.now() - lastBtnAt < 800) ? lastBtn : null;
   var html = null;
   if (btn) { html = btn.innerHTML; btn.disabled = true; btn.classList.add('working'); btn.innerHTML = '<span class="spin"></span>처리 중…'; lastBtn = null; }
-  busy(true, !NO_BLOCK[fn]);
   var quiet = call.quiet; call.quiet = false;
+  if (!quiet) busy(true, !NO_BLOCK[fn]);   // 조용한 호출(자동 새로 고침 · 첫 화면 뒤 갱신)은 처리 중 표시 없음
   function done() {
-    busy(false);
+    if (!quiet) busy(false);
     if (btn) { btn.disabled = false; btn.classList.remove('working'); btn.innerHTML = html; }
   }
   return new Promise(function (res, rej) {
@@ -788,6 +800,218 @@ function call(fn) {
     r[fn].apply(r, args);
   });
 }
+
+/* ===== 빠른 저장 (로컬 우선 · 1인 사용) =====
+   저장 버튼 → 폰 재고에 바로 반영(서버와 같은 규칙: 출고 = 오래된 입고일부터 · 이동 = 입고일 유지) → 서버 전송은 대기열에서 순서대로
+   - 대기열은 폰에 보관(앱 닫아도 유지) · 같은 요청 번호로 다시 보내 중복 저장 없음 (서버가 6시간 기억)
+   - 응답 없음 = 대기열에 두고 15초 뒤 다시 · 서버 거절(재고 부족 등) = 알림 + 서버 재고로 되돌린 뒤 남은 대기 건 다시 반영
+   - 서버 재고는 대기열이 비었을 때만 화면에 씀 (보내는 중인 저장이 사라지지 않게) */
+var OB = { q: [], done: {}, run: false, tm: null };
+(function () { try { OB.q = JSON.parse(lsGet('outbox') || '[]'); OB.done = JSON.parse(lsGet('obDone') || '{}'); } catch (e) { OB.q = []; OB.done = {}; } })();
+function obSave() {
+  var ks = Object.keys(OB.done); if (ks.length > 200) ks.slice(0, ks.length - 200).forEach(function (k) { delete OB.done[k]; });
+  lsSet('outbox', OB.q.length ? JSON.stringify(OB.q) : ''); lsSet('obDone', JSON.stringify(OB.done)); obBadge();
+}
+/* 미전송 표시: 화면 아래 작은 알림 (누르면 지금 다시 보내기) */
+function obBadge() {
+  var b = $('obb');
+  if (!b) { b = document.createElement('button'); b.id = 'obb'; b.onclick = function () { obKick(true); }; document.body.appendChild(b); }
+  var n = OB.q.length, late = n && OB.q[0].tries > 0;
+  b.style.display = n ? 'block' : 'none';
+  b.className = late ? 'late' : '';
+  b.textContent = late ? '미전송 ' + n + '건 · 다시 보내기' : '보내는 중 ' + n + '건';
+}
+/* --- 폰 재고 계산 (서버 stockList_ 모양: 위치 · 지종 · 평량 · 폭 · 잔량 · 제지사별 1건, lots = 입고일별) --- */
+function lcRem(x) { return x === true || x === 'Y'; }
+function lcDay() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function lcMatch(s, loc, it, mk) {
+  return s.loc === loc && (s.grade || '') === String(it.grade || '') && Number(s.gsm) === Number(it.gsm) && Number(s.width) === Number(it.width) &&
+    !!s.rem === lcRem(it.rem) && (mk == null || (s.maker || '') === String(mk).trim());
+}
+function lcFix(s) {   // 로트 · 제지사 정리 + 대표 입고일
+  s.lots = s.lots.filter(function (l) { return l.qty > 0; }).sort(function (a, b) { return a.date.localeCompare(b.date); });
+  s.makers = s.makers.filter(function (m) { return m.qty > 0; });
+  s.date = s.lots.length ? s.lots[0].date : '';
+}
+function lcAdd(T, loc, it, qty, date, mk) {
+  if (!(qty > 0)) return;
+  mk = String(mk == null ? (it.maker || '') : mk).trim();
+  var s = T.stock.filter(function (x) { return lcMatch(x, loc, it, mk); })[0];
+  if (!s) {
+    var p = loc.split('-');
+    s = { loc: loc, wh: Number(p[0]), zone: p[1], no: Number(p[2]), grade: String(it.grade || ''), gsm: String(Number(it.gsm)), width: String(Number(it.width)),
+      qty: 0, maker: mk, rem: lcRem(it.rem), date: '', lots: [], makers: [] };
+    T.stock.push(s);
+  }
+  s.qty += qty;
+  var l = s.lots.filter(function (x) { return x.date === date; })[0]; if (l) l.qty += qty; else s.lots.push({ date: date, qty: qty });
+  var m = s.makers.filter(function (x) { return x.maker === mk; })[0]; if (m) m.qty += qty; else s.makers.push({ maker: mk, qty: qty });
+  lcFix(s);
+  T.fx.push({ loc: loc, it: lcIt(it), lots: [[date, qty, mk]], add: 1 });
+}
+function lcIt(it) { return { grade: String(it.grade || ''), gsm: it.gsm, width: it.width, rem: lcRem(it.rem) }; }
+/* 차감: lots 지정 = 그 입고일 · 제지사부터(되돌리기) · 없으면 오래된 입고일부터 → 차감한 로트 [[입고일, 롤 수, 제지사]] */
+function lcSub(T, loc, it, qty, want) {
+  var es = T.stock.filter(function (x) { return lcMatch(x, loc, it, it.byMaker ? (it.maker || '') : null); });
+  var have = es.reduce(function (a, s) { return a + s.qty; }, 0);
+  if (have < qty) throw new Error(keyOf(loc) + ': ' + it.gsm + '×' + it.width + (lcRem(it.rem) ? ' 잔량' : '') + ' 재고 ' + have + '롤 (수량 부족)');
+  var cand = [];
+  es.forEach(function (s) { s.lots.forEach(function (l) { cand.push({ s: s, l: l }); }); });
+  cand.sort(function (a, b) { return a.l.date.localeCompare(b.l.date); });
+  var left = qty, out = [];
+  function take(x, n) {
+    n = Math.min(n, x.l.qty, left); if (n <= 0) return 0;
+    x.l.qty -= n; x.s.qty -= n; left -= n;
+    var mk = x.s.maker || '', m = x.s.makers.filter(function (y) { return y.maker === mk; })[0]; if (m) m.qty -= n;
+    var o = out.filter(function (y) { return y[0] === x.l.date && y[2] === mk; })[0]; if (o) o[1] += n; else out.push([x.l.date, n, mk]);
+    return n;
+  }
+  (want || []).forEach(function (w) {
+    var n = w[1];
+    cand.filter(function (x) { return x.l.date === w[0] && (x.s.maker || '') === String(w[2] || ''); }).forEach(function (x) { n -= take(x, n); });
+  });
+  cand.forEach(function (x) { take(x, Infinity); });
+  es.forEach(lcFix);
+  T.stock = T.stock.filter(function (s) { return s.qty > 0; });
+  T.fx.push({ loc: loc, it: lcIt(it), lots: out, add: 0 });
+  return out;
+}
+/* 오늘 입고 진행 (지도 ✓ 표시): 입고 · 반납만, 테스트 제외 */
+function lcToday(T, loc, it, q) {
+  if (it.test) return;
+  var t = T.today; t.locs[loc] = (t.locs[loc] || 0) + q; if (!(t.locs[loc] > 0)) delete t.locs[loc]; t.rolls = Math.max(0, (t.rolls || 0) + q);
+  if (q > 0) t.last = { loc: loc, gsm: String(it.gsm), width: String(it.width), grade: it.grade || '', qty: q, rem: lcRem(it.rem), maker: it.maker || '', at: hhmm() };
+}
+/* 저장 종류별 폰 계산 (서버 함수와 같은 이름 · 같은 인자) → 화면에 줄 결과 */
+var LC = {
+  intake: function (T, p) {
+    var parts = p.parts && p.parts.length ? p.parts : [{ loc: p.loc, qty: p.qty }], d = lcDay();
+    parts.forEach(function (x) { lcAdd(T, x.loc, p, Number(x.qty), d, p.maker || ''); lcToday(T, x.loc, p, Number(x.qty)); });
+  },
+  outbound: function (T, p) { lcSub(T, p.loc, p, Number(p.qty)); },
+  moveStock: function (T, p) {
+    if (p.from === p.to) throw new Error('출발·도착 위치 동일 — 이동 불가');
+    lcSub(T, p.from, p, Number(p.qty)).forEach(function (l) { lcAdd(T, p.to, p, l[1], l[0], l[2] || p.maker || ''); });
+  },
+  outboundBatch: function (T, p) { p.items.forEach(function (it) { lcSub(T, it.loc, it, Number(it.qty)); }); return { arr: 1 }; },
+  adjustRow: function (T, p) {
+    var cat = String(p.reason || '').split(' — ')[0], n = 0;
+    p.items.forEach(function (it) {
+      var es = T.stock.filter(function (x) { return lcMatch(x, p.loc, it, it.byMaker ? (it.maker || '') : null); });
+      var before = es.reduce(function (a, s) { return a + s.qty; }, 0), diff = Number(it.actual) - before;
+      if (!diff) return; n++;
+      if (diff < 0) lcSub(T, p.loc, it, -diff);
+      else {
+        var old = es.map(function (s) { return s.date; }).filter(String).sort()[0];
+        lcAdd(T, p.loc, it, diff, cat === '입고 누락' || !old ? lcDay() : old, it.maker || '');
+      }
+    });
+    return { type: cat === '출고 누락' ? '출고' : cat === '입고 누락' ? '입고' : '실사', changed: n };
+  },
+  // 되돌리기: 원래 저장의 반대 (더한 건 그 입고일 · 제지사로 빼고, 뺀 건 그대로 다시 더함)
+  undoTx: function (T, p) {
+    (p.refs || []).slice().reverse().forEach(function (id) {
+      var src = OB.done[id] || OB.q.filter(function (o) { return o.id === id; })[0];
+      if (!src || !src.fx) throw new Error('되돌릴 기록 없음 · 기록 탭에서 취소');
+      src.fx.slice().reverse().forEach(function (f) {
+        var it = Object.assign({}, f.it);
+        f.lots.forEach(function (l) {
+          if (f.add) { lcSub(T, f.loc, Object.assign({ byMaker: true, maker: l[2] }, it), l[1], [l]); }
+          else lcAdd(T, f.loc, it, l[1], l[0], l[2]);
+        });
+      });
+      if (src.fn === 'intake' && !src.args.test) (src.args.parts && src.args.parts.length ? src.args.parts : [{ loc: src.args.loc, qty: src.args.qty }])
+        .forEach(function (x) { lcToday(T, x.loc, { test: false }, -Number(x.qty)); });
+    });
+  }
+};
+function lcState() {
+  return { stock: JSON.parse(JSON.stringify(S.stock || [])), today: JSON.parse(JSON.stringify(S.today || { locs: {}, rolls: 0, last: null })), fx: [] };
+}
+/* 빠른 저장: 폰에서 계산해 바로 결과(서버 저장 결과와 같은 모양) · 서버 전송은 대기열 */
+function fastCall(fn, p) {
+  return new Promise(function (res, rej) {
+    var T = lcState(), x;
+    try { x = LC[fn](T, p) || {}; } catch (e) { toast((e && e.message) || String(e), true); return rej(e); }
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    OB.q.push({ id: id, fn: fn, args: p, fx: T.fx, tries: 0, at: Date.now() });
+    obSave();
+    S.today = T.today; setStock(T.stock);   // 바로 반영 (연달아 누른 다음 저장도 이 재고 기준)
+    var r = x.arr ? T.stock : { stock: T.stock, today: T.today, nos: ['@' + id], type: x.type, changed: x.changed };
+    res(r);
+    obKick();
+  });
+}
+/* 되돌리기: nos = 서버 이력 번호 또는 '@빠른 저장 id' */
+function undoCall(nos) {
+  var refs = (nos || []).filter(function (n) { return String(n).charAt(0) === '@'; }).map(function (n) { return String(n).slice(1); });
+  var real = (nos || []).filter(function (n) { return String(n).charAt(0) !== '@'; });
+  if (!refs.length) return call('undoTx', { nos: real, worker: worker(), test: isTest() });   // 예전 저장 = 서버 기다림
+  return fastCall('undoTx', { refs: refs, nos: real, worker: worker(), test: isTest() });
+}
+/* 대기열 보내기: 한 번에 하나씩 순서대로 */
+function obKick(now) {
+  if (now) { clearTimeout(OB.tm); OB.tm = null; }
+  if (OB.run || OB.tm || !OB.q.length) return;
+  var op = OB.q[0], args = Object.assign({}, op.args, { token: tok(), __rid: op.id });
+  if (op.fn === 'undoTx') {   // 원래 저장의 서버 이력 번호로 바꿔 보냄
+    var miss = (op.args.refs || []).filter(function (id) { return !(OB.done[id] && OB.done[id].nos); });
+    if (miss.length) { OB.q.shift(); obSave(); toast('되돌리기 대상이 서버에 없음 — 기록 탭에서 확인', true); return obResync(); }
+    args.nos = (op.args.nos || []).concat([].concat.apply([], op.args.refs.map(function (id) { return OB.done[id].nos; })));
+    delete args.refs;
+  }
+  OB.run = true;
+  google.script.run.withSuccessHandler(function (r) {
+    OB.run = false;
+    if (OB.q[0] !== op) return obKick();
+    OB.q.shift();
+    OB.done[op.id] = { fn: op.fn, args: op.args, fx: op.fx, nos: (r && r.nos) || [] };
+    obSave();
+    if (QSYNC[op.fn]) quickSync();
+    if (!OB.q.length) {   // 다 보냄 → 서버 재고로 맞춤 (폰 계산과 다르면 서버가 맞음)
+      var st = Array.isArray(r) ? r : r && r.stock;
+      if (st) { if (r.today) S.today = r.today; setStock(st); rerender(); }
+    }
+    obKick();
+  }).withFailureHandler(function (e) {
+    OB.run = false;
+    var msg = (e && e.message) || String(e);
+    if (/^이미 처리됨/.test(msg)) {   // 서버가 이미 저장함 (결과만 못 받음) → 끝난 것으로 · 서버 재고로 맞춤
+      OB.q.shift(); OB.done[op.id] = { fn: op.fn, args: op.args, fx: op.fx, nos: [] }; obSave();
+      return OB.q.length ? obKick() : obResync();
+    }
+    if (/서버 응답 없음|연결 실패|서버 응답 \d|로그인 필요|앞 요청 처리 중|Failed to fetch|NetworkError/i.test(msg)) {   // 못 보냄 → 그대로 두고 다시
+      op.tries++; obSave();
+      OB.tm = setTimeout(function () { OB.tm = null; obKick(); }, 15000);
+      return;
+    }
+    // 서버 거절: 이 건 + 이 건을 되돌리는 건 빼고, 서버 재고로 맞춘 뒤 남은 건 다시 반영
+    OB.q = OB.q.filter(function (o) { return o !== op && !(o.fn === 'undoTx' && (o.args.refs || []).indexOf(op.id) >= 0); });
+    obSave();
+    toast('저장 안 됨: ' + msg + ' — 서버 기준으로 되돌림', true);
+    obResync();
+  })[op.fn](args);
+}
+/* 서버 재고 다시 받고 + 대기 중인 저장을 폰에서 다시 반영 */
+function obResync() {
+  call.quiet = true;
+  call('getStock', tok()).then(function (r) {
+    S.stock = r.stock; if (r.today) S.today = r.today;
+    obReplay(); rerender(); obKick();
+  }, function () { setTimeout(obResync, 15000); });
+}
+function obReplay() {
+  var T = lcState();
+  OB.q = OB.q.filter(function (op) {
+    T.fx = [];
+    try { LC[op.fn](T, op.args); op.fx = T.fx; return true; }
+    catch (e) { toast('저장 안 됨: ' + e.message, true); return false; }
+  });
+  obSave();
+  setStock(T.stock); S.today = T.today;
+}
+window.addEventListener('online', function () { obKick(true); });
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') obKick(true); });
 /* 앱 입력창 (브라우저 기본 팝업 대신: 구글이 붙이는 "삽입된 페이지" 문구 없음)
    o: { title, msg, input(false면 확인창), type, numeric, value, placeholder, ok, danger }  →  cb(값 | true | null=취소) */
 function ask(o, cb) {
@@ -1603,7 +1827,7 @@ function mjDone(i) {
   var cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === MJ.sig; })[0];
   if (!cur) { toast(keyOf(m.from) + ' 재고 없음 · 새로고침 확인', true); return; }
   var q = Math.min(m.qty, cur.qty);
-  call('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '병합' })).then(function (r) {
+  fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '병합' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; mjSave();
     renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
@@ -1613,7 +1837,7 @@ function mjUndo(i) {
   if (!m.nos.length) { toast('취소 대상 기록 없음 · 기록 탭에서 취소', true); return; }
   ask({ title: '이동 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n재고 원복 (출발 위치 복귀)', input: false, ok: '이동 취소', danger: true }, function (y) {
     if (!y || !requireWorker()) return;
-    call('undoTx', { nos: m.nos, worker: worker(), test: isTest() }).then(function (st) {
+    undoCall(m.nos).then(function (st) {
       setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('이동 취소 · 재고 원복');
     });
   });
@@ -2139,7 +2363,7 @@ function doOut(j) {
   if (!requireWorker()) return;
   var s = SH.it, dest = (S.quick['출고처'] || [])[j], q = SH.qty, code = SH.code;
   if (!s || !dest) return;
-  call('outbound', Object.assign(itemP(s), { loc: s.loc, qty: q, dest: dest })).then(function (r) {
+  fastCall('outbound', Object.assign(itemP(s), { loc: s.loc, qty: q, dest: dest })).then(function (r) {
     setStock(r); lsSet('lastDest', dest); useSpec(s);
     if (SH && SH.code === code) { SH.mode = ''; SH.it = null; }
     renderMap(); if (SH) renderSheet();
@@ -2209,7 +2433,7 @@ function moveTo(code) {
   if (free < q) { toast(keyOf(code) + ' 공간 부족 (최대 ' + free + '롤)', true); return; }
   if (!requireWorker()) return;
   onlyOk([code], s.maker, function () {
-    call('moveStock', Object.assign(itemP(s), { from: from, to: code, qty: q })).then(function (r) {
+    fastCall('moveStock', Object.assign(itemP(s), { from: from, to: code, qty: q })).then(function (r) {
       setStock(r); MV = null; renderMap();
       undoToast('이동 ' + plain(locRoute(from, code)) + ' · ' + fmtItem(s, q), r.nos);
     });
@@ -2537,7 +2761,7 @@ function doIn() {
   if (!requireWorker()) return;
   var sp = SH.sp, code = SH.code;
   var p = { loc: code, gsm: sp.gsm, width: sp.width, qty: SH.qty, grade: sp.grade || '', maker: sp.maker || '', worker: worker(), memo: SH.memo || '', test: isTest(), rem: !!SH.rem, from: SH.rem ? SH.from : '' };
-  call('intake', p).then(function (r) {
+  fastCall('intake', p).then(function (r) {
     setStock(r); useSpec(p); if (p.maker) lsSet('lastMaker', p.maker);
     // 연속 입고: 입고창 유지 · 규격 그대로 · 롤 수만 1로 (다음 롤 · 다음 줄을 바로 이어서)
     if (SH && SH.code === code && SH.mode === 'in') { SH.cont = true; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
@@ -2601,7 +2825,7 @@ function saveCnt() {
   ask({ title: '실사 차이 사유', msg: lines.join('\n') + (reasons.indexOf('출고 누락') >= 0 ? '\n출고 누락 → 출고로 기록' : ''), chips: reasons }, function (reason) {
     if (!reason) return;
     var go = function (dest) {
-      call('adjustRow', { loc: code, items: items, worker: worker(), test: isTest(), reason: reason, dest: dest || '' }).then(function (r) {
+      fastCall('adjustRow', { loc: code, items: items, worker: worker(), test: isTest(), reason: reason, dest: dest || '' }).then(function (r) {
         setStock(r.stock); if (SH && SH.code === code) SH.mode = '';
         renderMap(); if (SH) renderSheet();
         undoToast(r.type + ' ' + keyOf(code) + ' · ' + r.changed + '건', r.nos);
@@ -2706,7 +2930,7 @@ function undoToast(msg, nos) {
   b.className = 'btn2 undo'; b.textContent = '되돌리기';
   b.onclick = function () {
     t.style.display = 'none';
-    call('undoTx', { nos: nos, worker: worker(), test: isTest() }).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('되돌리기 완료'); });
+    undoCall(nos).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('되돌리기 완료'); });
   };
   t.appendChild(b); t.style.display = 'flex';
   clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 6000);
@@ -3775,7 +3999,7 @@ function saveIn() {
   onlyOk(p.parts ? p.parts.map(function (x) { return x.loc; }) : [p.loc], p.maker, function () { saveInGo(p); });
 }
 function saveInGo(p) {
-  call('intake', p).then(function (stock) {
+  fastCall('intake', p).then(function (stock) {
     setStock(stock); useSpec(p);
     [['지종', p.grade], ['제지사', p.maker]].forEach(function (x) {
       if (x[1]) { S.quick[x[0]] = S.quick[x[0]] || []; if (S.quick[x[0]].indexOf(x[1]) < 0) S.quick[x[0]].push(x[1]); }
@@ -4512,7 +4736,7 @@ function confirmLine(line) {
   ask({ title: line + ' 출고 확정', msg: its.length + '품목 · ' + total + '롤 → ' + dest + (lack ? '\n재고 부족 ' + lack + '롤은 제외하고 출고' : ''), input: false, ok: '출고 확정' },
     function (y) {
       if (!y) return;
-      call('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
+      fastCall('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
         setStock(stock);
         its.forEach(function (it) { PL.done[it.id] = true; });
         savePL(); toast(line + ' 출고 확정 완료 · ' + total + '롤'); renderPlan();
@@ -5403,23 +5627,42 @@ function saveLocal() {
 }
 
 /* ===== 시작 ===== */
+/* 앱 열 때 즉시 표시: 지난번 데이터(폰 보관)로 바로 그리고, 서버 데이터는 뒤에서 받아 맞춤
+   (보관 데이터 = 마지막 화면 상태 · 전송 대기 중인 저장 포함) */
+function cacheS() {
+  clearTimeout(cacheS.h);
+  cacheS.h = setTimeout(function () { try { if (S && S.whs && S.whs.length) localStorage.setItem('cacheS', JSON.stringify(S)); } catch (e) {} }, 800);
+}
+function initWith(d) {
+  var me = d.me;   // S와 d는 같은 객체 — 먼저 꺼내 둠
+  S = d; S.me = ''; setStock(d.stock, d.at); $('loading').style.display = 'none';
+  navBadge();
+  setMe(me, true);
+  if (tok() && S.me) { if (!lsGet('token')) lsSet('token', tok()); keepKey(tok()); }
+}
 function reload() {
-  $('loading').style.display = 'block';
-  $('loading').textContent = '불러오는 중...';
+  var c = null;
+  if (!reload.shown) { try { c = JSON.parse(localStorage.getItem('cacheS') || 'null'); } catch (e) { c = null; } }
+  obBadge();   // 미전송 표시는 데이터와 상관없이 바로
+  if (c && c.whs && c.whs.length) { initWith(c); show(TAB); reload.shown = true; obKick(); }
+  if (!reload.shown) { $('loading').style.display = 'block'; $('loading').textContent = '불러오는 중...'; }
+  if (reload.shown) call.quiet = true;   // 이미 화면이 있음 → 뒤에서 조용히 받음
   call('getInit', tok()).catch(function (e) {
     // 첫 화면을 못 받음 (구글 지연 등): 멈춘 채 두지 않고 다시 시도 버튼 + 10초 뒤 자동 다시 시도 · 로그인 필요는 로그인 창이 처리
     if (/^로그인 필요/.test((e && e.message) || '')) return new Promise(function () {});
+    clearTimeout(reload.h);
+    if (reload.shown) { reload.h = setTimeout(reload, 30000); return new Promise(function () {}); }   // 보관 데이터로 쓰는 중 → 30초 뒤 다시
     var el = $('loading');
     el.innerHTML = '서버 응답 없음 — 10초 뒤 다시 시도<br><button class="btn" style="margin-top:10px" onclick="clearTimeout(reload.h); reload()">지금 다시 시도</button>';
-    clearTimeout(reload.h); reload.h = setTimeout(reload, 10000);
+    reload.h = setTimeout(reload, 10000);
     return new Promise(function () {});
   }).then(function (d) {
-    var me = d.me;   // S와 d는 같은 객체 — 먼저 꺼내 둠
-    S = d; S.me = ''; setStock(d.stock, d.at); $('loading').style.display = 'none';
-    navBadge();
-    setMe(me, true);
-    if (tok() && S.me) { if (!lsGet('token')) lsSet('token', tok()); keepKey(tok()); }
-    show(TAB);
+    var first = !reload.shown;
+    initWith(d);
+    if (OB.q.length) obReplay();   // 아직 서버에 없는 저장을 서버 재고 위에 다시 반영
+    cacheS();
+    if (first) { show(TAB); reload.shown = true; } else rerender();
+    obBadge(); obKick();
   });
 }
 reload();
