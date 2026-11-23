@@ -272,6 +272,9 @@
   /* 순번 체크 버튼: 왼쪽 칸 전체 높이 (손가락 영역 44px 이상) */
   .seqb { flex:none; width:44px; margin:-6px 0 -6px -10px; padding:6px 0 6px 10px; border:0; background:none; font:inherit; display:flex; flex-direction:column; justify-content:center; cursor:pointer; -webkit-tap-highlight-color:transparent; }
   .seqb:disabled { cursor:default; } .seqb:active > div:first-child { transform:scale(.9); }
+  .pkby { font-size:12px; font-weight:800; color:var(--ok); white-space:nowrap; } .pkby.ship { color:#9A6700; }
+  .pkscan { margin-top:6px; padding:6px 10px; border-radius:8px; background:#E6E8EB; color:#5B6168; font-size:12px; font-weight:700; cursor:pointer; }
+  .pkscan.on { background:#E7F3EA; color:var(--ok); }
   .pkopt { margin-top:8px; } .pkopt .seg { background:#E6E8EB; margin-top:0; } .pkopt #pk-rule button { font-size:13px; }
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
@@ -588,6 +591,8 @@
     <div class="stab" data-k="me">
     <h2>작업자 로그인</h2>
     <div id="set-workerBox"></div>
+    <h2>피킹 체크</h2>
+    <div class="card"><label class="radio"><input type="checkbox" id="set-pkscan" onchange="pkScanSet(this.checked)"> <span><b>위치 QR 확인</b> — 순번 선택 시 배정 위치 QR 스캔 후 체크 (이 폰)</span></label></div>
     <h2>사진 글자 인식</h2>
     <div class="card">
       <div><b>PaddleOCR</b> (폰 · 한국어)</div>
@@ -1257,9 +1262,8 @@ function locPicker(el, code, onChange) {
   el.querySelector('[data-k=no]').onchange = function () { el.dataset.code = cur(); onChange(el.dataset.code); };
   if (USE_QR) el.querySelector('[data-k=qr]').onclick = function () {
     scanQR(function (txt) {
-      var m = txt.toUpperCase().match(LOC_RE);
-      if (!m) { toast('위치 QR 아님: ' + txt, true); return; }
-      var c = m[1] + '-' + m[2] + '-' + pad(m[3]);
+      var c = qrLoc(txt);
+      if (!c) { toast('위치 QR 아님: ' + txt, true); return; }
       locPicker(el, c, onChange); onChange(c); toast(locLabel(c) + ' 선택됨');
     });
   };
@@ -2680,6 +2684,7 @@ function lpAct(s) {
   if (k === 'whs') { var q = v.split(':'); return openWhCfg(q[0], q[1]); }   // 창고 설정 특정 항목 (only · zone · rule)
   if (k === 'row') { if (MV) return; openRow(v, 'cfg'); return; }
   if (k === 'aging') return agingEdit();
+  if (k === 'pkscan') return pkScanSet();
   if (k === 'test') return ask({ title: '테스트 모드 해제', msg: '이후 입력 건 = 실제 기록', input: false, ok: '해제' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
 }
 (function () {
@@ -3123,14 +3128,17 @@ function clearFilter(ev) {
 
 /* --- 저장 후 되돌리기 (확인창 대신) --- */
 function undoToast(msg, nos) {
-  toast(msg + ' 저장');
-  if (!nos || !nos.length) return;
-  var t = $('toast'), b = document.createElement('button');
-  b.className = 'btn2 undo'; b.textContent = '실행 취소';
-  b.onclick = function () {
-    t.style.display = 'none';
+  if (!nos || !nos.length) return toast(msg + ' 저장');
+  toastAct(msg + ' 저장', '실행 취소', function () {
     undoCall(nos).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('실행 취소 완료'); });
-  };
+  });
+}
+/* 공통 부품: 실행 버튼 달린 알림 (6초) — 저장 실행 취소(undoToast) · 피킹 체크 실행 취소 · 위치 QR 다음 스캔 */
+function toastAct(msg, label, fn) {
+  toast(msg);
+  var t = $('toast'), b = document.createElement('button');
+  b.className = 'btn2 undo'; b.textContent = label;
+  b.onclick = function () { t.style.display = 'none'; fn(); };
   t.appendChild(b); t.style.display = 'flex';
   clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 6000);
 }
@@ -4474,14 +4482,14 @@ function cancelHist(i) {
    - 피킹: 호기별 하단 품목부터, 위치는 선입선출 · 1호기부터 배분, 제지사 다른 재고는 대체 후보로만
    - 출고 확정: 피킹 체크한 품목만 한 번에 출고 (이력 메모: 생산계획 · 호기 · 계획 번호) */
 var LINES = ['1호기', '2호기', '3호기', '기타'];
-function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, pin: {}, why: {}, memo: {}, opt: {}, seq: 1, msg: '', pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), mt: {} }; }   // pid · ts = 계획 식별 (공유 병합) · mt = 피킹 체크 · 출고 확정 변경 시각
+function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, pin: {}, why: {}, memo: {}, opt: {}, by: {}, ship: {}, seq: 1, msg: '', pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), mt: {} }; }   // pid · ts = 계획 식별 (공유 병합) · mt = 피킹 체크 · 출고 확정 변경 시각
 var PL = (function () { try { return JSON.parse(localStorage.getItem('plan') || 'null') || newPL(); } catch (e) { return newPL(); } })();
 if (!PL.pid) { PL.pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6); PL.ts = PL.ts || Date.now(); PL.mt = PL.mt || {}; }
 var PQ = { line: '1호기', gsm: null, width: null, maker: '', grade: '', qty: 1, all: false };
 function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} sharePush('plan'); }
 /* 피킹 체크(p) · 출고 확정(d) 변경 시각 기록 → 공유 병합 시 최근 변경 우선 */
 /* 항목별 변경 시각 키 첫 글자 → PL 칸: 피킹 체크 · 출고 확정 · 위치 지정 · 규칙 어김 사유 · 출고 메모 · 계획 옵션(배정 규칙) */
-var PL_MT = { p: 'picked', d: 'done', l: 'pin', w: 'why', m: 'memo', o: 'opt' };
+var PL_MT = { p: 'picked', d: 'done', l: 'pin', w: 'why', m: 'memo', o: 'opt', b: 'by', s: 'ship' };   // b = 체크한 사람 · 시각 / s = 부분 취소 후 기출고 롤
 function plMt(kind, id) { PL.mt = PL.mt || {}; PL.mt[kind + ':' + id] = Date.now(); }
 /* ===== 공유 작업 (계획 · 피킹 체크 · 병합 작업 목록) — 서버 보관 → 모든 폰 같은 진행 =====
    저장: 변경 1.2초 후 서버 전송 (판 번호 base) · 판 불일치 = 다른 폰 선저장 → 항목별 최근 변경 우선 병합 후 재전송
@@ -4671,6 +4679,7 @@ function pkSort(cands, need) {
     return a.s.date.localeCompare(b.s.date) || a.s.loc.localeCompare(b.s.loc);
   });
 }
+function pkNeed(it) { return it.all ? Infinity : Math.max(0, (Number(it.qty) || 0) - ((PL.ship || {})[it.id] || 0)); }
 function pkLoc(c, qty, pin) { var s = c.s; return { k: c.k, loc: s.loc, grade: s.grade, gsm: s.gsm, width: s.width, maker: s.maker || '', rem: !!s.rem, date: s.date, qty: qty, check: c.tier === 3, alt: c.tier === 9, pin: !!pin }; }
 function allocPlan() {
   var used = {}, res = {}, pins = PL.pin || {}, its = pkActive(), C = {};
@@ -4686,7 +4695,7 @@ function allocPlan() {
     });
   });
   its.forEach(function (it) {   // ② 나머지 자동
-    var r = res[it.id], want = Number(it.qty) || 0, got0 = r.locs.reduce(function (a, l) { return a + l.qty; }, 0);
+    var r = res[it.id], want = it.all ? 0 : pkNeed(it), got0 = r.locs.reduce(function (a, l) { return a + l.qty; }, 0);
     var need = it.all ? Infinity : want - got0, ex = {};
     (pins[it.id] || []).forEach(function (p) { ex[p.k] = 1; });   // 지정 · 제외한 위치는 자동에서 빼기
     var cs = C[it.id].map(function (c) { c.avail = c.s.qty - (used[c.k] || 0); return c; }).filter(function (c) { return c.avail > 0; });
@@ -4978,7 +4987,8 @@ function renderPick(el) {
   var h = photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '');
   // 보기(호기 순 · 위치 순 = 동선) · 배정 규칙 (계획 공유 · 모든 폰 같은 배정)
   var view = lsGet('pkView') === 'loc' ? 'loc' : 'line';
-  h += '<div class="pkopt"><div class="seg" id="pk-view"></div><div class="row" style="gap:6px; margin-top:6px"><span class="muted" style="font-size:12px; flex:none; font-weight:700">배정 규칙</span><div class="seg" id="pk-rule" style="flex:1"></div></div></div>';
+  h += '<div class="pkopt"><div class="seg" id="pk-view"></div><div class="row" style="gap:6px; margin-top:6px"><span class="muted" style="font-size:12px; flex:none; font-weight:700">배정 규칙</span><div class="seg" id="pk-rule" style="flex:1"></div></div>' +
+    '<div class="pkscan' + (pkScanOn() ? ' on' : '') + '" role="button" data-lp="pkscan" onclick="pkScanSet()">' + (pkScanOn() ? '📷 위치 QR 확인 사용 중 · 순번 선택 시 배정 위치 QR 스캔' : '위치 QR 확인 미사용 · 순번 선택 = 바로 체크') + '</div></div>';
   if (view === 'loc') { h += pkLocView(A); el.innerHTML = h; pkOptSeg(view); return; }
   LINES.slice(0, 3).forEach(function (line) {
     var its = PL.items.filter(function (it) { return it.line === line; }).sort(function (a, b) { return b.planNo - a.planNo; });
@@ -5026,7 +5036,7 @@ function pkLocView(A) {
         var it = r.it, pm = planMk(it);
         var body = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0"><span class="lchip" style="margin:0 6px 0 0">' + (r.l.pin ? '📌' : '') + esc(keyOf(r.l.loc)) + '</span>' +
           itemHtml({ maker: r.l.maker || pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b><b style="white-space:nowrap; flex:none">' + r.l.qty + '롤</b></div>' +
-          '<div class="muted" style="font-size:12px">' + esc(it.line + ' 계획 #' + it.planNo) + (r.n > 1 ? ' · 분할 ' + r.n + '줄' : '') + (r.l.alt ? ' · 대체' : '') + (r.l.check ? ' · 제지사 확인' : '') + '</div>';
+          '<div class="muted" style="font-size:12px">' + esc(it.line + ' 계획 #' + it.planNo) + (r.n > 1 ? ' · 분할 ' + r.n + '줄' : '') + (r.l.alt ? ' · 대체' : '') + (r.l.check ? ' · 제지사 확인' : '') + (PL.picked[it.id] && PL.by && PL.by[it.id] ? ' · <b style="color:var(--ok)">✓ ' + esc(PL.by[it.id]) + '</b>' : '') + '</div>';
         return seqRow({ seq: ++seq, check: PL.picked[it.id], bg: PL.picked[it.id] ? '#EEF7F1' : '#fff', body: body, tap: 'pkDetail(\'' + it.id + '\')', ctap: 'togglePick(\'' + it.id + '\')', tight: true });
       }).join('') });
   });
@@ -5073,6 +5083,8 @@ function pickRow(it, seq, a) {
   var h = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0">' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b>' +
     '<b style="white-space:nowrap; flex:none">' + (it.all ? '전량' + (a && !done ? ' ' + a.got + '롤' : '') : it.qty + '롤') + '</b></div>';
   var l2 = [];
+  if (!done && picked && PL.by && PL.by[it.id]) l2.push('<span class="pkby">✓ ' + esc(PL.by[it.id]) + '</span>');   // 체크한 사람 · 시각
+  if (!done && PL.ship && PL.ship[it.id]) l2.push('<span class="pkby ship">기출고 ' + PL.ship[it.id] + '롤 · 잔여 ' + pkNeed(it) + '롤</span>');   // 부분 확정 취소 후
   if (done) l2.push('<span class="muted" style="font-size:13px">출고 확정 완료</span>');
   else if (a) {
     // 위치 칩 = 누르면 위치 변경 창 (후보 목록 · 지도에서 선택)
@@ -5188,7 +5200,7 @@ function pkFreeze(it) {
 function pkPick(i) {   // 이 위치에서 꺼냄 (모자라면 나머지는 자동)
   var it = pkItem(), c = SH.pc[i]; if (!it || !c) return;
   if (c.free <= 0) { toast('타 품목 전량 배정 · 해당 품목 위치 선행 변경 필요', true); return; }
-  var need = it.all ? c.free : Number(it.qty) || 0;
+  var need = it.all ? c.free : pkNeed(it);
   pkSet(it, [{ k: c.k, qty: Math.min(c.free, need) }]);
 }
 function pkQty(i, d) {
@@ -5201,7 +5213,7 @@ function pkQty(i, d) {
   // 늘리면 총량 유지: 다른 위치 중 가장 새 입고부터 덜어냄 (전량 품목 제외)
   if (d > 0 && !it.all) {
     var dt = {}; SH.pc.forEach(function (x) { dt[x.k] = x.s.date || ''; });
-    var over = pins.reduce(function (x, q) { return x + q.qty; }, 0) - (Number(it.qty) || 0);
+    var over = pins.reduce(function (x, q) { return x + q.qty; }, 0) - pkNeed(it);
     pins.filter(function (q) { return q !== p && q.qty > 0; }).sort(function (x, y) { return (dt[y.k] || '').localeCompare(dt[x.k] || ''); })
       .forEach(function (q) { if (over <= 0) return; var t = Math.min(q.qty, over); q.qty -= t; over -= t; });
   }
@@ -5270,15 +5282,30 @@ function pkDone(id) {
     var sum = recs.map(function (h) { return '#' + h.no + ' ' + plain(locLabel(h.loc)) + ' ' + h.qty + '롤'; }).join('\n');
     ask({ title: '출고 확정 품목', msg: what + '\n' + (recs.length ? sum : '출고 기록 없음 (기취소 · 기수정)'), chips: recs.length ? ['수량 · 위치 수정', '출고 확정 취소'] : ['재피킹 (확정 해제)'] }, function (v) {
       if (!v) return;
-      var reopen = function () { delete PL.done[id]; delete PL.picked[id]; plMt('d', id); plMt('p', id); savePL(); renderPlan(); };   // 확정 취소 = 피킹 체크도 해제 (재피킹)
-      if (v === '재피킹 (확정 해제)') return reopen();
+      // 확정 취소 = 피킹 체크도 해제 · 남은 출고분(부분 취소) = 기출고로 기록 → 취소분만 재피킹
+      var reopen = function (kept) {
+        PL.ship = PL.ship || {}; PL.by = PL.by || {};
+        delete PL.done[id]; delete PL.picked[id]; delete PL.by[id];
+        if (kept > 0 && !it.all) PL.ship[id] = kept; else delete PL.ship[id];
+        ['d', 'p', 'b', 's'].forEach(function (k) { plMt(k, id); }); savePL(); renderPlan();
+      };
+      if (v === '재피킹 (확정 해제)') return reopen(0);
       if (v === '출고 확정 취소') {
-        var past = recs.some(function (h) { return h.day !== todayStr(); }), tot = recs.reduce(function (x, h) { return x + h.qty; }, 0);
-        var go = function () {
-          undoCall(recs.map(function (h) { return h.no; })).then(function (r) { setStock(r && r.stock ? r.stock : r); reopen(); toast('출고 확정 취소 · 재고 복구 ' + tot + '롤'); });
+        var cancel = function (sel) {   // sel = 취소할 기록들 (전체 또는 위치별 1건)
+          var past = sel.some(function (h) { return h.day !== todayStr(); }), tot = sel.reduce(function (x, h) { return x + h.qty; }, 0);
+          var kept = recs.filter(function (h) { return sel.indexOf(h) < 0; }).reduce(function (x, h) { return x + h.qty; }, 0);
+          var go = function () {
+            undoCall(sel.map(function (h) { return h.no; })).then(function (r) { setStock(r && r.stock ? r.stock : r); reopen(kept); toast('출고 확정 취소 · 재고 복구 ' + tot + '롤' + (kept ? ' · 기출고 ' + kept + '롤 유지' : '')); });
+          };
+          ask({ title: '출고 확정 취소', msg: sel.map(function (h) { return '#' + h.no + ' ' + plain(locLabel(h.loc)) + ' ' + h.qty + '롤'; }).join('\n') +
+              '\n→ 재고 복구 · 취소분 ' + tot + '롤 재피킹' + (kept ? '\n(나머지 ' + kept + '롤 = 기출고 유지)' : '') + (past ? '\n(지난 날짜 건: 관리자 PIN 필요)' : ''), input: false, ok: '확정 취소', danger: true },
+            function (y) { if (!y) return; if (past) needPin(go); else go(); });
         };
-        return ask({ title: '출고 확정 취소', msg: sum + '\n→ 재고 복구 · 피킹 목록 복귀' + (past ? '\n(지난 날짜 건: 관리자 PIN 필요)' : ''), input: false, ok: '확정 취소', danger: true },
-          function (y) { if (!y) return; if (past) needPin(go); else go(); });
+        if (recs.length < 2) return cancel(recs);
+        // 여러 위치에서 출고한 품목: 위치별 부분 취소 또는 전체 취소
+        return ask({ title: '출고 확정 취소 대상', list: true, chips: [{ v: 'all', t: '전체 취소', sub: recs.length + '건 · ' + recs.reduce(function (x, h) { return x + h.qty; }, 0) + '롤' }]
+            .concat(recs.map(function (h, k) { return { v: String(k), t: plain(locLabel(h.loc)) + ' · ' + h.qty + '롤', sub: '#' + h.no + ' · ' + h.time + ' · 이 위치만 취소' }; })) },
+          function (k) { if (k == null) return; cancel(k === 'all' ? recs : [recs[Number(k)]]); });
       }
       // 수량 · 위치 수정 = 기록 탭 이력 수정 (공통) · 1건이면 바로 수정 화면
       HF.q = pkMemo(it); HF.period = ''; HF.type = '출고'; LG.mode = '이력'; if ($('g-hist')) $('g-hist').innerHTML = '';   // 기간 · 유형 칸 다시 그림
@@ -5287,7 +5314,49 @@ function pkDone(id) {
     });
   });
 }
-function togglePick(id) { PL.picked[id] = !PL.picked[id]; if (!PL.picked[id]) delete PL.picked[id]; plMt('p', id); savePL(); renderPlan(); }
+/* ===== 피킹 체크 (공통) — 체크 = 작업자 · 시각 기록(공유) + 진동 + 실행 취소 알림
+   위치 QR 확인(폰별 설정) 켜짐 = 배정 위치 QR 모두 스캔 후 체크 (WMS scan-to-confirm) ===== */
+function pkScanOn() { return lsGet('pkScan') === 'Y'; }
+/* 위치 QR 확인 설정 (폰별): on 생략 = 확인 창으로 전환 (피킹 화면 표시 누르기 · 길게 누르기) */
+function pkScanSet(on) {
+  var apply = function (v) { lsSet('pkScan', v ? 'Y' : ''); if ($('set-pkscan')) $('set-pkscan').checked = v; if (TAB === 'plan') renderPlan(); toast('위치 QR 확인 ' + (v ? '사용' : '미사용')); };
+  if (on !== undefined) return apply(!!on);
+  ask({ title: '위치 QR 확인', msg: '사용 시 순번 선택 → 카메라 → 배정 위치 QR 스캔 후 체크 (여러 위치 = 모두 스캔)\n엉뚱한 줄 피킹 방지 · 이 폰에만 적용', chips: [pkScanOn() ? '미사용으로 변경' : '사용'] }, function (v) { if (v) apply(v === '사용'); });
+}
+function buzz(ok) { try { if (navigator.vibrate) navigator.vibrate(ok ? 35 : [70, 50, 70]); } catch (e) {} }
+function setPick(id, on) {
+  PL.by = PL.by || {};
+  if (on) { PL.picked[id] = true; PL.by[id] = (worker() || '') + ' ' + hhmm(); }
+  else { delete PL.picked[id]; delete PL.by[id]; }
+  plMt('p', id); plMt('b', id); savePL(); renderPlan();
+  if (SH && SH.mode === 'pkd') renderSheet();
+}
+function togglePick(id, scanned) {
+  var it = PL.items.filter(function (x) { return x.id === id; })[0]; if (!it) return;
+  if (PL.picked[id]) return setPick(id, false);
+  if (pkScanOn() && !scanned) return pkScan(id);
+  setPick(id, true); buzz(true);
+  var pm = planMk(it);
+  toastAct(it.line + ' #' + it.planNo + ' ' + fmtItem({ maker: pm.maker, gsm: it.gsm, width: it.width }) + ' 피킹 체크', '실행 취소', function () { setPick(id, false); });
+}
+/* 위치 QR 확인: 배정 위치 QR 스캔 (여러 위치 = 모두 스캔 · 스캔한 위치는 이 폰에 기억) */
+var PK_SCN = {};
+function pkScan(id) {
+  var a = allocPlan()[id], locs = a ? a.locs.map(function (l) { return l.loc; }).filter(function (c, i, arr) { return arr.indexOf(c) === i; }) : [];
+  if (!locs.length) { toast('배정 위치 없음 — 위치 선택 후 체크', true); return; }
+  var done = PK_SCN[id] = PK_SCN[id] || {};
+  scanQR(function (txt) {
+    var c = qrLoc(txt);
+    if (!c) { buzz(false); toast('위치 QR 아님: ' + txt, true); return; }
+    if (locs.indexOf(c) < 0) { buzz(false); toast('배정 위치 아님: ' + plain(locLabel(c)) + ' · 배정 ' + locs.map(function (x) { return plain(locLabel(x)); }).join(', '), true); return; }
+    done[c] = 1;
+    var left = locs.filter(function (x) { return !done[x]; });
+    if (!left.length) { delete PK_SCN[id]; return togglePick(id, true); }
+    buzz(true);
+    toastAct(plain(locLabel(c)) + ' 확인 · 남은 위치 ' + left.map(function (x) { return plain(locLabel(x)); }).join(', '), '다음 스캔', function () { pkScan(id); });
+  });
+}
+function qrLoc(txt) { var m = String(txt || '').trim().toUpperCase().match(LOC_RE); return m ? m[1] + '-' + m[2] + '-' + pad(m[3]) : ''; }
 function confirmLine(line) {
   if (!requireWorker()) return;
   var A = allocPlan();
@@ -5311,7 +5380,8 @@ function confirmLine(line) {
       fastCall('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
         setStock(stock);
         PL.memo = PL.memo || {};
-        its.forEach(function (it) { PL.done[it.id] = true; plMt('d', it.id); PL.memo[it.id] = it._memo; delete it._memo; plMt('m', it.id); });
+        PL.ship = PL.ship || {};
+        its.forEach(function (it) { PL.done[it.id] = true; plMt('d', it.id); PL.memo[it.id] = it._memo; delete it._memo; plMt('m', it.id); if (PL.ship[it.id]) { delete PL.ship[it.id]; plMt('s', it.id); } });
         savePL(); toast(line + ' 출고 확정 완료 · ' + total + '롤'); renderPlan();
       });
     });
@@ -6203,6 +6273,7 @@ function renderSet() {
   if (!$('op-base').value) $('op-base').value = todayStr();
   renderWorkerBox(); renderWorkers();
   padStatus();
+  if ($('set-pkscan')) $('set-pkscan').checked = pkScanOn();
 }
 /* ===== 기초재고 일괄 등록 ===== */
 function opBase() { return $('op-base').value || todayStr(); }
