@@ -1874,7 +1874,7 @@ function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 
 ['wheel', 'touchmove'].forEach(function (ev) { $('dim').addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
 function shMode(m) {
   SH.mode = m;
-  if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' };   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지) SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
+  if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지)
   if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
   if (m === 'cnt') SH.cnt = { v: {}, extra: [] };
   renderSheet(); $('detail').scrollTop = 0;
