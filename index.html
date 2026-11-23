@@ -269,6 +269,9 @@
   .tbl th { position:sticky; top:0; background:#F3F4F1; font-weight:800; z-index:1; }
   .tbl .rn { position:sticky; left:0; background:#F3F4F1; color:#5B6168; font-weight:700; text-align:right; z-index:2; }
   .tbl th.rn { z-index:3; } .tbl td[role=button] { cursor:pointer; } .tbl td[role=button]:active { background:#FFF3C4; }
+  /* 순번 체크 버튼: 왼쪽 칸 전체 높이 (손가락 영역 44px 이상) */
+  .seqb { flex:none; width:44px; margin:-6px 0 -6px -10px; padding:6px 0 6px 10px; border:0; background:none; font:inherit; display:flex; flex-direction:column; justify-content:center; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  .seqb:disabled { cursor:default; } .seqb:active > div:first-child { transform:scale(.9); }
   .pkopt { margin-top:8px; } .pkopt .seg { background:#E6E8EB; margin-top:0; } .pkopt #pk-rule button { font-size:13px; }
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
@@ -5024,8 +5027,7 @@ function pkLocView(A) {
         var body = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0"><span class="lchip" style="margin:0 6px 0 0">' + (r.l.pin ? '📌' : '') + esc(keyOf(r.l.loc)) + '</span>' +
           itemHtml({ maker: r.l.maker || pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b><b style="white-space:nowrap; flex:none">' + r.l.qty + '롤</b></div>' +
           '<div class="muted" style="font-size:12px">' + esc(it.line + ' 계획 #' + it.planNo) + (r.n > 1 ? ' · 분할 ' + r.n + '줄' : '') + (r.l.alt ? ' · 대체' : '') + (r.l.check ? ' · 제지사 확인' : '') + '</div>';
-        return seqRow({ seq: ++seq, check: PL.picked[it.id], bg: PL.picked[it.id] ? '#EEF7F1' : '#fff', body: body, tap: 'togglePick(\'' + it.id + '\')', tight: true,
-          side: '<button class="btn2" style="height:32px; padding:0 8px; font-size:12px" onclick="pkDetail(\'' + it.id + '\')">변경</button>' });
+        return seqRow({ seq: ++seq, check: PL.picked[it.id], bg: PL.picked[it.id] ? '#EEF7F1' : '#fff', body: body, tap: 'pkDetail(\'' + it.id + '\')', ctap: 'togglePick(\'' + it.id + '\')', tight: true });
       }).join('') });
   });
   return h + '<div class="muted" style="font-size:12px; margin-top:6px">출고 확정: [호기 순] 화면에서 호기별 진행</div>';
@@ -5049,13 +5051,18 @@ function grpCard(o) {
     (o.rows || '') + (o.foot ? '<div style="padding:8px 12px; border-top:1px solid #E6E8EB">' + o.foot + '</div>' : '') + '</div>';
 }
 /* 공통 번호 행: 왼쪽 번호 원(완료 = 초록 · 체크 = 초록 ✓) + 보조 라벨 · 가운데 내용 · 오른쪽(선택)
-   o.tap = 줄 누름 동작 (접기 칸 누름은 제외) · o.check = 체크됨 · o.off = 누를 수 없음 */
+   o.tap = 줄 누름 동작 (접기 칸 누름은 제외) · o.check = 체크됨 · o.off = 누를 수 없음
+   o.ctap = 순번 원(왼쪽 칸 전체 높이)만 체크 버튼 (WMS: 완료는 명시적 확인 동작 · 줄 누름 = 상세) */
 function seqRow(o) {
-  var green = o.done || o.check, tap = o.tap && !o.off ? ' role="button" onclick="if(!event.target.closest(\'details,button,a\')){' + o.tap + '}" style="cursor:pointer;' : ' style="';
+  var green = o.done || o.check, tap = o.tap && (!o.off || o.ctap) ? ' role="button" onclick="if(!event.target.closest(\'details,button,a\')){' + o.tap + '}" style="cursor:pointer;' : ' style="';
+  var circle = '<div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (green ? '#1E6B3A' : o.off ? '#D5D8DC' : 'var(--y)') +
+    '; color:' + (green ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center' + (o.ctap && !o.off && !green ? '; box-shadow:0 0 0 2px var(--ink) inset' : '') + '">' + (o.check || o.done ? '✓' : o.seq) + '</div>';
+  var lab = o.label ? '<div class="muted" style="font-size:10px">' + o.label + '</div>' : '';
+  var left = o.ctap
+    ? '<button class="seqb" aria-label="' + (green ? '체크 해제' : '피킹 체크') + '"' + (o.off ? ' disabled' : '') + ' onclick="' + o.ctap + '">' + circle + lab + '</button>'
+    : '<div style="width:' + (o.label ? 40 : 30) + 'px; flex:none; text-align:center">' + circle + lab + '</div>';
   return '<div' + tap + 'display:flex; gap:' + (o.tight ? 8 : 10) + 'px; padding:' + (o.tight ? '6px 10px' : '9px 12px') + '; border-top:1px solid #E6E8EB; background:' + (o.bg || '#fff') + '">' +
-    '<div style="width:' + (o.label ? 40 : 30) + 'px; flex:none; text-align:center"><div style="width:30px; height:30px; margin:0 auto; border-radius:15px; background:' + (green ? '#1E6B3A' : o.off ? '#D5D8DC' : 'var(--y)') +
-    '; color:' + (green ? '#fff' : 'var(--ink)') + '; font-weight:900; display:flex; align-items:center; justify-content:center">' + (o.check || o.done ? '✓' : o.seq) + '</div>' +
-    (o.label ? '<div class="muted" style="font-size:10px">' + o.label + '</div>' : '') + '</div>' +
+    left +
     '<div style="flex:1; min-width:0">' + o.body + '</div><div style="flex:none; display:flex; align-items:center">' + (o.side || '') + '</div></div>';
 }
 function pickRow(it, seq, a) {
@@ -5082,7 +5089,7 @@ function pickRow(it, seq, a) {
   if (it.note) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>비고</b> ' + esc(it.note) + '</button>';
   if (alt) h += '<button class="pkln" onclick="pkDetail(\'' + it.id + '\')"><b>대체</b> ' + esc(locLabel(alt[0].loc) + ' ' + alt[0].maker + ' ' + alt[0].qty + '롤') +
     (alt.length > 1 ? ' 외 ' + (alt.length - 1) + '줄' : '') + ' ›</button>';
-  return seqRow({ seq: seq, done: done, check: picked, off: !done && !(a && a.got), bg: bg, body: h, tap: done ? 'pkDone(\'' + it.id + '\')' : 'togglePick(\'' + it.id + '\')', tight: true });
+  return seqRow({ seq: seq, done: done, check: picked, off: !done && !(a && a.got), bg: bg, body: h, tap: done ? 'pkDone(\'' + it.id + '\')' : 'pkDetail(\'' + it.id + '\')', ctap: done ? 'pkDone(\'' + it.id + '\')' : 'togglePick(\'' + it.id + '\')', tight: true });
 }
 /* 공통 부품: 비고 접기 — 평소 접힘 · 펼친 상태는 다시 그려도 유지 (key별) · 내용 있으면 제목 옆 ● */
 var NOTE_OPEN = {};
@@ -5110,6 +5117,7 @@ function sheetPkd() {
   h += '<div class="row" style="margin:14px 0 6px"><h2 style="margin:0">위치 후보</h2><button class="btn2" style="height:34px; flex:none" onclick="pkMap()">지도 선택</button></div>';
   h += '<div class="muted" style="font-size:12px; margin-bottom:6px">선택 시 해당 위치 지정 · −/+ = 분할 피킹 · 위치 칸 선택 시 지도 표시</div>';
   h += pkCandList(it, A) || '<div class="card muted">같은 규격 재고 없음</div>';
+  if (a.got) h += '<div class="shfoot"><button class="' + (PL.picked[it.id] ? 'btn2' : 'btn') + '" style="width:100%" onclick="togglePick(\'' + it.id + '\'); closeSheet()">' + (PL.picked[it.id] ? '피킹 체크 해제' : '✓ 피킹 체크') + '</button></div>';
   return h;
 }
 /* 위치 후보 목록 (선입선출 순 · 대체 후보는 아래) — SH.pc = 줄 순번 → 후보 */
@@ -5262,7 +5270,7 @@ function pkDone(id) {
     var sum = recs.map(function (h) { return '#' + h.no + ' ' + plain(locLabel(h.loc)) + ' ' + h.qty + '롤'; }).join('\n');
     ask({ title: '출고 확정 품목', msg: what + '\n' + (recs.length ? sum : '출고 기록 없음 (기취소 · 기수정)'), chips: recs.length ? ['수량 · 위치 수정', '출고 확정 취소'] : ['재피킹 (확정 해제)'] }, function (v) {
       if (!v) return;
-      var reopen = function () { delete PL.done[id]; plMt('d', id); savePL(); renderPlan(); };
+      var reopen = function () { delete PL.done[id]; delete PL.picked[id]; plMt('d', id); plMt('p', id); savePL(); renderPlan(); };   // 확정 취소 = 피킹 체크도 해제 (재피킹)
       if (v === '재피킹 (확정 해제)') return reopen();
       if (v === '출고 확정 취소') {
         var past = recs.some(function (h) { return h.day !== todayStr(); }), tot = recs.reduce(function (x, h) { return x + h.qty; }, 0);
