@@ -241,6 +241,13 @@
   .pkcs .stepper { gap:4px; } .pkcs .stepper button { width:36px; height:36px; border-radius:9px; font-size:20px; } .pkcs .stepper span { font-size:20px; min-width:26px; }
   .pkcs .mxb { top:-8px; right:-4px; font-size:10px; padding:0 5px; }
   .pkcb .sp { white-space:nowrap; }
+  /* 표 편집기: 가로 스크롤 표 · 머리글 고정 · 행 번호 열 고정 */
+  .tblw { margin-top:8px; overflow:auto; max-height:60vh; border:1px solid #D5D8DC; border-radius:8px; -webkit-overflow-scrolling:touch; background:#fff; }
+  .tbl { border-collapse:collapse; font-size:13px; white-space:nowrap; }
+  .tbl th, .tbl td { border-bottom:1px solid #E6E8EB; border-right:1px solid #F0F1F3; padding:6px 8px; text-align:left; max-width:180px; overflow:hidden; text-overflow:ellipsis; }
+  .tbl th { position:sticky; top:0; background:#F3F4F1; font-weight:800; z-index:1; }
+  .tbl .rn { position:sticky; left:0; background:#F3F4F1; color:#5B6168; font-weight:700; text-align:right; z-index:2; }
+  .tbl th.rn { z-index:3; } .tbl td[role=button] { cursor:pointer; } .tbl td[role=button]:active { background:#FFF3C4; }
   .pkopt { margin-top:8px; } .pkopt .seg { background:#E6E8EB; margin-top:0; } .pkopt #pk-rule button { font-size:13px; }
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
@@ -566,15 +573,18 @@
     <div class="stab" data-k="admin">
     <h2>작업자 관리 <span class="muted" style="font-weight:500">(관리자)</span></h2>
     <div class="card" id="set-workers"></div>
+    <h2>표 편집기</h2>
+    <div class="card"><div class="muted" style="font-size:13px; line-height:1.6">시트를 표로 보기 · 칸 수정 · 행 추가 · 행 삭제 (수정 내역 = 편집기록 시트) · 이력은 읽기 전용</div>
+      <button class="btn" style="width:100%; height:46px; margin-top:8px" onclick="openTable()">표 편집기 열기</button></div>
     <h2>관리자 PIN</h2>
     <div class="card"><div id="set-pin" style="font-size:14px"></div>
       <button class="btn2" style="margin-top:8px" onclick="changePin()">PIN 설정 · 변경</button></div>
     <h2>기초재고 일괄 등록</h2>
     <div class="card" id="op-box">
-      <div class="muted" style="line-height:1.6">① 구글 시트 <b>기초재고</b> 탭에 정리 (위치 · 평량 · 폭 · 롤수 필수)<br>② [검사] → 시트 <b>결과</b> 열에 OK / 오류 표시 → 오류는 시트에서 수정<br>③ 오류 0건이면 [등록] (관리자 PIN) · 등록한 행은 "등록 완료"로 표시되어 중복 등록 안 됨</div>
+      <div class="muted" style="line-height:1.6">① [표 열기] → <b>기초재고</b> 표에 행 추가 (위치 · 평량 · 폭 · 롤수 필수)<br>② [검사] → 표 <b>결과</b> 열에 OK / 오류 표시 → 오류는 표에서 수정<br>③ 오류 0건이면 [등록] (관리자 PIN) · 등록한 행은 "등록 완료"로 표시되어 중복 등록 안 됨</div>
       <label class="muted" style="display:block; margin-top:8px">기준일 (입고일 빈 칸에 적용)<input type="date" id="op-base"></label>
       <div class="grid3" style="margin-top:8px">
-        <button class="btn2" onclick="openUrl(S.openingUrl)">시트 열기</button>
+        <button class="btn2" onclick="openTable('기초재고')">표 열기</button>
         <button class="btn2" onclick="checkOpening()">검사</button>
         <button class="btn" style="height:46px; font-size:16px" onclick="commitOpening()">등록</button>
       </div>
@@ -586,9 +596,9 @@
       <label class="radio"><input type="checkbox" id="set-test" onchange="toggleTest(this.checked)"> <span><b>테스트 모드</b> — 이 기기에서 입력한 건에 [테스트] 표시</span></label>
       <button class="btn2" style="width:100%; margin-top:4px" onclick="cancelTestsUI()">테스트 건 일괄 취소</button>
       <button class="btn2" style="width:100%; margin-top:8px; color:#9A1C1C; border-color:#9A1C1C" onclick="resetDataUI()">재고 · 이력 초기화</button>
-      <div class="muted" style="margin-top:8px; font-size:13px">초기화: 관리자 PIN 필요 · 실행 전 구글 시트 백업 사본 자동 생성 · 창고 구조 · 줄 설정 · 기준정보는 유지</div>
+      <div class="muted" style="margin-top:8px; font-size:13px">초기화: 관리자 PIN 필요 · 실행 전 백업 사본(복구_ 시트) 자동 생성 · 창고 구조 · 줄 설정 · 기준정보는 유지</div>
     </div>
-    <button class="btn2" style="width:100%" onclick="openUrl(S.sheetUrl)">구글 시트 열기</button>
+    <button class="btn2" style="width:100%" onclick="openUrl(S.sheetUrl)">구글 시트 열기 (보기용 사본 · 매시간 갱신)</button>
     <div style="height:10px"></div>
     <button class="btn2" style="width:100%" onclick="reload()">새로고침</button>
     </div>
@@ -1894,7 +1904,7 @@ function openRow(code, mode) {
 }
 function showDetail(code) { openRow(code); }
 /* 배경 클릭으로 시트 닫기 — 입력 중(입고·실사·줄설정·창고설정·적재순서)만 실수 방지로 예외(✕/← 로 닫기) */
-function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan'].indexOf(SH.mode) >= 0)) return; shClose(); }
+function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan', 'tbl'].indexOf(SH.mode) >= 0)) return; shClose(); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
   SHST = [];   // 돌아갈 곳은 shClose(✕ · ← · 바깥 누름)만 씀 · 작업 중 닫힘(이동 시작 등)은 버림
   var wasFilter = SH && SH.mode === 'filter', wasPlan = SH && SH.mode === 'plan';
@@ -1916,6 +1926,7 @@ function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비�
   renderSheet(); $('detail').scrollTop = 0;
 }
 function shBack() { if (SH.mode === 'doc') { SH.sel = null; return renderSheet(); }   // 문서 목록: 규격 위치 → 목록
+  if (SH.mode === 'tbl') { SH.tn = ''; SH.td = null; SH.tadd = null; if (!SH.tl) tblList(); return renderSheet(); }   // 표 → 시트 목록
   SH.mode = SH.mode === 'add' ? 'cnt' : ''; SH.it = null; renderSheet(); }
 function shQty(d) {
   var max = SH.mode === 'out' && SH.it ? SH.it.qty : SH.qmax != null ? Math.max(SH.qmax, 1) : 999; if (SH.ocr) delete SH.ocr.qty;
@@ -1935,7 +1946,7 @@ function renderSheet() {
   if (SH.mode === 'wh') { sheetWh(); return; }
   if (SH.mode === 'merge') { sheetMerge(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
-    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : SH.mode === 'doc' ? sheetDoc() : sheetRow();
+    SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : SH.mode === 'tbl' ? sheetTbl() : SH.mode === 'doc' ? sheetDoc() : sheetRow();
   if (SH.mode === 'plan') plAfter();
 }
 
@@ -5266,6 +5277,82 @@ function confirmLine(line) {
         savePL(); toast(line + ' 출고 확정 완료 · ' + total + '롤'); renderPlan();
       });
     });
+}
+
+/* ===== 표 편집기 (설정 › 관리) — 시트를 표로 보기 · 칸 수정 · 행 추가 · 행 삭제 (클라우드 이전 후 구글 시트 직접 수정 대체)
+   읽기 전용(이력 · 편집기록 · 실사기록 · 기준변경) = 보기만 · 수정마다 서버 '편집기록' 시트에 기록 · 작업창(SH.mode 'tbl') 공통 부품 사용 */
+var TBL_NOTE = { '재고': '재고 직접 수정 = 이력 미기록 → 수량 정정은 실사 사용 권장', '기초재고': '정리 후 설정 › 관리 › 기초재고 일괄 등록의 [검사] → [등록]', '빠른값': '기준정보 화면 사용 권장', '창고': '창고 설정 화면 사용 권장', '구역': '창고 설정 화면 사용 권장', '줄설정': '창고 설정 화면 사용 권장' };
+function openTable(name) {
+  if (!requireWorker()) return;
+  shOpen({ code: null, mode: 'tbl', tn: name || '', list: !name, td: null, tq: '', tadd: null });
+  if (name) tblLoad(); else tblList();
+}
+function tblList() { call('tableList', { worker: worker() }).then(function (l) { if (SH && SH.mode === 'tbl') { SH.tl = l; renderSheet(); } }); }
+function tblLoad() {
+  var n = SH.tn;
+  call('tableGet', { name: n, worker: worker() }).then(function (d) { if (SH && SH.mode === 'tbl' && SH.tn === n) { SH.td = d; renderSheet(); } });
+}
+function tblPick(i) { var t = SH.tl[i]; if (!t) return; SH.tn = t.name; SH.td = null; SH.tq = ''; SH.tadd = null; renderSheet(); tblLoad(); }
+function sheetTbl() {
+  if (!SH.tn) {   // 시트 목록
+    var h = shHead('표 편집기', '시트 선택 · 수정 내역 = 편집기록 시트', false);
+    if (!SH.tl) return h + '<div class="card muted" style="margin-top:8px">불러오는 중...</div>';
+    return h + '<div style="margin-top:8px">' + SH.tl.map(function (t, i) {
+      return '<div class="card row" role="button" style="margin-bottom:6px; padding:10px 12px; cursor:pointer" onclick="tblPick(' + i + ')"><b>' + esc(t.name) + '</b>' +
+        '<span class="muted" style="font-size:13px">' + t.rows + '행' + (t.ro ? ' · 읽기 전용' : '') + ' ›</span></div>';
+    }).join('') + '</div>';
+  }
+  var d = SH.td, h = shHead('표 · ' + esc(SH.tn), d ? d.total + '행' + (d.ro ? ' · 읽기 전용' : ' · 칸 선택 시 수정') + (d.rows.length < d.total ? ' · 최근 ' + d.rows.length + '행 표시' : '') : '', SH.list);
+  if (!d) return h + '<div class="card muted" style="margin-top:8px">불러오는 중...</div>';
+  if (TBL_NOTE[SH.tn]) h += '<div class="hintbox" style="margin-top:8px">' + esc(TBL_NOTE[SH.tn]) + '</div>';
+  h += '<div class="row" style="gap:6px; margin-top:8px"><input class="mini" style="flex:1; height:40px" placeholder="🔍 행 검색" value="' + esc(SH.tq) + '" oninput="SH.tq=this.value; tblRows()">' +
+    (d.ro ? '' : '<button class="btn2" style="height:40px; flex:none" onclick="tblAdd()">+ 행 추가</button>') + '</div>';
+  if (SH.tadd) h += tblAddForm(d);
+  h += '<div class="tblw" id="tbl-rows">' + tblRowsHtml() + '</div>';
+  return h;
+}
+function tblRowsHtml() {
+  var d = SH.td, q = normMk(SH.tq || ''), rows = d.rows;
+  if (q) rows = rows.filter(function (x) { return normMk(x.v.join(' ')).indexOf(q) >= 0; });
+  var cols = Math.max(d.head.length, rows.reduce(function (m, x) { return Math.max(m, x.v.length); }, 0));
+  var th = '<tr><th class="rn">행</th>' + Array.apply(null, { length: cols }).map(function (_, j) { return '<th>' + esc(String(d.head[j] == null ? '' : d.head[j])) + '</th>'; }).join('') + '</tr>';
+  var tr = rows.slice().reverse().slice(0, 500).map(function (x) {   // 최근 행 먼저
+    return '<tr><td class="rn"' + (d.ro ? '' : ' role="button" onclick="tblRowMenu(' + x.r + ')"') + '>' + x.r + '</td>' +
+      Array.apply(null, { length: cols }).map(function (_, j) {
+        var v = x.v[j] == null ? '' : x.v[j], lock = d.ro || (d.mask || []).indexOf(j + 1) >= 0;
+        return '<td' + (lock ? '' : ' role="button" onclick="tblCell(' + x.r + ',' + (j + 1) + ')"') + '>' + esc(String(v)) + '</td>';
+      }).join('') + '</tr>';
+  }).join('');
+  return '<table class="tbl">' + th + tr + '</table>' + (rows.length > 500 ? '<div class="muted" style="padding:6px">검색으로 범위 축소 (500행까지 표시)</div>' : '') + (!rows.length ? '<div class="muted" style="padding:8px">행 없음</div>' : '');
+}
+function tblRows() { var el = $('tbl-rows'); if (el) el.innerHTML = tblRowsHtml(); }
+function tblSave(p, msg) {
+  call('tableEdit', Object.assign({ name: SH.tn, worker: worker() }, p)).then(function (d) {
+    if (!SH || SH.mode !== 'tbl') return;
+    SH.td = d; SH.tadd = null; renderSheet(); toast(msg);
+    if (['창고', '구역', '줄설정', '빠른값', '재고', '설정'].indexOf(d.name) >= 0) refreshStock(true);   // 앱 화면 데이터도 맞춤
+  });
+}
+function tblCell(r, c) {
+  var d = SH.td, row = d.rows.filter(function (x) { return x.r === r; })[0], cur = row ? row.v[c - 1] : '';
+  ask({ title: SH.tn + ' · ' + r + '행 · ' + (d.head[c - 1] || c + '열'), msg: '현재: ' + (cur === '' || cur == null ? '(빈칸)' : cur), value: cur == null ? '' : String(cur), ok: '저장' }, function (v) {
+    if (v === null || String(v) === String(cur == null ? '' : cur)) return;
+    tblSave({ r: r, c: c, v: v }, r + '행 ' + (d.head[c - 1] || '') + ' 수정 완료');
+  });
+}
+function tblRowMenu(r) {
+  var d = SH.td, row = d.rows.filter(function (x) { return x.r === r; })[0];
+  ask({ title: SH.tn + ' · ' + r + '행 삭제', msg: (row ? row.v.filter(function (x) { return x !== ''; }).join(' · ') : '') + '\n편집기록에 삭제 내용 보관', input: false, ok: '행 삭제', danger: true }, function (y) {
+    if (y) tblSave({ del: r }, r + '행 삭제 완료');
+  });
+}
+function tblAdd() { SH.tadd = SH.td.head.map(function () { return ''; }); renderSheet(); }
+function tblAddForm(d) {
+  return '<div class="card" style="margin-top:8px"><b>행 추가</b>' + d.head.map(function (hd, j) {
+    var lock = (d.mask || []).indexOf(j + 1) >= 0;
+    return lock ? '' : '<label class="muted" style="display:block; margin-top:6px; font-size:12px">' + esc(String(hd || (j + 1) + '열')) +
+      '<input class="mini" style="height:38px" value="' + esc(SH.tadd[j]) + '" oninput="SH.tadd[' + j + ']=this.value"></label>';
+  }).join('') + '<div class="grid2" style="margin-top:8px"><button class="btn2" onclick="SH.tadd=null; renderSheet()">취소</button><button class="btn" style="height:44px" onclick="tblSave({ add: SH.tadd }, \'행 추가 완료\')">추가</button></div></div>';
 }
 
 /* ===== 5. 설정 ===== */
