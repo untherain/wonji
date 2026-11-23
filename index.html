@@ -1300,6 +1300,7 @@ function show(t) {
   $('testBar').style.display = isTest() ? 'inline-block' : 'none';
   $('hdrExtra').innerHTML = ''; $('hdrSrch').innerHTML = '';
   topBtn();
+  if (t !== 'log' && HIST_RET) { HF = HIST_RET.hf; HIST_RET = null; if ($('g-hist')) $('g-hist').innerHTML = ''; }   // 다른 탭으로 = 기록 탭 검색 조건 원래대로
   SH = null; MV = null; ST = null; PKT = null; PKM = null; document.body.classList.remove('shopen'); $('detail').style.display = 'none'; $('dim').style.display = 'none';
   ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
   hdrFit();
@@ -4408,7 +4409,7 @@ function editHist(i) {
   E = { h: h, gsm: h.gsm, width: h.width, qty: h.qty, maker: h.type === '입고' ? h.target : '', grade: h.grade || '', dest: h.type === '출고' || h.type === '반납' ? h.target : '' };
   var g = $('g-hist');
   g.innerHTML =
-    '<div class="row" style="padding:10px 0 4px"><span class="big">' + esc(h.type) + ' #' + h.no + ' 수정</span><button class="btn2" onclick="loadHist()">뒤로</button></div>' +
+    '<div class="row" style="padding:10px 0 4px"><span class="big">' + esc(h.type) + ' #' + h.no + ' 수정</span><button class="btn2" onclick="histBack()">뒤로</button></div>' +
     '<div class="muted">원래: ' + esc(h.gsm + '×' + h.width) + ' · ' + h.qty + '롤 · ' + esc(h.time) + (h.day !== todayStr() ? ' (지난 날짜: 관리자 PIN 필요)' : '') + '</div>' +
     (h.type === '이동' ? '<h2>출발 위치</h2><div id="e-from"></div><h2>도착 위치</h2><div id="e-to"></div>'
                        : '<h2>' + (h.type === '출고' ? '출고 위치' : '보관 위치') + '</h2><div id="e-loc"></div>') +
@@ -4465,9 +4466,21 @@ function saveE() {
   if (h.type === '반납' && !d.dest) { toast('반납 호기 선택 필요', true); return; }
   var go = function (pin) {
     call('editTx', { no: h.no, data: d, changes: plain(c.join(', ')), pin: pin, worker: worker(), test: isTest() })
-      .then(function (stock) { setStock(stock); E = null; toast('#' + h.no + ' 수정 완료'); loadHist(); });
+      .then(function (stock) { setStock(stock); E = null; toast('#' + h.no + ' 수정 완료'); histBack(true); });
   };
   if (h.day !== todayStr()) needPin(go); else go('');
+}
+/* 이력 수정 화면 [뒤로] · 저장 완료: 다른 화면(피킹 확정 품목)에서 왔으면 그 화면 그 품목으로 (표준: 출발 화면 복귀) · 아니면 이력 목록
+   saved = 저장함 → 그 품목 출고 위치 칩을 이력에서 다시 읽음 */
+var HIST_RET = null;
+function histBack(saved) {
+  var r = HIST_RET;
+  if (!r) return loadHist();
+  if (saved) { PL.sloc = PL.sloc || {}; delete PL.sloc[r.id]; delete PK_BF[r.id]; }
+  show('plan');   // HF 원래대로 · HIST_RET 비움 (show)
+  if (PL.stage !== 'pick') { PL.stage = 'pick'; renderPlan(); }
+  window.scrollTo(0, r.y);
+  var el = document.querySelector('[data-pid="' + r.id + '"]'); if (el) el.scrollIntoView({ block: 'center' });
 }
 function todayStr() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function cancelHist(i) {
@@ -5093,7 +5106,7 @@ function pickRow(it, seq, a) {
   var bg = done ? '#F2FAF4' : picked ? '#EEF7F1' : a && a.lack ? '#FDF1F1' : '#fff';
   var warn = String(it.note || '').split(/\s+/).filter(function (w) { return /주의/.test(w); }).join(' ');
   // 1줄: 제지사 규격 · 수량 / 2줄: 위치 칩 · 부족 · ⚠ 주의 · 지종 · 계획 번호 / 3줄: 비고 / 4줄: 대체 (부족할 때)
-  var h = '<div class="row" style="gap:6px"><b style="font-size:16px; min-width:0">' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b>' +
+  var h = '<div class="row" data-pid="' + it.id + '" style="gap:6px"><b style="font-size:16px; min-width:0">' + itemHtml({ maker: pm.maker, grade: pm.grade, gsm: it.gsm, width: it.width }) + '</b>' +
     '<b style="white-space:nowrap; flex:none">' + (it.all ? '전량' + (a && !done ? ' ' + a.got + '롤' : '') : it.qty + '롤') + '</b></div>';
   var l2 = [];
   if (!done && picked && PL.by && PL.by[it.id]) l2.push('<span class="pkby">✓ ' + esc(PL.by[it.id]) + '</span>');   // 체크한 사람 · 시각
@@ -5347,6 +5360,7 @@ function pkDone(id) {
           function (k) { if (k == null) return; cancel(k === 'all' ? recs : [recs[Number(k)]]); });
       }
       // 수량 · 위치 수정 = 기록 탭 이력 수정 (공통) · 1건이면 바로 수정 화면
+      HIST_RET = { id: it.id, y: window.scrollY, hf: Object.assign({}, HF) };   // 저장 · 뒤로 = 피킹 화면 그 품목으로
       HF.q = pkMemo(it); HF.period = ''; HF.type = '출고'; LG.mode = '이력'; if ($('g-hist')) $('g-hist').innerHTML = '';   // 기간 · 유형 칸 다시 그림
       loadHist.after = recs.length === 1 ? function () { var k = HIST.map(function (h) { return h.no; }).indexOf(recs[0].no); if (k >= 0) editHist(k); } : null;
       show('log');
