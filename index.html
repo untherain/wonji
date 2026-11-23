@@ -480,7 +480,7 @@
   <h1 id="title" style="display:none">재고</h1>
   <button id="syncBtn" onclick="topTap()" aria-label="새 버전 적용" style="display:none">↑ 새 버전 적용</button>
   <a id="newVer" target="_top" href="#" aria-hidden="true"></a>
-  <span id="testBar" onclick="lpAct('test')" role="button" aria-label="테스트 모드 끄기" style="display:none">테스트</span>
+  <span id="testBar" onclick="lpAct('test')" role="button" aria-label="테스트 모드 해제" style="display:none">테스트</span>
   <div id="hdrTab"></div>
   <div id="hdrExtra"></div>
   <div id="hdrSrch"></div>
@@ -692,7 +692,7 @@ function refreshStock(force) {
   if (!S.whs || !S.whs.length) return;
   if (!force && Date.now() - (S.loadedAt || 0) < 300000) return;
   if (BUSY || refreshStock.on) return;
-  if (OB.q.length) { if (force) { obKick(); toast('미전송 ' + OB.q.length + '건 보내는 중 — 끝나면 서버 기준으로 맞춤'); } return; }
+  if (OB.q.length) { if (force) { obKick(); toast('미전송 ' + OB.q.length + '건 전송 중 — 완료 후 서버 기준 동기화'); } return; }
   S.loadedAt = Date.now();
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
   if (!force) call.quiet = true;   // 자동 새로 고침: 알림 · 처리 중 표시 없음 (실패하면 다음 번에 다시)
@@ -748,7 +748,7 @@ function syncTap() {   // 당겨서 새로고침
     if (y0 === null) return;
     dy = e.touches[0].clientY - y0;
     P.style.height = Math.min(44, Math.max(0, dy / 2)) + 'px';
-    P.textContent = (dy > 90 ? '↻ 놓으면 새로고침' : '↓ 당겨서 새로고침') + (S.at ? ' · ' + S.at : '');
+    P.textContent = (dy > 90 ? '↻ 새로고침 실행' : '↓ 새로고침') + (S.at ? ' · ' + S.at : '');
   }, { passive: true });
   document.addEventListener('touchend', function () {
     if (y0 !== null && dy > 90) syncTap();   // 당겨서 새로고침 = 버튼과 같음 (새 버전이면 적용)
@@ -819,7 +819,7 @@ function obBadge() {
   var n = OB.q.length, late = n && OB.q[0].tries > 0;
   b.style.display = n ? 'block' : 'none';
   b.className = late ? 'late' : '';
-  b.textContent = late ? '미전송 ' + n + '건 · 다시 보내기' : '보내는 중 ' + n + '건';
+  b.textContent = late ? '미전송 ' + n + '건 · 재전송' : '전송 중 ' + n + '건';
 }
 /* --- 폰 재고 계산 (서버 stockList_ 모양: 위치 · 지종 · 평량 · 폭 · 잔량 · 제지사별 1건, lots = 입고일별) --- */
 function lcRem(x) { return x === true || x === 'Y'; }
@@ -988,7 +988,7 @@ function obKick(now) {
     // 서버 거절: 이 건 + 이 건을 되돌리는 건 빼고, 서버 재고로 맞춘 뒤 남은 건 다시 반영
     OB.q = OB.q.filter(function (o) { return o !== op && !(o.fn === 'undoTx' && (o.args.refs || []).indexOf(op.id) >= 0); });
     obSave();
-    toast('저장 안 됨: ' + msg + ' — 서버 기준으로 되돌림', true);
+    toast('저장 실패: ' + msg + ' — 서버 기준 복원', true);
     obResync();
   })[op.fn](args);
 }
@@ -1005,7 +1005,7 @@ function obReplay() {
   OB.q = OB.q.filter(function (op) {
     T.fx = [];
     try { LC[op.fn](T, op.args); op.fx = T.fx; return true; }
-    catch (e) { toast('저장 안 됨: ' + e.message, true); return false; }
+    catch (e) { toast('저장 실패: ' + e.message, true); return false; }
   });
   obSave();
   setStock(T.stock); S.today = T.today;
@@ -1038,7 +1038,7 @@ function ask(o, cb) {
   if (o.extra) box.appendChild(chs); else box.insertBefore(chs, inp);   // 추가 버튼(숨기기 등)은 맨 아래
   if (o.extra) { chs.style.display = 'grid'; o.extra.forEach(function (x) {
     var b = document.createElement('button'); b.className = 'btn2'; b.textContent = x;
-    if (/숨기기/.test(x)) b.style.cssText = 'color:#9A1C1C; border-color:#9A1C1C';
+    if (/숨김/.test(x)) b.style.cssText = 'color:#9A1C1C; border-color:#9A1C1C';
     b.onclick = function () { close('\u0001' + x); }; chs.appendChild(b);
   }); }
   (o.chips || []).forEach(function (c) {
@@ -1212,7 +1212,7 @@ function scanQR(cb) {
         if (q) found = q.data.trim();
       }
       URL.revokeObjectURL(img.src);
-      if (found) cb(found); else toast('QR 인식 실패 — 가까이서 다시 촬영', true);
+      if (found) cb(found); else toast('QR 인식 실패 — 근접 재촬영', true);
     };
     img.src = URL.createObjectURL(f);
   });
@@ -1705,7 +1705,7 @@ function mergeScope(enc) {
   if (Object.keys(by).length < 2) { toast('병합 대상 없음'); return; }
   // 자동: 적게 옮기는 쪽 (창고 여럿이면 창고마다 따로 · 합쳐서)
   function auto(v, t, sub, c) { var P = c.P, ok = P.moves.length > 0; return { v: v, t: t, sub: sub + ' · ' + (ok ? P.before + '줄 → ' + P.after + '줄' : '감소 불가'), off: !ok, cut: ok ? P.before - P.after : 0 }; }
-  var autos = ids.length > 1 ? [auto('sep', '자동 · 창고마다 따로', '다른 창고로 옮기지 않음', mergeCalc(sig, null, true)), auto('all', '자동 · 창고 합쳐서', '다른 창고로도 옮김', mergeCalc(sig, null, false))]
+  var autos = ids.length > 1 ? [auto('sep', '자동 · 창고별', '타 창고 이동 없음', mergeCalc(sig, null, true)), auto('all', '자동 · 전 창고 통합', '타 창고 이동 포함', mergeCalc(sig, null, false))]
     : [auto('all', '자동', '적게 든 줄부터 빈 자리 큰 줄로', mergeCalc(sig, null, false))];
   var rec = autos.filter(function (o) { return !o.off; })[0]; if (rec) rec.tag = '추천';   // 창고 안 정리 먼저 (안 되면 합쳐서)
   // 도착 위치 지정: 이 원지가 있는 위치마다 "여기로 모으기" 결과 (좋은 순 · 자리 없으면 흐리게)
@@ -1715,7 +1715,7 @@ function mergeScope(enc) {
   }).sort(function (a, b) { return a.after - b.after || b.free - a.free; });
   ask({ title: '병합 · ' + distTitle(sig), msg: Object.keys(by).length + '줄 · ' + ids.reduce(function (a, id) { return a + whQ[id]; }, 0) + '롤' +
       (ids.length > 1 ? ' · ' + ids.map(function (id) { return whName(id) + ' ' + Object.keys(by).filter(function (k) { return String(by[k].wh) === id; }).length + '줄'; }).join(' · ') : ''),
-    list: true, chips: [{ h: '자동 (적게 옮기는 쪽으로)' }].concat(autos, [{ h: '도착 위치 지정 (여기로 모으기)' }], dst) }, function (v) {
+    list: true, chips: [{ h: '자동 (이동 최소)' }].concat(autos, [{ h: '도착 위치 지정' }], dst) }, function (v) {
     if (!v) return;
     if (v === 'sep') return consolidate(enc, null, true);
     if (v === 'all') return consolidate(enc, null, false);
@@ -1975,7 +1975,7 @@ function padReady() {
     document.head.appendChild(m);
   }
   var t0 = Date.now(), eng = ocrEng();
-  padStatus('모델 준비 중 (처음 한 번 10~20MB)');
+  padStatus('모델 준비 중 (최초 1회 10~20MB)');
   PAD.p = import('https://cdn.jsdelivr.net/npm/ppu-paddle-ocr@6.7.1/web/index.js').then(function (mod) {
     var svc = new mod.PaddleOcrService({ model: mod[eng === 'ko5' ? 'V5_KOREAN_MOBILE_MODEL' : 'V6_SMALL_MODEL'] });
     return svc.initialize().then(function () { PAD.svc = svc; padStatus('준비 완료 (' + ((Date.now() - t0) / 1000).toFixed(1) + '초)'); return svc; });
@@ -2106,7 +2106,7 @@ function tsrPlan(t, text) {
   var dm = String(text).match(/(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2}(?:\s*[~\-]\s*\d{1,2})?)/);
   // 인식 원문 맨 위에 표 머리글을 어떻게 읽었는지 (안 맞을 때 원인 확인용)
   var NM = { name: '원지명', maker: '제지사', spec: '규격', qty: '수량', div: '구분', note: '비고', line: '호기' };
-  var hd = '[표 머리글] ' + t.head.map(function (h, i) { return (h || '(빈칸)') + '→' + (NM[f[i]] || '안 씀'); }).join(' | ') + (qtyCol >= 0 && tsrField(t.head[qtyCol]) !== 'qty' ? ' (수량 열 추정)' : '');
+  var hd = '[표 머리글] ' + t.head.map(function (h, i) { return (h || '(빈칸)') + '→' + (NM[f[i]] || '미사용'); }).join(' | ') + (qtyCol >= 0 && tsrField(t.head[qtyCol]) !== 'qty' ? ' (수량 열 추정)' : '');
   return { date: dm ? Number(dm[2]) + '/' + dm[3].replace(/\s/g, '') : '', items: items, raw: hd + '\n\n' + text, table: true };
 }
 function ocrCall(kind, d) {
@@ -2148,7 +2148,7 @@ if (ocrEng() !== 'drive') setTimeout(padReady, 4000);   // 앱 열 때 미리 �
 /* 라벨 사진 읽기 (공통): 평량 · 지폭 · 제지사 · 지종 · 롤 수 · 롤번호 등 → cb(r) · 나중에 고른 사진 결과만 반영 */
 function readLabel(cam, cb, doc) {   // doc = 비추기 화면 [문서] 버튼 (문서 전체 읽기)
   function photo(d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) cb(r || {}); }); }
-  if (cam && liveOK()) return liveScan({ title: '라벨 비추기', onResult: function (r) { cb(r); }, shot: photo, doc: doc });
+  if (cam && liveOK()) return liveScan({ title: '라벨 스캔', onResult: function (r) { cb(r); }, shot: photo, doc: doc });
   pickPhoto(photo, cam);
 }
 function labelMemo(r) { return [r.rollNo ? '롤번호 ' + r.rollNo : '', r.weight ? r.weight + 'kg' : '', r.length ? r.length + 'm' : ''].filter(String).join(', '); }
@@ -2167,14 +2167,14 @@ function shPhoto(cam, only) {
     if (!only) SH.memo = labelMemo(r);
     var miss = [];
     if (!sp.gsm) miss.push('평량'); if (!sp.width) miss.push('지폭');
-    SH.phmsg = miss.length ? miss.join(' · ') + ' 못 읽음 — 빨간 글자 눌러 그 항목만 다시 촬영' : '';
+    SH.phmsg = miss.length ? miss.join(' · ') + ' 인식 실패 — 빨간 글자 선택 시 해당 항목 재촬영' : '';
     renderSheet(); $('detail').scrollTop = 0;
   });
 }
 /* 사진 안내 줄: 못 읽음(빨강) → 라벨 메모 → 기본 안내 */
 function phNote(def) { return SH && SH.phmsg ? '<span class="bad">' + esc(SH.phmsg) + '</span>' : SH && SH.memo ? '라벨: ' + esc(SH.memo) : def; }
 /* 지도 검색: 라벨 찍으면 같은 규격이 있는 줄 표시 */
-/* 검색 사진: 카메라 = 라벨 비추기 ([문서] 버튼 = 문서 전체) · 앨범 = 문서처럼 전체 읽기
+/* 검색 사진: 카메라 = 라벨 스캔 ([문서] 버튼 = 문서 전체) · 앨범 = 문서처럼 전체 읽기
    규격 1개 → 바로 검색 · 2개 이상 → 문서 목록 (규격별 재고 · 문서 수량 대조) */
 function filterPhoto(cam) {
   if (cam) return readLabel(true, fLabel, function () { docPhoto(docRead, true); });
@@ -2189,7 +2189,7 @@ function fLabel(r) {
   if (r.gsm && r.width) { if (SH) SH.phmsg = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); return; }   // 결과 = 지도 노란 줄 + 위쪽 검색 줄
   if (!SH || SH.mode !== 'filter') openFilter();
   SH.sp = F;
-  SH.phmsg = (!r.gsm ? '평량' : '') + (!r.gsm && !r.width ? ' · ' : '') + (!r.width ? '지폭' : '') + ' 못 읽음 — 다시 촬영 또는 아래 버튼';
+  SH.phmsg = (!r.gsm ? '평량' : '') + (!r.gsm && !r.width ? ' · ' : '') + (!r.width ? '지폭' : '') + ' 인식 실패 — 재촬영 또는 아래 버튼 입력';
   renderMap(); renderSheet();
 }
 /* 문서 읽기 (계획서와 같은 해석기) → 규격 목록 · 규격 없으면 라벨로 다시 해석 */
@@ -2208,7 +2208,7 @@ function docRead(d) {
     if (!list.length) {
       var lp = labelParse(String(r.raw || '').replace(/^\[표 머리글\][^\n]*\n*/, ''));
       if (lp.gsm && lp.width) return fLabel(lp);
-      toast('규격 못 읽음 — 다시 촬영 (문서 전체가 보이게)', true); return;
+      toast('규격 인식 실패 — 재촬영 (문서 전체 포함)', true); return;
     }
     shOpen({ code: null, mode: 'doc', list: list, sel: null }); $('detail').scrollTop = 0;
   });
@@ -2243,12 +2243,12 @@ var PKMSG = null;   // 마지막 촬영 결과 { t, bad }
 function pkSay(t, bad) { PKMSG = { t: t, bad: bad }; renderPlan(); }
 /* 라벨 → 계획 품목 찾기: { ok, msg, id } (체크는 부른 쪽에서) */
 function pickMatch(r) {
-  if (!r.gsm || !r.width) return { ok: false, msg: (!r.gsm ? '평량' : '지폭') + ' 못 읽음 — 다시 비추기 또는 직접 체크' };
+  if (!r.gsm || !r.width) return { ok: false, msg: (!r.gsm ? '평량' : '지폭') + ' 인식 실패 — 재스캔 또는 직접 체크' };
   var lines = LINES.slice(0, 3), cands = PL.items.filter(function (it) {
     return lines.indexOf(it.line) >= 0 && !PL.done[it.id] && !PL.picked[it.id] && it.gsm == r.gsm && it.width == r.width;
   }).sort(function (a, b) { return lines.indexOf(a.line) - lines.indexOf(b.line) || b.planNo - a.planNo; });
   var mk = r.maker ? canonMaker(r.maker) : '', spec = fmtItem({ maker: mk, grade: r.grade, gsm: r.gsm, width: r.width });
-  if (!cands.length) return { ok: false, msg: spec + ' — 계획에 없음 (또는 이미 체크)' };
+  if (!cands.length) return { ok: false, msg: spec + ' — 계획 외 품목 (또는 체크 완료)' };
   var ok = cands.filter(function (it) { var pm = planMk(it).maker; return !mk || !pm || pm === mk; })[0];
   if (!ok) { var it0 = cands[0]; return { ok: false, msg: spec + ' — 제지사 다름 (' + it0.line + ' 계획 #' + it0.planNo + ' = ' + planMk(it0).maker + ')' }; }
   return { ok: true, id: ok.id, msg: '✓ ' + spec + ' → ' + ok.line + ' 계획 #' + ok.planNo + ' 체크' };
@@ -2266,7 +2266,7 @@ function pickProg() {
   }).filter(String).join(' · ');
 }
 function pickByPhoto(cam) {
-  if (cam && liveOK()) return liveScan({ title: '피킹 · 라벨 비추기', cont: true, progress: pickProg,
+  if (cam && liveOK()) return liveScan({ title: '피킹 · 라벨 스캔', cont: true, progress: pickProg,
     done: function () { var p = PL.items.filter(function (it) { return LINES.slice(0, 3).indexOf(it.line) >= 0 && !PL.done[it.id]; }); return p.length && p.every(function (it) { return PL.picked[it.id]; }); },
     onResult: function (r) { var m = pickApply(r); return { ok: m.ok, msg: m.msg, undo: m.id ? function () { delete PL.picked[m.id]; savePL(); pkSay('체크 취소', false); } : null }; },
     shot: function (d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) pickApply(r || {}); }); } });
@@ -2289,7 +2289,7 @@ function sheetRow() {
   var hsub = hlI.length ? '← ' + (from ? esc(whName(whOf(from) ? whOf(from).id : '')) + ' ' + esc(keyOf(from)) + '에서 · ' : '') + esc(fmtItem(items[hlI[0]])) : '';
   var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', [hsub, notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : ''].filter(String).join('<br>'));
   if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
-    h += '<div class="stkhint"><b>맨 위</b>가 먼저 출고 · 신규 입고분은 맨 위에 추가</div>' +
+    h += '<div class="stkhint"><b>맨 위</b> = 출고 1순위 · 신규 입고분 맨 위 추가</div>' +
       (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
       '<button class="btn" style="width:100%; margin-top:12px; background:var(--ink); color:#fff" onclick="ordDone()">완료</button>';
     return h;
@@ -2300,7 +2300,7 @@ function sheetRow() {
     return h;
   }
   h += items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '<div class="muted" style="padding:12px 0">비어 있음</div>';
-  h += (items.length > 1 ? '<button class="btn2" style="width:100%; margin-top:10px" onclick="ordStart()">↕ 적재순서 바꾸기</button>' : '') +
+  h += (items.length > 1 ? '<button class="btn2" style="width:100%; margin-top:10px" onclick="ordStart()">↕ 적재순서 변경</button>' : '') +
     '<div class="grid3" style="margin-top:12px">' +
     (ri.cfg.off ? '<span></span>' : '<button class="btn2 dk" onclick="shMode(\'in\')">＋ 입고</button>') +
     '<button class="btn2" onclick="shMode(\'cnt\')">실사</button><button class="btn2" onclick="shMode(\'cfg\')">줄 설정</button></div>';
@@ -2318,7 +2318,7 @@ function itemBlock(s, i, ri) {
   }
   var open = SH.mode === 'out' && sameItem(SH.it, s);
   var badge = n > 1 ? '<b class="stkno" title="적재 순서 (1=맨 위)">' + (i + 1) + '</b> ' : '';
-  var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 먼저 출고</span>' : '';
+  var topTag = (n > 1 && i === 0) ? ' <span class="toptag">맨 위 · 출고 1순위</span>' : '';
   var hl = SH.hl && SH.hl.some(function (x) { return sameItem(x, s); });   // 위치로 가기: 찾는 품목
   var h = '<div class="it' + (open ? ' open' : '') + (hl ? ' hl' : '') + '"><div class="row"><span>' + badge + '<b class="sp">' + itemHtml(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i)) + remTag(s) +
     (s.maker ? ' <button class="ed" onclick="rowFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') + topTag +
@@ -2326,7 +2326,7 @@ function itemBlock(s, i, ri) {
     '<b class="sp' + (othersOf(s).length ? ' distb' : '') + '" style="flex:none">' + s.qty + '롤</b></div>';
   if (open) {
     var above = SH.items.slice(0, i).reduce(function (a, x) { return a + x.qty; }, 0);   // 제안1: 위에 깔린 롤
-    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 적재 · 먼저 이동 필요</div>' : '';
+    var warn = above > 0 ? '<div class="stkwarn">⚠ 이 품목 위에 ' + above + '롤 적재 · 선행 이동 필요</div>' : '';
     var ds = S.quick['출고처'] || [], last = lsGet('lastDest');
     h += warn + '<div class="row outq" style="margin-top:10px; gap:6px"><b style="flex:none">롤 수</b>' + stepper(SH.qty, 'shQty(-1)', 'shQty(1)', '출고 롤 수', '', { max: s.qty }) +
       '<button class="btn2" style="height:52px; padding:0 10px; flex:none" onclick="SH.qty=' + s.qty + ';renderSheet()">전량</button></div>' +
@@ -2368,10 +2368,10 @@ function doOut(j) {
    done(oldItem, newItem): 실사 화면에서 입력한 실사 수량 키를 옮길 때 사용 */
 function itemFix(s, done) {
   ask({ title: '품목 수정', msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty),
-    chips: ['제지사 바꾸기', '지종 바꾸기', '제지사 이름 전체 바꾸기'] }, function (c) {
-    if (c === '제지사 이름 전체 바꾸기') return qEdit('제지사', s.maker);
-    if (c === '제지사 바꾸기') return pickFix(s, '제지사', 'newMaker', 'maker', done);
-    if (c === '지종 바꾸기') return pickFix(s, '지종', 'newGrade', 'grade', done);
+    chips: ['제지사 변경', '지종 변경', '제지사 이름 일괄 변경'] }, function (c) {
+    if (c === '제지사 이름 일괄 변경') return qEdit('제지사', s.maker);
+    if (c === '제지사 변경') return pickFix(s, '제지사', 'newMaker', 'maker', done);
+    if (c === '지종 변경') return pickFix(s, '지종', 'newGrade', 'grade', done);
   });
 }
 /* 공통 부품: 품목 수정 · 제지사 지정용 선택 — 공통 선택 창(valPick) 사용 · 지종은 '(지종 없음)' 포함 · 현재값과 같으면 무시 */
@@ -2383,7 +2383,7 @@ function pickQuick(kind, s, title, cur, cb) {
 }
 /* 품목 수정: 제지사/지종 교정 (fixItem) · done(oldS,newS) = 실사 수량 키 이관 등 */
 function pickFix(s, label, field, key, done) {
-  pickQuick(label, s, label + ' 바꾸기', s[key] || '', function (v) {
+  pickQuick(label, s, label + ' 변경', s[key] || '', function (v) {
     if (!requireWorker()) return;
     var p = Object.assign(itemP(s), { loc: s.loc || SH.code }); p[field] = v;
     call('fixItem', p).then(function (st) {
@@ -2449,7 +2449,7 @@ var SORTS = {
 function sortGet(k, set) { var v = lsGet('sort_' + k), l = SORTS[set]; return l.some(function (x) { return x[0] === v; }) ? v : l[0][0]; }
 function sortNext(k, set) { var l = SORTS[set], i = l.map(function (x) { return x[0]; }).indexOf(sortGet(k, set)); lsSet('sort_' + k, l[(i + 1) % l.length][0]); }
 function sortLabel(k, set) { var cur = sortGet(k, set); return SORTS[set].filter(function (x) { return x[0] === cur; })[0][1]; }
-function sortBtn(k, set, after) { return '<button class="sortb" aria-label="정렬 바꾸기" onclick="event.stopPropagation();sortNext(\'' + k + '\',\'' + set + '\');' + after + '">' + sortLabel(k, set) + '</button>'; }
+function sortBtn(k, set, after) { return '<button class="sortb" aria-label="정렬 변경" onclick="event.stopPropagation();sortNext(\'' + k + '\',\'' + set + '\');' + after + '">' + sortLabel(k, set) + '</button>'; }
 /* 빈도순: 이 폰에서 최근 30일 사용 횟수 → 같으면 현재 재고 롤 수 → 같으면 작은 순 */
 function sortVals(kind, a) {
   var s = sortNum(a), mode = sortGet('spec_' + kind, 'num');
@@ -2603,7 +2603,7 @@ function lpAct(s) {
   if (k === 'whs') { var q = v.split(':'); return openWhCfg(q[0], q[1]); }   // 창고 설정 특정 항목 (only · zone · rule)
   if (k === 'row') { if (MV) return; openRow(v, 'cfg'); return; }
   if (k === 'aging') return agingEdit();
-  if (k === 'test') return ask({ title: '테스트 모드 끄기', msg: '이후 입력 건은 실제 기록', input: false, ok: '끄기' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
+  if (k === 'test') return ask({ title: '테스트 모드 해제', msg: '이후 입력 건 = 실제 기록', input: false, ok: '해제' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
 }
 (function () {
   var t = null, fired = false, x0 = 0, y0 = 0;
@@ -2626,11 +2626,11 @@ function qEdit(kind, v) {
   var key = { '평량': 'gsm', '폭': 'width', '지종': 'grade', '제지사': 'maker' }[kind];
   var stock = key ? S.stock.filter(function (s) { return String(s[key]) === String(v); }).reduce(function (a, s) { return a + s.qty; }, 0) : 0;
   var seen = ((S.quickSeen || {})[kind] || {})[v] || 0;
-  ask({ title: name + ' ' + v, msg: '재고 ' + stock + '롤 · 최근 90일 ' + seen + '건\n이름을 고치면 재고 · 기록도 함께 바뀜 (있는 값이면 합침)',
-    value: v, numeric: num, ok: '이름 저장', extra: kind === '제지사' || kind === '지종' ? ['약칭 · 다른 이름', '숨기기'] : ['숨기기'] }, function (r) {
+  ask({ title: name + ' ' + v, msg: '재고 ' + stock + '롤 · 최근 90일 ' + seen + '건\n이름 수정 시 재고 · 기록 일괄 반영 (기존 값과 동일 시 통합)',
+    value: v, numeric: num, ok: '이름 저장', extra: kind === '제지사' || kind === '지종' ? ['약칭 · 별칭', '숨김'] : ['숨김'] }, function (r) {
     if (r === null) return;
-    if (r === '\u0001숨기기') return quickSave({ kind: kind, from: v, hide: true }, name + ' ' + v + ' 숨김');
-    if (r === '\u0001약칭 · 다른 이름') return valMore(kind, v);
+    if (r === '\u0001숨김') return quickSave({ kind: kind, from: v, hide: true }, name + ' ' + v + ' 숨김');
+    if (r === '\u0001약칭 · 별칭') return valMore(kind, v);
     if (!r || r === v) return;
     if (num && !/^\d+$/.test(r)) { toast('숫자만 입력', true); return; }
     quickSave({ kind: kind, from: v, to: r }, name + ' ' + v + ' → ' + r);
@@ -2640,9 +2640,9 @@ function valMore(kind, v) {
   var q = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v === v; })[0] || {};
   ask({ title: v + ' 약칭', msg: '비우면 전체 이름', value: q.short || '', placeholder: v }, function (s) {
     if (s === null) return;
-    ask({ title: v + ' 다른 이름', msg: '라벨 · 계획서에 쓰이는 이름 (쉼표 구분)', value: String(q.alias || '').split('|').filter(String).join(', '), placeholder: kind === '지종' ? '예: 단무, 단면' : '예: 왕자, Oji' }, function (a) {
+    ask({ title: v + ' 별칭', msg: '라벨 · 계획서에 쓰이는 이름 (쉼표 구분)', value: String(q.alias || '').split('|').filter(String).join(', '), placeholder: kind === '지종' ? '예: 단무, 단면' : '예: 왕자, Oji' }, function (a) {
       if (a === null) return;
-      quickSave({ kind: kind, from: v, short: s, alias: a }, v + ' 약칭 · 다른 이름 저장');
+      quickSave({ kind: kind, from: v, short: s, alias: a }, v + ' 약칭 · 별칭 저장');
     });
   });
 }
@@ -2736,12 +2736,12 @@ function sheetIn() {
     var eks = Object.keys(elsew);
     if (eks.length) {
       var topL = eks.map(function (k) { return elsew[k]; }).sort(function (a, b) { return b.qty - a.qty; })[0];
-      f += '<div class="hintbox">같은 원지가 이미 <b>' + eks.length + '곳</b>에 보관 중 · 분산 최소화를 위해 ' +
+      f += '<div class="hintbox">동일 원지 <b>' + eks.length + '줄</b> 보관 중 · 분산 최소화 ' +
         '<button class="hlnk" onclick="SH.code=\'' + topL.loc + '\';M.wh=whOf(\'' + topL.loc + '\').id;renderMap();renderSheet()">' + esc(keyOf(topL.loc)) + ' (' + topL.qty + '롤)</button> 권장</div>';
     }
   }
   h += '<details class="more" id="sh-more"' + (SH.more ? ' open' : '') + ' ontoggle="SH.more=this.open"><summary>더보기: 잔량 반납</summary>' +
-    '<label class="radio"><input type="checkbox"' + (SH.rem ? ' checked' : '') + ' onchange="SH.rem=this.checked;renderSheet()"> <b>잔량 반납</b> (생산 후 남은 롤)</label>' +
+    '<label class="radio"><input type="checkbox"' + (SH.rem ? ' checked' : '') + ' onchange="SH.rem=this.checked;renderSheet()"> <b>잔량 반납</b> (생산 후 잔여 롤)</label>' +
     (SH.rem ? '<div class="cgf" style="margin-bottom:8px">' + (S.quick['출고처'] || []).filter(function (d) { return d.indexOf('외부') < 0; }).map(function (d) {
       return '<button class="chip' + (SH.from === d ? ' on' : '') + '" data-qk="출고처" data-qv="' + esc(d) + '" onclick="SH.from=this.textContent;renderSheet()">' + esc(d) + '</button>'; }).join('') +
       '<button class="chip etc" onclick="destAdd(function (v) { SH.from = v; renderSheet(); })">+ 입력</button></div>' : '') +
@@ -2921,10 +2921,10 @@ function undoToast(msg, nos) {
   toast(msg + ' 저장');
   if (!nos || !nos.length) return;
   var t = $('toast'), b = document.createElement('button');
-  b.className = 'btn2 undo'; b.textContent = '되돌리기';
+  b.className = 'btn2 undo'; b.textContent = '실행 취소';
   b.onclick = function () {
     t.style.display = 'none';
-    undoCall(nos).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('되돌리기 완료'); });
+    undoCall(nos).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('실행 취소 완료'); });
   };
   t.appendChild(b); t.style.display = 'flex';
   clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 6000);
@@ -2944,7 +2944,7 @@ function sumHtml(id, ph, o) {
   var ent = o.enter ? o.enter + ';this.select()' : 'this.blur()', t = o.text || '';
   return '<div class="insumw"><input class="srchin insum' + (t && o.miss ? ' miss' : '') + '" id="' + id + '" value="' + esc(t) + '" aria-label="입력 · 요약" placeholder="' + esc(ph) + '" autocomplete="off" enterkeyhint="' + (o.enter ? 'enter' : 'done') + '"' +
     ' oninput="' + o.type + '(this.value)" onfocus="this.select()" onblur="' + o.blur + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();' + ent + '}">' +
-    '<button class="insx" id="' + id + 'x" onclick="' + o.clear + '()" aria-label="입력 지우기" style="display:' + (t ? 'block' : 'none') + '">×</button></div>';
+    '<button class="insx" id="' + id + 'x" onclick="' + o.clear + '()" aria-label="입력 초기화" style="display:' + (t ? 'block' : 'none') + '">×</button></div>';
 }
 /* 머리글(탭)용: 처음 한 번 만들고, 입력 중이 아닐 때만 요약으로 갱신 */
 function sumBox(tab, id, ph, o) {
@@ -3009,7 +3009,7 @@ function pickSel(sel) {
   var all = [].filter.call(sel.options, function (o) { return o.value && o.value !== '__new'; });
   var opts = all.filter(function (o) { return !/^__/.test(o.value); }).map(function (o) { return o.value; });
   var fixed = all.filter(function (o) { return /^__/.test(o.value); }).map(function (o) { return { v: o.value, t: o.textContent }; });   // 특수 선택지 (예: __unk = 제지사 미상) → 표시 이름으로 맨 위 고정
-  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : fixed.length ? '' : '선택 안 함', rawNew: true }, function (v) {   // 특수 선택지(제지사 미상)가 있으면 「선택 안 함」 없음 (필수 칸 · 중복)
+  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : fixed.length ? '' : '미선택', rawNew: true }, function (v) {   // 특수 선택지(제지사 미상)가 있으면 「미선택」 제외 (필수 칸 · 중복)
     if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
     sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -3028,7 +3028,7 @@ function valPick(kind, o, cb) {
   }
   var ch = o.empty ? [{ v: '', t: o.empty, keep: 1 }] : [];
   (o.fixed || []).forEach(function (x) { ch.push({ v: x.v, t: x.t, tag: x.v === cur ? '선택됨' : '', keep: 1 }); });   // 특수 선택지 (예: 제지사 미상 · 편집 없음)
-  if (f.top.length) ch.push({ h: '자주 쓰는' });
+  if (f.top.length) ch.push({ h: '자주 사용' });
   ch = ch.concat(f.top.map(item));
   if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
   ch = ch.concat(f.rest.map(item));
@@ -3053,11 +3053,11 @@ document.addEventListener('click', function (e) {
 }, true);
 /* 값 편집 (선택 창 ✎): 이름 고치기(있는 이름이면 합치기) · 약칭 · 다른 이름 · 기본 제지사(지종) · 사용 중지 · 삭제 */
 function valEdit(kind, v) {
-  var ch = [{ v: 'name', t: '이름 고치기', sub: '재고 · 기록도 함께 · 있는 이름이면 합치기' }, { v: 'more', t: '약칭 · 다른 이름' }];
+  var ch = [{ v: 'name', t: '이름 수정', sub: '재고 · 기록 일괄 반영 · 기존 이름이면 통합' }, { v: 'more', t: '약칭 · 별칭' }];
   if (kind === '지종') ch.push({ v: 'mk', t: '기본 제지사', sub: ((S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === v; })[0] || {}).maker || '없음' });
-  ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' }, { v: 'del', t: '삭제', sub: '쓰는 중이면 바꾸기 · 빈칸 선택' });
+  ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' }, { v: 'del', t: '삭제', sub: '사용 중이면 대체 값 또는 빈칸 지정' });
   ask({ title: kind + ' ' + v, input: false, list: true, chips: ch }, function (a) {
-    if (a === 'name') ask({ title: v + ' 이름 고치기', value: v, ok: '이름 저장' }, function (r) { if (r && r !== v) quickSave({ kind: kind, from: v, to: r }, kind + ' ' + v + ' → ' + r); });
+    if (a === 'name') ask({ title: v + ' 이름 수정', value: v, ok: '이름 저장' }, function (r) { if (r && r !== v) quickSave({ kind: kind, from: v, to: r }, kind + ' ' + v + ' → ' + r); });
     else if (a === 'more') valMore(kind, v);
     else if (a === 'mk') {
       var dm = ((S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === v; })[0] || {}).maker || '';
@@ -3075,7 +3075,7 @@ function selOpts(list, label, cur, first) {
   var body = list.map(op).join('');
   if ((label === '지종' || label === '제지사') && list.length > 6) {   // 자주 쓰는 순 + 그 외 가나다순
     var f = freqSplit(label, list);
-    body = f.top.length ? '<optgroup label="자주 쓰는">' + f.top.map(op).join('') + '</optgroup><optgroup label="그 외 (가나다순)">' + f.rest.map(op).join('') + '</optgroup>'
+    body = f.top.length ? '<optgroup label="자주 사용">' + f.top.map(op).join('') + '</optgroup><optgroup label="그 외 (가나다순)">' + f.rest.map(op).join('') + '</optgroup>'
       : f.rest.map(op).join('');
   }
   return '<option value="">' + esc(first || label + ' (선택)') + '</option>' + body + '<option value="__new">+ 직접 입력</option>';
@@ -3281,7 +3281,7 @@ function lvBuild() {
       '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
       '<button class="lv-st" id="lv-st"></button><div class="lv-card" id="lv-card"></div>' +
       '<div class="lv-bar"><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
-      '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">찍기</button></div>';
+      '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">촬영</button></div>';
     document.body.appendChild(el);
   }
   return el;
@@ -3290,7 +3290,7 @@ function liveScan(o) {
   var el = lvBuild();
   $('lv-frame').style.display = ''; $('lv-shape').style.display = '';
   LV = { o: o, run: true, busy: false, last: '', cnt: 0, hold: '', seen: {}, t0: Date.now(), z: 1, hz: false, shape: +(lsGet('lvShape') || 0) % LV_SHAPES.length, rot: false, torch: false };
-  $('lv-title').textContent = o.title || '라벨 비추기';
+  $('lv-title').textContent = o.title || '라벨 스캔';
   el.style.display = 'flex'; document.body.classList.add('cropopen');
   lvShape(); lvProg(); lvSay('카메라 켜는 중…');
   $('lv-card').style.display = 'none';
@@ -3305,7 +3305,7 @@ function liveScan(o) {
   $('lv-st').onclick = function () { if (LV && LV.cand) lvConfirm(LV.cand.r, LV.cand.d); };
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   padReady();
-  lvCam(function () { lvSay('라벨을 틀 안에 비춰 주세요'); setTimeout(lvTick, 600); });
+  lvCam(function () { lvSay('라벨을 틀 안에 위치'); setTimeout(lvTick, 600); });
 }
 /* 카메라 켜기 (후면 · 확대 · 플래시 확인) → ready() · 실패 시 사진 찍기로 */
 function lvCam(ready) {
@@ -3320,7 +3320,7 @@ function lvCam(ready) {
     ready();
   }, function (e) {
     liveClose();
-    toast('카메라를 켤 수 없음 (' + ((e && e.name) || e) + ') → 사진 찍기로', true);
+    toast('카메라를 켤 수 없음 (' + ((e && e.name) || e) + ') → 사진 촬영 전환', true);
     if (o.shot) pickPhoto(o.shot, true);
   });
 }
@@ -3405,17 +3405,17 @@ function lvTick() {
       var edge = items.some(function (x) { return x.box.x < 3 || x.box.y < 3 || x.box.x + x.box.width > src.width - 3 || x.box.y + x.box.height > src.height - 3; });
       var tip = !items.length ? '글자 없음 — 라벨을 틀 안에' : mh && mh < src.height * 0.05 ? '조금 더 가까이 (또는 확대)' : edge ? '조금 멀리 — 라벨이 틀 밖으로 나감' : '';
       var part = r.gsm ? '평량 ' + r.gsm + ' ✓ · 지폭 —' : r.width ? '평량 — · 지폭 ' + r.width + ' ✓' : '';
-      var late = Date.now() - LV.t0 > 5000 ? ' · 안 읽히면 [찍기]' : '';
-      lvSay([part, tip].filter(String).join(' · ') + late || '라벨을 틀 안에 비춰 주세요', tip ? 'warn' : '');
+      var late = Date.now() - LV.t0 > 5000 ? ' · 인식 실패 시 [촬영]' : '';
+      lvSay([part, tip].filter(String).join(' · ') + late || '라벨을 틀 안에 위치', tip ? 'warn' : '');
       return setTimeout(lvTick, 200);
     }
     LV.miss = 0;
     var key = r.gsm + '|' + r.width + '|' + (r.rollNo || '');
-    if (LV.o.cont && (LV.hold === key || (r.rollNo && LV.seen[r.rollNo]))) { lvSay('같은 롤 — 다음 롤을 비춰 주세요'); return setTimeout(lvTick, 300); }
+    if (LV.o.cont && (LV.hold === key || (r.rollNo && LV.seen[r.rollNo]))) { lvSay('동일 롤 — 다음 롤 스캔'); return setTimeout(lvTick, 300); }
     LV.cnt = key === LV.last ? LV.cnt + 1 : 1; LV.last = key;
     var d = g.c.toDataURL('image/jpeg', 0.85);
     LV.cand = { r: r, d: d };
-    lvSay(fmtItem({ maker: r.maker ? canonMaker(r.maker) : '', grade: r.grade, gsm: r.gsm, width: r.width }) + (r.qty ? ' · ' + r.qty + '롤' : '') + (LV.cnt < 2 && !known ? ' — 확인 중 (눌러서 바로 확정)' : ''), 'cand');
+    lvSay(fmtItem({ maker: r.maker ? canonMaker(r.maker) : '', grade: r.grade, gsm: r.gsm, width: r.width }) + (r.qty ? ' · ' + r.qty + '롤' : '') + (LV.cnt < 2 && !known ? ' — 확인 중 (선택 시 즉시 확정)' : ''), 'cand');
     var known = (S.quick['평량'] || []).indexOf(String(r.gsm)) >= 0 && (S.quick['폭'] || []).indexOf(String(r.width)) >= 0;
     if (LV.cnt >= 2 || known) lvConfirm(r, d);   // 기준정보에 있는 평량 · 지폭 = 바로 확정 · 처음 보는 값 = 2번 같아야
     setTimeout(lvTick, 250);
@@ -3476,12 +3476,12 @@ function docScan(o) {
   $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null; $('lv-doc').style.display = 'none';
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
   $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
-  lvSay('문서 인식 준비 중… (처음 한 번 약 9MB)');
+  lvSay('문서 인식 준비 중… (최초 1회 약 9MB)');
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   var ready = docReady();
   lvCam(function () {
-    ready.then(function () { if (LV && LV.doc) { lvSay('계획서 전체가 보이게 비춰 주세요 (단색 바닥 위)'); docTick(); } },
-      function () { lvSay('문서 인식을 불러오지 못함 — [찍기]로 찍어 주세요', 'warn'); });
+    ready.then(function () { if (LV && LV.doc) { lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
+      function () { lvSay('문서 인식 로드 실패 — [촬영] 사용', 'warn'); });
   });
 }
 function docTick() {
@@ -3511,18 +3511,18 @@ function docTick() {
     LV.stable = mv < W * 0.02 ? LV.stable + 1 : 0; LV.prev = pts;
     var q = lvQuality(c);
     if (q.sharp < 12) { LV.stable = 0; lvSay('흔들림 — 잠시 멈춰 주세요', 'warn'); }
-    else lvSay(LV.stable >= 2 ? '그대로 잠시… 곧 자동으로 찍습니다' : '테두리 찾음 — 움직이지 말고 잠시', 'cand');
+    else lvSay(LV.stable >= 2 ? '위치 고정 · 자동 촬영 대기' : '윤곽 검출 — 위치 고정 필요', 'cand');
     if (LV.stable >= 4) return docCapture(pts.map(function (pt) { return { x: pt.x * r, y: pt.y * r }; }));
   } else {
     LV.stable = 0; LV.prev = null;
-    lvSay('종이 테두리를 찾는 중 — 계획서 전체가 보이게 · 단색 바닥 위 · 안 되면 [찍기]');
+    lvSay('계획서 윤곽 검출 중 — 계획서 전체 포함 · 단색 바닥 권장 · 검출 실패 시 [촬영]');
   }
   setTimeout(docTick, 250);
 }
 /* 자동 찍기: 가능하면 카메라 최대 해상도(ImageCapture) · 모서리 비율 맞춰 원근 보정 → 영역 확인(전체 선택) → shot */
 function docCapture(pts) {
   var v = $('lv-v'), o = LV.o, vw = v.videoWidth, vh = v.videoHeight, track = LV.track;
-  lvSay('찍는 중…', 'cand'); lvBeep(true); LV.run = false;
+  lvSay('촬영 중…', 'cand'); lvBeep(true); LV.run = false;
   var frame = document.createElement('canvas'); frame.width = vw; frame.height = vh; frame.getContext('2d').drawImage(v, 0, 0);
   var hi = (window.ImageCapture && track) ? new ImageCapture(track).takePhoto().then(createImageBitmap).catch(function () { return null; }) : Promise.resolve(null);
   hi.then(function (bm) {
@@ -3666,7 +3666,7 @@ function enhance(ctx, w, h) {
 }
 var ocrSeq = 0;
 function photoOCR(useCamera) {
-  if (useCamera && liveOK()) return liveScan({ title: '입고 · 라벨 비추기', onResult: function (r, d) { ++ocrSeq; $('i-ocr').style.display = 'block'; applyOCR(r, d); }, shot: photoOCRd });
+  if (useCamera && liveOK()) return liveScan({ title: '입고 · 라벨 스캔', onResult: function (r, d) { ++ocrSeq; $('i-ocr').style.display = 'block'; applyOCR(r, d); }, shot: photoOCRd });
   pickPhoto(photoOCRd, useCamera);
 }
 function photoOCRd(d) {
@@ -3674,9 +3674,9 @@ function photoOCRd(d) {
     var my = ++ocrSeq;   // 나중에 고른 사진 결과만 반영
     var box = $('i-ocr');
     box.style.display = 'block';
-    box.innerHTML = '<img src="' + d + '" alt="찍은 사진" style="width:100%; max-height:170px; object-fit:cover; border-radius:8px"><div class="muted" style="padding:8px 0">글자 읽는 중... (5~15초)</div>';
+    box.innerHTML = '<img src="' + d + '" alt="촬영 사진" style="width:100%; max-height:170px; object-fit:cover; border-radius:8px"><div class="muted" style="padding:8px 0">글자 읽는 중... (5~15초)</div>';
     ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) applyOCR(r, d); },
-      function () { if (my === ocrSeq) box.querySelector('.muted').textContent = '읽기 실패 — 다시 촬영하거나 버튼으로 입력'; });
+      function () { if (my === ocrSeq) box.querySelector('.muted').textContent = '인식 실패 — 재촬영 또는 버튼 입력'; });
   })();
 }
 function clearOCR() { ocrSeq++; I.memo = ''; $('i-ocr').style.display = 'none'; $('i-ocr').innerHTML = ''; }
@@ -3688,17 +3688,17 @@ function applyOCR(r, d) {
   if (r.maker) setSel('i-maker', r.maker); else if (r.grade) gradeMaker('i-grade', 'i-maker');
   I.memo = [r.rollNo ? '롤번호 ' + r.rollNo : '', r.weight ? r.weight + 'kg' : '', r.length ? r.length + 'm' : ''].filter(String).join(', ');
   var miss = []; if (!r.gsm) miss.push('평량'); if (!r.width) miss.push('폭');
-  function line(k, v) { return '<div class="row" style="padding:3px 0"><span class="muted">' + k + '</span><b>' + (v ? esc(v) : '<span style="color:#9A1C1C">못 읽음</span>') + '</b></div>'; }
-  $('i-ocr').innerHTML = '<img src="' + d + '" alt="찍은 사진" style="width:100%; max-height:150px; object-fit:cover; border-radius:8px">' +
+  function line(k, v) { return '<div class="row" style="padding:3px 0"><span class="muted">' + k + '</span><b>' + (v ? esc(v) : '<span style="color:#9A1C1C">인식 실패</span>') + '</b></div>'; }
+  $('i-ocr').innerHTML = '<img src="' + d + '" alt="촬영 사진" style="width:100%; max-height:150px; object-fit:cover; border-radius:8px">' +
     '<div class="grid2" style="margin-top:6px; column-gap:16px">' + line('평량', r.gsm) + line('지폭', r.width) + line('중량', r.weight && r.weight + 'kg') + line('길이', r.length && r.length + 'm') + '</div>' +
     line('제지사', r.maker) + line('지종', r.grade) + line('롤번호', r.rollNo) + (r.qty ? line('롤 수', r.qty + '롤') : '') +
     (miss.length ? '<div style="color:#9A1C1C; font-weight:700; padding-top:4px">' + miss.join(', ') + ' 인식 실패 → 아래 버튼으로 선택</div>'
                  : '<div style="color:var(--ok); font-weight:700; padding-top:4px">확인 후 저장 (틀린 값은 아래 버튼으로 수정)</div>') +
-    '<details><summary class="muted">인식 결과 보기</summary><pre style="white-space:pre-wrap; font-size:12px">' + esc(r.raw) + '</pre></details>' +
+    '<details><summary class="muted">인식 결과</summary><pre style="white-space:pre-wrap; font-size:12px">' + esc(r.raw) + '</pre></details>' +
     '<div class="grid3" style="margin-top:8px">' +
     '<button class="btn2" onclick="photoOCR(true)">재촬영</button>' +
     '<button class="btn2" onclick="photoOCR(false)">사진 변경</button>' +
-    '<button class="btn2" onclick="clearOCR()">지우기</button></div>';
+    '<button class="btn2" onclick="clearOCR()">초기화</button></div>';
   renderIn();
 }
 function renderIn(fromScan) {
@@ -3777,7 +3777,7 @@ function addPart() {
   var next = (I.gsm && I.width ? sugCands() : []).filter(function (c) { return used.indexOf(c) < 0 && freeFor(c, I.gsm, I.width, g) > 0; })[0];
   if (!next) { toast('추가 가능한 빈 자리 없음', true); return; }
   var src = I.parts.slice().reverse().filter(function (x) { return x.qty > 1; })[0];
-  if (!src) { toast('나눌 롤 없음 (줄마다 1롤)', true); return; }
+  if (!src) { toast('분할 대상 롤 없음 (줄당 1롤)', true); return; }
   var q = Math.min(Math.floor(src.qty / 2), freeFor(next, I.gsm, I.width, g));
   src.qty -= q; I.parts.push({ loc: next, qty: q }); I.locManual = true; inHint();
 }
@@ -3793,7 +3793,7 @@ function setPartQty(k, v) {
   if (I.parts.length === 1) { inQty(v - I.qty); return; }   // 한 줄 = 전량 롤 수와 같음
   var x = I.parts[k], old = x.qty, mx = partMax(x);
   v = Math.max(1, Math.min(v, I.qty, mx == null ? Infinity : mx));
-  if (v === old) { if (mx != null && v >= mx) toast(keyOf(x.loc) + ' 최대 ' + mx + '롤 (길게 누르면 줄 설정)', true); return; }
+  if (v === old) { if (mx != null && v >= mx) toast(keyOf(x.loc) + ' 최대 ' + mx + '롤 (길게 누르기 = 줄 설정)', true); return; }
   x.qty = v;
   var left = refitParts(old - v, k);
   if (left > 0) { x.qty += left; toast('다른 줄 빈 자리 없음', true); }
@@ -3987,7 +3987,7 @@ function saveIn() {
   if (!requireWorker()) return;
   var parts = (I.parts || []).filter(function (x) { return x.qty > 0; });
   var miss = inMissing();
-  if (miss.length) { toast(miss.map(function (x) { return x[0]; }).join('·') + ' 선택 필요' + (miss.some(function (x) { return x[0] === '제지사'; }) ? ' (모르면 [제지사 미상])' : ''), true); jumpTo(miss[0][1]); return; }
+  if (miss.length) { toast(miss.map(function (x) { return x[0]; }).join('·') + ' 선택 필요' + (miss.some(function (x) { return x[0] === '제지사'; }) ? ' (미확인 시 [제지사 미상])' : ''), true); jumpTo(miss[0][1]); return; }
   var p = { loc: parts.length ? parts[0].loc : '', gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: curMaker(), worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
@@ -4079,7 +4079,7 @@ function renderRep() {
 }
 function loadRep() {
   RP.from = $('rp-from').value; RP.to = $('rp-to').value;
-  if (RP.from && RP.to && RP.from > RP.to) { toast('시작일이 종료일보다 늦음', true); return; }
+  if (RP.from && RP.to && RP.from > RP.to) { toast('시작일이 종료일 이후', true); return; }
   $('rp-body').innerHTML = '<div class="muted" style="padding:12px">불러오는 중...</div>';
   call('getReport', { from: RP.from, to: RP.to }).then(function (r) { RP.data = r; if ($('rp-body')) drawRep(); });
 }
@@ -4154,7 +4154,7 @@ function distCard() {
     var chips = e.locs.map(function (l, j) {
       return '<button class="lchip lc" onclick="distLoc(' + i + ',' + j + ')">' + '<small>' + esc(whName(l.wh)) + '</small> ' + esc(keyOf(l.loc)) + '<i>' + l.qty + '</i></button>';
     }).join('');
-    var eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">병합하면 ' + e.P.before + '줄 → ' + e.P.after + '줄 (−' + e.cut + ')</span>'
+    var eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">병합 시 ' + e.P.before + '줄 → ' + e.P.after + '줄 (−' + e.cut + ')</span>'
       : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">병합 불가 — 빈 자리 부족</span>';
     var btn = job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
       : e.cut || e.multi ? '<button class="btn" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startMerge(\'' + enc + '\')">병합 ▸</button>' : '';
@@ -4385,7 +4385,7 @@ function renderPlan() {
     '<textarea readonly rows="8" style="width:100%; font-size:12px; border:1px solid #B9BEC5; border-radius:8px">' + esc(PL.raw) + '</textarea></details>';
   h += '<div class="grid2" style="grid-template-columns:1fr 2fr; margin-top:10px">' +
     '<button class="btn2" onclick="clearPlan()">새 계획</button>' +
-    '<button class="btn" onclick="makePick()">피킹 리스트 만들기</button></div>';
+    '<button class="btn" onclick="makePick()">피킹 리스트 생성</button></div>';
   el.innerHTML = h;
 
   pqHdr();
@@ -4408,8 +4408,8 @@ function planRow(it) {
     '<button class="xbtn" onclick="delPI(' + i + ')" aria-label="삭제">×</button></div>' +
     noteFold('pe' + it.id, !!it.note, '<input class="mini" style="height:34px; font-size:14px" value="' + esc(it.note || '') + '" placeholder="비고" aria-label="비고" onchange="setPI(' + i + ',\'note\',this.value)">') +
     '<div class="row" style="margin-top:2px">' +
-    (it.weak ? '<span style="color:#7A5200; font-size:12px; font-weight:700">필기 · 잡글자? — 진짜 품목이면 제지사 · 수량 입력</span>' :
-      ok ? '<span></span>' : '<span style="color:#9A1C1C; font-size:12px; font-weight:700">' + (!(it.gsm && it.width) ? '규격 못 읽음 — 사진 보고 입력' : '수량 확인 필요') + '</span>') +
+    (it.weak ? '<span style="color:#7A5200; font-size:12px; font-weight:700">필기 · 잡음 의심 — 실제 품목이면 제지사 · 수량 입력</span>' :
+      ok ? '<span></span>' : '<span style="color:#9A1C1C; font-size:12px; font-weight:700">' + (!(it.gsm && it.width) ? '규격 인식 실패 — 사진 확인 후 입력' : '수량 확인 필요') + '</span>') +
 
     '</div></div>';
 }
@@ -4429,8 +4429,8 @@ function plQty(d) { SH.all = false; SH.qty = Math.max(1, SH.qty + d); renderShee
 function sheetPlan() {
   var it = plCur(), ord = planOrder(), k = it ? ord.indexOf(it) : -1;
   var h = shHead(it ? esc(it.line) + ' 계획 #' + it.planNo + ' <small class="muted">' + (k + 1) + '/' + ord.length + '</small>' : '계획 품목 추가', it && it.name ? '인식: ' + esc(it.name) : '', false, '', shBox());
-  if (it && PLIMG) h += '<div class="plsnip" onclick="SH.big=!SH.big; renderSheet()"><canvas id="pl-snipc"></canvas><span>' + (SH.big || !it.snip ? '줄만 보기' : '사진 크게') + '</span></div>';
-  h += lbl('호기' + (it ? ' <small class="muted" style="font-weight:500">바꾸면 이 품목부터 아래 모두</small>' : ''), '') + '<div class="grid4" id="pl-line"></div>';
+  if (it && PLIMG) h += '<div class="plsnip" onclick="SH.big=!SH.big; renderSheet()"><canvas id="pl-snipc"></canvas><span>' + (SH.big || !it.snip ? '해당 줄만' : '사진 확대') + '</span></div>';
+  h += lbl('호기' + (it ? ' <small class="muted" style="font-weight:500">변경 시 해당 품목 이후 전체 적용</small>' : ''), '') + '<div class="grid4" id="pl-line"></div>';
   h += pickerHtml(true);
   h += '<div class="card row" style="margin-top:12px"><b>수량</b>' + stepper(SH.all ? '전량' : SH.qty, 'plQty(-1)', 'plQty(1)', '수량') +
     '<button class="btn2" style="height:52px; padding:0 10px; flex:none' + (SH.all ? '; background:var(--y)' : '') + '" onclick="SH.all=!SH.all; renderSheet()">전량</button></div>';
@@ -4542,9 +4542,9 @@ function delPI(i) {
   };
   if (n <= 1) return go([it]);
   ask({ title: '계획 품목 삭제', msg: it.line + ' #' + it.planNo + ' · ' + (it.gsm && it.width ? it.gsm + '×' + it.width : '규격 없음'),
-    chips: ['이 품목만', '여기부터 아래 ' + n + '건'] }, function (v) {
+    chips: ['해당 품목만', '이후 전체 ' + n + '건'] }, function (v) {
     if (!v) return;
-    go(v === '이 품목만' ? [it] : ord.slice(k));
+    go(v === '해당 품목만' ? [it] : ord.slice(k));
   });
 }
 /* 출고 상단 입력칸: 호기 · 제지사 · 규격 · 수량(전량) 한 줄 입력 · Enter = 계획 품목 추가 */
@@ -4575,7 +4575,7 @@ function addPQ() {
   useSpec(PQ); savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; PQ.all = false; renderPlan();
 }
 function clearPlan() {
-  ask({ title: '새 계획', msg: '현재 계획 품목 ' + PL.items.length + '건 · 피킹 기록 비우기', input: false, ok: '비우기', danger: true },
+  ask({ title: '새 계획', msg: '현재 계획 품목 ' + PL.items.length + '건 · 피킹 기록 초기화', input: false, ok: '초기화', danger: true },
     function (y) { if (y) { PL = newPL(); planImgSave(null); savePL(); renderPlan(); } });
 }
 var planSeq = 0;
@@ -4585,7 +4585,7 @@ function planPhoto(cam) {
       var my = ++planSeq;
       ocrCall('ocrPlan', d).then(function (r) {
         if (my !== planSeq) return;
-        if (!r.items.length) { PL.msg = '규격 못 읽음 — 다시 촬영 또는 직접 입력'; PL.msgBad = true; renderPlan(); return; }
+        if (!r.items.length) { PL.msg = '규격 인식 실패 — 재촬영 또는 직접 입력'; PL.msgBad = true; renderPlan(); return; }
         if (!PL.date && r.date) PL.date = r.date;
         PL.raw = r.raw || '';
         // 사진 조각: 인식한 사진(돌려 읽었으면 돌린 사진) + 품목별 위치 · 구글 드라이브로 읽었으면 위치 없이 사진만
@@ -4604,7 +4604,7 @@ function planPhoto(cam) {
       });
     };
   }
-  if (PL.items.length) ask({ title: '계획서 사진', msg: '현재 품목 ' + PL.items.length + '건', chips: ['전부 교체', '뒤에 추가'] }, function (v) { if (v) docPhoto(run(v === '뒤에 추가'), cam); });
+  if (PL.items.length) ask({ title: '계획서 사진', msg: '현재 품목 ' + PL.items.length + '건', chips: ['전체 교체', '추가 등록'] }, function (v) { if (v) docPhoto(run(v === '추가 등록'), cam); });
   else docPhoto(run(false), cam);
 }
 function makePick() {
@@ -4731,7 +4731,7 @@ function confirmLine(line) {
     });
   });
   var total = batch.reduce(function (x, b) { return x + b.qty; }, 0);
-  ask({ title: line + ' 출고 확정', msg: its.length + '품목 · ' + total + '롤 → ' + dest + (lack ? '\n재고 부족 ' + lack + '롤은 제외하고 출고' : ''), input: false, ok: '출고 확정' },
+  ask({ title: line + ' 출고 확정', msg: its.length + '품목 · ' + total + '롤 → ' + dest + (lack ? '\n재고 부족 ' + lack + '롤 제외 출고' : ''), input: false, ok: '출고 확정' },
     function (y) {
       if (!y) return;
       fastCall('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
@@ -4800,7 +4800,7 @@ function renderWh() {
         inp(i + '.zones.' + j + '.rows', z.rows, true, ' style="width:40px; flex:none; padding:0 2px; text-align:center" aria-label="줄 수"') + '<span class="muted" style="flex:none">줄</span>' +
         '<select class="mini" style="width:104px; flex:none; padding:0 2px; font-size:12px" onchange="setZonePos(' + i + ',' + j + ',this.value)" aria-label="위치">' +
         opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>' +
-        '<button class="xbtn" style="width:28px' + (z.link || first ? '; visibility:hidden' : '') + '" onclick="zoneUp(' + i + ',' + j + ')" aria-label="같은 면 안 순서 위로">▲</button>' +
+        '<button class="xbtn" style="width:28px' + (z.link || first ? '; visibility:hidden' : '') + '" onclick="zoneUp(' + i + ',' + j + ')" aria-label="동일 면 내 순서 위로">▲</button>' +
         '<button class="xbtn" onclick="delZone(' + i + ',' + j + ')" aria-label="구역 삭제">×</button></div>';
     }).join('') +
       zonePrev(w);
@@ -4871,7 +4871,7 @@ function addWh() {
   renderWh();
 }
 function delWh(i) {
-  ask({ title: W[i].name + ' 삭제', msg: '저장 시 반영 · 재고가 있으면 저장 불가', input: false, ok: '삭제', danger: true },
+  ask({ title: W[i].name + ' 삭제', msg: '저장 시 반영 · 재고 보유 시 저장 불가', input: false, ok: '삭제', danger: true },
     function (y) { if (y) { W.splice(i, 1); renderWh(); } });
 }
 function addZone(i) {
@@ -4945,7 +4945,7 @@ function zonePrev(w) {
   return '<div class="zprev">' + h + '</div>';
 }
 function delZone(i, j) {
-  ask({ title: W[i].zones[j].name + ' 삭제', msg: '저장 시 반영 · 재고가 있으면 저장 불가', input: false, ok: '삭제', danger: true },
+  ask({ title: W[i].zones[j].name + ' 삭제', msg: '저장 시 반영 · 재고 보유 시 저장 불가', input: false, ok: '삭제', danger: true },
     function (y) { if (y) { W[i].zones.splice(j, 1); renderWh(); } });
 }
 function addRule(i) {
@@ -5042,7 +5042,7 @@ function qePick(k) {
   if (k === QE.kind) return;
   var go = function () { QE.kind = k; QE.items = null; renderQuick(); RC.more = false; drawRecent(); };
   if (!QE.dirty) return go();
-  ask({ title: '저장 안 한 변경 있음', msg: qeLabel(QE.kind) + ' 변경 내용을 버리고 이동', input: false, ok: '버리고 이동', danger: true }, function (y) { if (y) go(); });
+  ask({ title: '미저장 변경 사항', msg: qeLabel(QE.kind) + ' 변경 내용 폐기 후 이동', input: false, ok: '폐기 후 이동', danger: true }, function (y) { if (y) go(); });
 }
 function renderQuick() {
   if (!QE.items) qeLoad();
@@ -5056,8 +5056,8 @@ function renderQuick() {
   }), QE.kind, qePick);
   var help = {
     '평량': '', '폭': '',
-    '지종': '왼쪽 = 약칭 · 오른쪽 = 다른 이름',
-    '제지사': '왼쪽 = 약칭 · 오른쪽 = 다른 이름',
+    '지종': '왼쪽 = 약칭 · 오른쪽 = 별칭',
+    '제지사': '왼쪽 = 약칭 · 오른쪽 = 별칭',
     '출고처': ''
   }[QE.kind];
   var h = help ? '<div class="muted" style="margin:8px 2px">' + help + '</div>' : '';
@@ -5074,7 +5074,7 @@ function renderQuick() {
           '<button class="btn2" style="height:36px" onclick="qeFix(\'' + esc(a.v) + '\')">고정</button></div>';
       }).join('') : '<div class="muted">없음</div>') + '</div>';
   }
-  h += '<div class="grid2" style="margin-top:10px"><button class="btn2" onclick="QE.items=null;renderQuick()"' + (QE.dirty ? '' : ' disabled') + '>되돌리기</button>' +
+  h += '<div class="grid2" style="margin-top:10px"><button class="btn2" onclick="QE.items=null;renderQuick()"' + (QE.dirty ? '' : ' disabled') + '>실행 취소</button>' +
     '<button class="btn" style="height:46px; font-size:16px" onclick="qeSave()">' + qeLabel(QE.kind) + ' 저장</button></div>';
   $('set-quick').innerHTML = h;
 }
@@ -5101,7 +5101,7 @@ function qeRow(it, i) {
   if (it.orig && it.v !== it.orig) info += ' · <b>이름 변경: ' + esc(it.orig) + ' →</b>';
   var tags = (it.st === '중지' ? ' <span class="qtag">사용 중지</span>' : '') + (it.st === '확인' ? ' <span class="qtag chk">확인 필요</span>' : '');
   var acts = (it.st === '확인' ? '<button class="lnk" onclick="qeSet(' + i + ',\'st\',\'\')">등록</button>' : '') +
-    (!num && it.orig ? '<button class="lnk" onclick="qeMerge(' + i + ')">합치기</button>' : '');
+    (!num && it.orig ? '<button class="lnk" onclick="qeMerge(' + i + ')">통합</button>' : '');
   var h = '<div class="qrow' + (it.st === '중지' ? ' off' : '') + (it.st === '확인' ? ' chk' : '') + '">' +
     '<div class="row" style="gap:4px">' +
     '<button class="xbtn" onclick="qeMove(' + i + ',-1)" aria-label="위로"' + (i ? '' : ' disabled') + '>↑</button>' +
@@ -5111,12 +5111,12 @@ function qeRow(it, i) {
     ' oninput="qeSet(' + i + ',\'v\',this.value,1)" aria-label="' + qeLabel(QE.kind) + '">' +
     '<button class="xbtn" onclick="qeDel(' + i + ')" aria-label="삭제">×</button></div>' +
     '<div class="row" style="justify-content:flex-start; gap:6px; flex-wrap:wrap; margin-top:4px; font-size:12px"><span class="muted" style="font-size:12px">' + info + '</span>' + tags + acts +
-    '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px; margin-left:auto" onclick="qeSet(' + i + ',\'st\',\'' + (it.st === '중지' ? '' : '중지') + '\')">' + (it.st === '중지' ? '다시 사용' : '사용 중지') + '</button></div>';
+    '<button class="btn2" style="height:32px; padding:0 10px; font-size:13px; margin-left:auto" onclick="qeSet(' + i + ',\'st\',\'' + (it.st === '중지' ? '' : '중지') + '\')">' + (it.st === '중지' ? '사용 재개' : '사용 중지') + '</button></div>';
   if (QE.kind === '제지사' || QE.kind === '지종') h += '<div class="row" style="gap:4px; margin-top:4px"><span class="muted" style="flex:none; font-size:12px">약칭</span>' +
     '<input class="mini" style="width:96px; flex:none; font-size:13px; text-align:center; padding:0 4px" placeholder="전체 이름" value="' + esc(it.short || '') +
     '" oninput="qeSet(' + i + ',\'short\',this.value,1)" aria-label="약칭" title="비우면 전체 이름">' +
-    '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="다른 이름 (쉼표 구분, 예: ' + (QE.kind === '지종' ? '단무, 단면' : '왕자, Oji') + ')" value="' +
-    esc(String(it.alias || '').split('|').join(', ')) + '" oninput="qeSet(' + i + ',\'alias\',this.value,1)" aria-label="다른 이름"></div>';
+    '<input class="mini" style="flex:1; min-width:0; font-size:13px" placeholder="별칭 (쉼표 구분, 예: ' + (QE.kind === '지종' ? '단무, 단면' : '왕자, Oji') + ')" value="' +
+    esc(String(it.alias || '').split('|').join(', ')) + '" oninput="qeSet(' + i + ',\'alias\',this.value,1)" aria-label="별칭"></div>';
   if (QE.kind === '지종') {
     h += '<div class="row" style="gap:4px; margin-top:4px"><button class="btn2 mini" style="flex:1; min-width:0; font-size:13px; text-align:left" onclick="qeMk(' + i + ')" aria-label="기본 제지사">' +
       (it.maker ? '기본 제지사: ' + esc(it.maker) : '기본 제지사 없음') + ' ▾</button></div>';
@@ -5143,8 +5143,8 @@ function qeDel(i) {
 /* 사용 중인 값 삭제: 다른 값으로 바꾸고 삭제 · 빈칸으로 바꾸고 삭제 · 사용 중지 · 사용 중인 기록 보기 (평량 · 지폭은 숫자라 바꾸기 없음) */
 function qeDelUsed(i) {
   var it = QE.items[i];
-  if (QE.dirty) { toast('변경 내용 먼저 저장 또는 되돌리기', true); return; }
-  delFlow(QE.kind, it.orig, qeUse(it) || {}, function () { qeSet(i, 'st', '중지'); toast('사용 중지 — [' + qeLabel(QE.kind) + ' 저장] 눌러 반영'); });
+  if (QE.dirty) { toast('변경 내용 저장 또는 실행 취소 필요', true); return; }
+  delFlow(QE.kind, it.orig, qeUse(it) || {}, function () { qeSet(i, 'st', '중지'); toast('사용 중지 — [' + qeLabel(QE.kind) + ' 저장] 선택 시 반영'); });
 }
 /* 삭제 창 (공통): 다른 값으로 바꾸고 삭제 · 빈칸으로 바꾸고 삭제 · 사용 중지(stopFn) · 사용 중인 기록 보기 */
 function delFlow(kind, v, u, stopFn) {
@@ -5155,12 +5155,12 @@ function delFlow(kind, v, u, stopFn) {
   if (!num && others.length) ch.push({ v: 'to', t: '다른 ' + L + '로 바꾸고 삭제', sub: '재고 · 이력 명칭도 함께 변경' });
   if (!num) ch.push({ v: 'blank', t: (u.stock || u.hist ? '빈칸으로 바꾸고 삭제' : '삭제'), sub: u.stock || u.hist ? (kind === '제지사' ? '제지사 미상으로' : kind === '지종' ? '지종 없음으로' : '출고처 없음으로') : '사용 기록 없음' });
   ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' });
-  if (u.stock || u.hist) ch.push({ v: 'see', t: '사용 중인 기록 보기', sub: useTxt });
+  if (u.stock || u.hist) ch.push({ v: 'see', t: '사용 기록', sub: useTxt });
   ask({ title: '"' + v + '" 삭제', msg: u.stock || u.hist ? useTxt + '에서 사용 중' : '', input: false, list: true, chips: ch }, function (a) {
     if (a === 'stop') stopFn();
     else if (a === 'see') qeSeeUse(v, kind);
     else if (a === 'blank') qeRemoveGo(v, '', kind);
-    else if (a === 'to') valPick(kind, { list: others, noNew: true, noEdit: true, title: '"' + v + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + v + '"을 고른 값으로 바꾸고 삭제' },
+    else if (a === 'to') valPick(kind, { list: others, noNew: true, noEdit: true, title: '"' + v + '" → 바꿀 ' + L, msg: '재고 · 이력의 "' + v + '"을 선택 값으로 변경 후 삭제' },
       function (d) { if (d) qeRemoveGo(v, d, kind); });
   });
 }
@@ -5170,7 +5170,7 @@ function qeRemoveGo(from, to, kind) {
   needPin(function (pin) {
     call('quickRemove', { kind: kind, from: from, to: to, pin: pin, worker: worker() }).then(function (r) {
       applyQuick(r.qa); setStock(r.stock); SHORT.src = null; loadRecent(); pkRefresh();
-      quickUndoToast('"' + from + '" ' + (to ? '→ "' + to + '"' : '→ 빈칸') + ' 바꾸고 삭제 (재고 ' + r.res.stock + ' · 이력 ' + r.res.hist + '행) · 백업: ' + r.backupName, r.row);
+      quickUndoToast('"' + from + '" ' + (to ? '→ "' + to + '"' : '→ 빈칸') + ' 변경 후 삭제 (재고 ' + r.res.stock + ' · 이력 ' + r.res.hist + '행) · 백업: ' + r.backupName, r.row);
     }, function () {});
   });
 }
@@ -5178,11 +5178,11 @@ function qeRemoveGo(from, to, kind) {
 function quickUndoToast(msg, row) {
   toast(msg);
   var t = $('toast'), b = document.createElement('button');
-  b.className = 'btn2 undo'; b.textContent = '되돌리기';
+  b.className = 'btn2 undo'; b.textContent = '실행 취소';
   b.onclick = function () {
     t.style.display = 'none';
     call('undoQuickChange', { row: row, worker: worker() }).then(function (r) {
-      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = r.list; drawRecent(); toast('되돌리기 완료');
+      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = r.list; drawRecent(); toast('실행 취소 완료');
     }, function () {});
   };
   t.appendChild(b); t.style.display = 'flex';
@@ -5194,7 +5194,7 @@ function qeSeeUse(v, kind) {
   var st = kind === '지종' ? S.stock.filter(function (s) { return s.grade === v; })
     : kind === '제지사' ? S.stock.filter(function (s) { return makersOf(s).some(function (m) { return m.maker === v; }); }) : [];
   call('quickUsageHist', kind, v, 50).then(function (hs) {
-    var ch = st.map(function (s, i) { return { v: 's:' + i, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 누르면 지도에서 열기' }; })
+    var ch = st.map(function (s, i) { return { v: 's:' + i, t: locLabel(s.loc).replace(/<[^>]+>/g, ' ') + ' · ' + fmtItem(s, s.qty), sub: '재고 · 선택 시 지도 표시' }; })
       .concat(hs.map(function (h) { return { v: '', t: '#' + h.no + ' ' + h.type + ' · ' + fmtItem({ maker: kind === '제지사' ? v : '', nomk: kind !== '제지사', gsm: h.gsm, width: h.width }, h.qty), sub: h.time + ' · ' + h.loc + (h.target ? ' · ' + h.target : '') }; }));
     ask({ title: '"' + v + '" 사용 중인 기록', msg: ch.length ? '' : '기록 없음', input: false, list: true, chips: ch, ok: '닫기' }, function (x) {
       if (x && /^s:/.test(x)) { var s = st[+x.slice(2)]; if (s) goLoc(s.loc, [s], function () { qeSeeUse(v, kind); }); }
@@ -5206,21 +5206,21 @@ function qeAdd() {
   ask({ title: qeLabel(QE.kind) + ' 추가', numeric: num, placeholder: num ? '숫자' : '이름' }, function (v) {
     v = String(v || '').trim(); if (!v) return;
     if (num && !/^\d{2,4}$/.test(v)) { toast('숫자만 입력 (2~4자리)', true); return; }
-    if (QE.items.some(function (it) { return it.v === v; })) { toast('"' + v + '" 이미 있음', true); return; }
+    if (QE.items.some(function (it) { return it.v === v; })) { toast('"' + v + '" 중복', true); return; }
     QE.items.push({ orig: '', v: v, st: '', alias: '', maker: '' }); QE.dirty = true; renderQuick();
   });
 }
 function qeFix(v) { QE.items.push({ orig: '', v: v, st: '', alias: '', maker: '' }); QE.dirty = true; renderQuick(); }
 function qeMerge(i) {
   var it = QE.items[i];
-  if (QE.dirty) { toast('변경 내용 먼저 저장 또는 되돌리기', true); return; }
+  if (QE.dirty) { toast('변경 내용 저장 또는 실행 취소 필요', true); return; }
   var to = QE.items.filter(function (x) { return x.orig !== it.orig; }).map(function (x) { return x.orig; });
   if (!to.length) { toast('합칠 대상 없음', true); return; }
-  valPick(QE.kind, { title: '"' + it.orig + '" 합치기', msg: '고른 값으로 재고 · 이력 이름 변경 후 "' + it.orig + '" 삭제' +
-    (QE.kind === '제지사' || QE.kind === '지종' ? ' · "' + it.orig + '"은 다른 이름으로 남음' : '') + ' · 관리자 PIN 필요', list: to, noNew: true, noEdit: true }, function (d) {
+  valPick(QE.kind, { title: '"' + it.orig + '" 통합', msg: '선택 값으로 재고 · 이력 이름 변경 후 "' + it.orig + '" 삭제' +
+    (QE.kind === '제지사' || QE.kind === '지종' ? ' · "' + it.orig + '"은 별칭으로 등록' : '') + ' · 관리자 PIN 필요', list: to, noNew: true, noEdit: true }, function (d) {
     if (!d) return;
     needPin(function (pin) {
-      call('mergeQuick', QE.kind, it.orig, d, pin).then(function (r) { applyQuick(r); toast('"' + it.orig + '" → "' + d + '" 합침'); });
+      call('mergeQuick', QE.kind, it.orig, d, pin).then(function (r) { applyQuick(r); toast('"' + it.orig + '" → "' + d + '" 통합'); });
     });
   });
 }
@@ -5310,9 +5310,9 @@ function requireWorker() {
 /* 그 자리에서 로그인 (설정 탭으로 보내지 않음) — 끝나면 저장 버튼 다시 누르기 */
 function quickLogin() {
   if (freeMode()) {
-    ask({ title: '작업자 이름', msg: '기록에 남길 이름 — 한 번만 입력', placeholder: '예: 김기사', ok: '저장' }, function (n) {
+    ask({ title: '작업자 이름', msg: '기록용 이름 — 최초 1회 입력', placeholder: '예: 김기사', ok: '저장' }, function (n) {
       n = String(n || '').trim(); if (!n) return;
-      lsSet('worker', n); S.me = n; toast(n + ' 저장 — 저장 버튼 다시 누르기');
+      lsSet('worker', n); S.me = n; toast(n + ' 저장 — 저장 버튼 재선택');
     });
     return;
   }
@@ -5323,7 +5323,7 @@ function quickLogin() {
       call('login', { name: n, pin: p, device: (navigator.userAgent || '').slice(0, 120) }).then(function (r) {
         lsSet('token', r.token); lsSet('worker', r.name); keepKey(r.token);
         S.workers = r.workers; S.me = r.name; navBadge();
-        toast(r.name + ' 로그인 완료 — 저장 버튼 다시 누르기');
+        toast(r.name + ' 로그인 완료 — 저장 버튼 재선택');
       });
     });
   };
@@ -5370,7 +5370,7 @@ function renderWorkerBox() {
       '<div id="lg-hint" class="muted" style="margin-top:4px"></div>' +
       '<button class="btn" style="margin-top:6px" onclick="loginUI()">로그인</button>' +
       '<div class="row" style="margin-top:8px"><span class="muted" style="flex:1; min-width:0">' +
-      (pend ? '<b style="color:#9A6700">"' + esc(last) + '" 승인 대기 — 관리자 승인 후 로그인</b>' : '목록에 이름이 없으면 등록 요청') + '</span>' +
+      (pend ? '<b style="color:#9A6700">"' + esc(last) + '" 승인 대기 — 관리자 승인 후 로그인</b>' : '목록에 이름 미등록 시 등록 요청') + '</span>' +
       '<button class="btn2" style="height:38px" onclick="requestName()">이름 등록 요청</button></div></div>';
   }
   $('set-workerBox').innerHTML = h;
@@ -5393,7 +5393,7 @@ function loginUI() {
   }, function () { if ($('lg-pin')) $('lg-pin').value = ''; });
 }
 function logoutUI() {
-  ask({ title: '로그아웃', msg: S.me + ' 로그아웃\n다시 입력하려면 이름 · PIN 로그인 필요', input: false, ok: '로그아웃' }, function (y) {
+  ask({ title: '로그아웃', msg: S.me + ' 로그아웃\n재입력 시 이름 · PIN 로그인 필요', input: false, ok: '로그아웃' }, function (y) {
     if (!y) return;
     call('logout', tok()).then(function () {
       lsSet('token', ''); keepKey(''); S.me = ''; renderWorkerBox(); toast('로그아웃 완료');
@@ -5405,9 +5405,9 @@ function askNewPin(title, cb) {
   ask({ title: title, msg: '숫자 4~8자리', type: 'password', numeric: true }, function (a) {
     if (a === null) return;
     if (!/^\d{4,8}$/.test(a)) { toast('PIN: 숫자 4~8자리', true); return; }
-    ask({ title: title, msg: '한 번 더 입력', type: 'password', numeric: true }, function (b) {
+    ask({ title: title, msg: '확인용 재입력', type: 'password', numeric: true }, function (b) {
       if (b === null) return;
-      if (a !== b) { toast('PIN 불일치 — 다시 입력', true); return; }
+      if (a !== b) { toast('PIN 불일치 — 재입력', true); return; }
       cb(a);
     });
   });
@@ -5423,7 +5423,7 @@ function changeMyPinUI() {
 function requestName() {
   ask({ title: '이름 등록 요청', msg: '관리자 승인 후 로그인 가능', placeholder: '예: 김기사' }, function (v) {
     if (!v) return;
-    askNewPin('내 PIN 정하기', function (pin) {
+    askNewPin('내 PIN 설정', function (pin) {
       call('requestWorker', { name: v, pin: pin }).then(function (w) {
         lsSet('worker', v.trim().replace(/\s+/g, ' '));
         setWorkers(w); renderWorkerBox(); toast('등록 요청 완료 — 승인 대기');
@@ -5449,7 +5449,7 @@ function renderWorkers() {
       return row((W2.noPin || []).indexOf(n) >= 0 ? n + ' · PIN 미설정' : n, [['PIN 초기화', 'PIN초기화'], ['사용 중지', '중지', 1]]);
     }).join('') : '<div class="muted" style="padding:4px 0">없음</div>');
   if (W2.stopped.length) h += '<div style="font-weight:900; margin-top:10px">사용 중지 ' + W2.stopped.length + '명</div>' +
-    W2.stopped.map(function (n) { return row(n, [['다시 승인', '승인'], ['삭제', '삭제', 1]]); }).join('');
+    W2.stopped.map(function (n) { return row(n, [['재승인', '승인'], ['삭제', '삭제', 1]]); }).join('');
   h += '<div class="row" style="gap:6px; margin-top:10px"><input id="wk-new" placeholder="이름 직접 추가" style="flex:1">' +
     '<button class="btn2" onclick="addWorkerUI()">추가</button></div>';
   $('set-workers').innerHTML = h;
@@ -5523,24 +5523,24 @@ function loadRecent() { RC.list = []; call('getQuickChanges', 100).then(function
 function drawRecent() {
   var el = $('set-recent'); if (!el) return;
   var all = RC.list || [], l = all.filter(function (x) { return x.kind === QE.kind; }), show = RC.more ? l : l.slice(0, 5);
-  if ($('rc-title')) $('rc-title').innerHTML = '최근 변경 · ' + esc(qeLabel(QE.kind)) + '<span>이름 고치기 · 합치기 · 숨기기</span>';
+  if ($('rc-title')) $('rc-title').innerHTML = '최근 변경 · ' + esc(qeLabel(QE.kind)) + '<span>이름 수정 · 통합 · 숨김</span>';
   el.innerHTML = l.length ? show.map(function (x, i) {
     var name = x.kind === '폭' ? '지폭' : x.kind;
-    var what = x.type === '숨기기' ? x.from + ' 숨김' : x.type === '되돌리기' ? x.from + ' → ' + x.to + ' (되돌리기)' : x.type === '삭제' ? x.from + ' → ' + x.to + ' (바꾸고 삭제)' :
-      x.from + ' → ' + x.to + (x.type === '합치기' ? ' (합치기)' : x.type === '제지사 지정' ? ' (제지사 지정)' : '');
+    var what = x.type === '숨기기' ? x.from + ' 숨김' : x.type === '되돌리기' ? x.from + ' → ' + x.to + ' (실행 취소)' : x.type === '삭제' ? x.from + ' → ' + x.to + ' (변경 후 삭제)' :
+      x.from + ' → ' + x.to + (x.type === '합치기' ? ' (통합)' : x.type === '제지사 지정' ? ' (제지사 지정)' : '');
     return '<div class="wrow' + (x.done ? ' void' : '') + '"><b style="font-weight:700">' + esc(what) + '<div class="muted" style="font-weight:500">' + esc(x.time) + (x.who ? ' · ' + esc(x.who) : '') + (x.why ? ' · ' + esc(x.why) : '') + '</div></b>' +
-      (x.can ? '<button class="btn2" onclick="undoRecent(' + all.indexOf(x) + ')">되돌리기</button>' : '') + '</div>';
+      (x.can ? '<button class="btn2" onclick="undoRecent(' + all.indexOf(x) + ')">실행 취소</button>' : '') + '</div>';
   }).join('') + (l.length > 5 && !RC.more ? '<button class="lnk" onclick="RC.more=true;drawRecent()">+ ' + (l.length - 5) + '건 더 보기</button>' : '')
     : '<div class="muted">' + esc(qeLabel(QE.kind)) + ' 변경 기록 없음</div>';
 }
 function undoRecent(i) {
   var x = RC.list[i]; if (!x) return;
   var name = x.kind === '폭' ? '지폭' : x.kind;
-  ask({ title: '되돌리기', msg: x.type === '삭제' ? name + ' "' + x.from + '" 다시 살리기 (재고 · 기록도 삭제 전으로)' : x.type === '숨기기' ? name + ' ' + x.from + ' 다시 보이기' : name + ' ' + x.to + ' → ' + x.from + ' (원래 이름으로 · 재고 · 기록도 함께)', input: false, ok: '되돌리기' }, function (y) {
+  ask({ title: '실행 취소', msg: x.type === '삭제' ? name + ' "' + x.from + '" 복원 (재고 · 기록 삭제 전 상태)' : x.type === '숨기기' ? name + ' ' + x.from + ' 숨김 해제' : name + ' ' + x.to + ' → ' + x.from + ' (원래 이름 복원 · 재고 · 기록 일괄 반영)', input: false, ok: '실행 취소' }, function (y) {
     if (!y) return;
     if (!requireWorker()) return;
     call('undoQuickChange', { row: x.row, worker: worker() }).then(function (r) {
-      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = r.list; drawRecent(); toast('되돌리기 완료');
+      applyQuick(r.qa); setStock(r.stock); SHORT.src = null; RC.list = r.list; drawRecent(); toast('실행 취소 완료');
     }, function () {});
   });
 }
@@ -5559,8 +5559,8 @@ function drawOpening(r, title) {
   var wh = Object.keys(r.byWh || {}).map(function (k) { return k + ' ' + r.byWh[k] + '롤'; }).join(' · ');
   $('op-res').innerHTML = '<div class="sub">' +
     '<b>' + esc(title) + '</b><div class="muted" style="margin-top:4px">등록 대상 ' + r.rows + '행 · ' + r.rolls + '롤' + (wh ? ' (' + esc(wh) + ')' : '') +
-    (r.done ? ' · 이미 등록 ' + r.done + '행' : '') + (r.existing ? ' · 현재 앱 재고 ' + r.existing + '롤 (여기에 더해짐)' : '') + '</div>' +
-    (r.errorCount ? '<div style="color:#9A1C1C; font-weight:700; margin-top:6px">오류 ' + r.errorCount + '건 — 시트에서 수정 후 다시 검사</div>' +
+    (r.done ? ' · 기등록 ' + r.done + '행' : '') + (r.existing ? ' · 현재 앱 재고 ' + r.existing + '롤 (합산)' : '') + '</div>' +
+    (r.errorCount ? '<div style="color:#9A1C1C; font-weight:700; margin-top:6px">오류 ' + r.errorCount + '건 — 시트 수정 후 재검사</div>' +
       r.errors.map(function (e) { return '<div class="muted">' + e.row + '행: ' + esc(e.msg) + '</div>'; }).join('') +
       (r.errorCount > r.errors.length ? '<div class="muted">외 ' + (r.errorCount - r.errors.length) + '건 (시트 결과 열 확인)</div>' : '')
       : r.rows ? '<div style="color:var(--ok); font-weight:700; margin-top:6px">오류 없음 — [등록] 가능</div>' : '') +
@@ -5576,8 +5576,8 @@ function commitOpening() {
   if (!requireWorker()) return;
   call('checkOpening', opBase()).then(function (r) {
     drawOpening(r, '검사 결과 · 기준일 ' + opBase());
-    if (r.errorCount) { toast('오류 ' + r.errorCount + '건 — 시트에서 수정 후 다시 검사', true); return; }
-    if (!r.rows) { toast('등록할 행 없음', true); return; }
+    if (r.errorCount) { toast('오류 ' + r.errorCount + '건 — 시트 수정 후 재검사', true); return; }
+    if (!r.rows) { toast('등록 대상 행 없음', true); return; }
     ask({ title: '기초재고 등록', msg: r.rows + '행 · ' + r.rolls + '롤 등록\n입고일 빈 칸 → ' + opBase() + (r.warns.length ? '\n적재 기준 초과 ' + r.warns.length + '곳 있음' : ''), input: false, ok: '등록' }, function (y) {
       if (!y) return;
       needPin(function (pin) {
@@ -5590,7 +5590,7 @@ function commitOpening() {
 }
 function cancelOpening() {
   if (!requireWorker()) return;
-  ask({ title: '기초재고 일괄 취소', msg: '등록한 기초재고 전체를 재고에서 뺌\n이력은 "취소됨"으로 남음 · 시트 결과 열 비움 → 수정 후 다시 등록 가능', input: false, ok: '일괄 취소', danger: true }, function (y) {
+  ask({ title: '기초재고 일괄 취소', msg: '등록 기초재고 전체 재고 차감\n이력 "취소됨" 표시 · 시트 결과 열 초기화 → 수정 후 재등록 가능', input: false, ok: '일괄 취소', danger: true }, function (y) {
     if (!y) return;
     needPin(function (pin) {
       call('cancelOpening', { pin: pin, worker: worker(), test: isTest() }).then(function (x) {
@@ -5613,7 +5613,7 @@ function saveAgingN(n) {
 }
 /* "장기 N일" 표시 · 보고서 장기 재고 카드 길게 누르기 */
 function agingEdit() {
-  ask({ title: '장기 재고 기준일', msg: '입고 후 이 일수 이상 = 장기 재고', numeric: true, value: agingDays(), placeholder: '1~999', ok: '저장' }, function (v) {
+  ask({ title: '장기 재고 기준일', msg: '입고 후 경과 일수 기준 이상 = 장기 재고', numeric: true, value: agingDays(), placeholder: '1~999', ok: '저장' }, function (v) {
     if (v === null || v === '') return; saveAgingN(Number(v));
   });
 }
@@ -5651,7 +5651,7 @@ function reload() {
     clearTimeout(reload.h);
     if (reload.shown) { reload.h = setTimeout(reload, 30000); return new Promise(function () {}); }   // 보관 데이터로 쓰는 중 → 30초 뒤 다시
     var el = $('loading');
-    el.innerHTML = '서버 응답 없음 — 10초 뒤 다시 시도<br><button class="btn" style="margin-top:10px" onclick="clearTimeout(reload.h); reload()">지금 다시 시도</button>';
+    el.innerHTML = '서버 응답 없음 — 10초 후 재시도<br><button class="btn" style="margin-top:10px" onclick="clearTimeout(reload.h); reload()">즉시 재시도</button>';
     reload.h = setTimeout(reload, 10000);
     return new Promise(function () {});
   }).then(function (d) {
