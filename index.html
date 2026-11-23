@@ -2319,40 +2319,6 @@ function sheetDoc() {
 }
 function docSel(i) { SH.sel = i; renderSheet(); $('detail').scrollTop = 0; }
 function docSearch(i) { var x = SH.list[i]; F.gsm = x.gsm; F.width = x.width; F.maker = x.maker || ''; F.grade = ''; F.q = ''; closeSheet(); renderMap(); window.scrollTo(0, 0); }
-/* 피킹: 집어 든 롤 라벨 → 계획 품목과 비교 (규격 · 제지사) → 맞으면 자동 체크 */
-var PKMSG = null;   // 마지막 촬영 결과 { t, bad }
-function pkSay(t, bad) { PKMSG = { t: t, bad: bad }; renderPlan(); }
-/* 라벨 → 계획 품목 찾기: { ok, msg, id } (체크는 부른 쪽에서) */
-function pickMatch(r) {
-  if (!r.gsm || !r.width) return { ok: false, msg: (!r.gsm ? '평량' : '지폭') + ' 인식 실패 — 재스캔 또는 직접 체크' };
-  var lines = LINES.slice(0, 3), cands = PL.items.filter(function (it) {
-    return lines.indexOf(it.line) >= 0 && !PL.done[it.id] && !PL.picked[it.id] && it.gsm == r.gsm && it.width == r.width;
-  }).sort(function (a, b) { return lines.indexOf(a.line) - lines.indexOf(b.line) || b.planNo - a.planNo; });
-  var mk = r.maker ? canonMaker(r.maker) : '', spec = fmtItem({ maker: mk, grade: r.grade, gsm: r.gsm, width: r.width });
-  if (!cands.length) return { ok: false, msg: spec + ' — 계획 외 품목 (또는 체크 완료)' };
-  var ok = cands.filter(function (it) { var pm = planMk(it).maker; return !mk || !pm || pm === mk; })[0];
-  if (!ok) { var it0 = cands[0]; return { ok: false, msg: spec + ' — 제지사 다름 (' + it0.line + ' 계획 #' + it0.planNo + ' = ' + planMk(it0).maker + ')' }; }
-  return { ok: true, id: ok.id, msg: '✓ ' + spec + ' → ' + ok.line + ' 계획 #' + ok.planNo + ' 체크' };
-}
-function pickApply(r) {
-  var m = pickMatch(r);
-  if (m.id) { PL.picked[m.id] = true; plMt('p', m.id); savePL(); }
-  pkSay(m.msg, !m.ok);
-  return m;
-}
-function pickProg() {
-  return LINES.slice(0, 3).map(function (l) {
-    var p = PL.items.filter(function (it) { return it.line === l && !PL.done[it.id]; }); if (!p.length) return '';
-    return l + ' ' + p.filter(function (it) { return PL.picked[it.id]; }).length + '/' + p.length;
-  }).filter(String).join(' · ');
-}
-function pickByPhoto(cam) {
-  if (cam && liveOK()) return liveScan({ title: '피킹 · 라벨 스캔', cont: true, progress: pickProg,
-    done: function () { var p = PL.items.filter(function (it) { return LINES.slice(0, 3).indexOf(it.line) >= 0 && !PL.done[it.id]; }); return p.length && p.every(function (it) { return PL.picked[it.id]; }); },
-    onResult: function (r) { var m = pickApply(r); return { ok: m.ok, msg: m.msg, undo: m.id ? function () { delete PL.picked[m.id]; plMt('p', m.id); savePL(); pkSay('체크 취소', false); } : null }; },
-    shot: function (d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) pickApply(r || {}); }); } });
-  readLabel(cam, function (r) { pickApply(r); });
-}
 /* 페이지 머리말(고정)에 요약 */
 function hdrSum(tab, html) { if (TAB === tab) $('hdrExtra').innerHTML = html; }
 
@@ -5010,7 +4976,7 @@ function renderPick(el) {
       : { name: line, val: '확정', pct: 100, done: true, tap: 'jumpTo(\'pk-' + line + '\')' });
   });
   hdrSum('plan', tiles.length ? statTiles(tiles) : '');
-  var h = photoBar('pickByPhoto', PKMSG ? (PKMSG.bad ? '<span class="bad">' + esc(PKMSG.t) + '</span>' : '<b style="color:var(--ok)">' + esc(PKMSG.t) + '</b>') : '');
+  var h = '';   // 피킹 = 순번 원 체크 · 위치 QR 확인 (라벨 사진 체크 제거 · 2026-11-23)
   // 보기(호기 순 · 위치 순 = 동선) · 배정 규칙 (계획 공유 · 모든 폰 같은 배정)
   var view = lsGet('pkView') === 'loc' ? 'loc' : 'line';
   h += '<div class="pkopt"><div class="seg" id="pk-view"></div><div class="row" style="gap:6px; margin-top:6px"><span class="muted" style="font-size:12px; flex:none; font-weight:700">배정 규칙</span><div class="seg" id="pk-rule" style="flex:1"></div></div>' +
