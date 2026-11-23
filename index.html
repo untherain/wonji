@@ -193,6 +193,12 @@
   .cell.off { background:#E6E8EB; color:#6B7178; }
   .cell.hit { background:var(--y); border:2px solid var(--ink); }
   .cell.tdy { border:2px solid var(--ok); } .cell .tck { color:var(--ok); }
+  /* 실사 상태: 일치 파랑 · 차이 주황(재실사 대상) · 실사 필요 점선 */
+  .cell.cok { border:2px solid #1D5FBF; } .cell.cdf { border:2px solid #C25E00; } .cell.cdue { border:2px dashed #8A6D00; }
+  .cell .cck { color:#1D5FBF; } .cell.cdf .cck { color:#C25E00; }
+  .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; }
+  .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
+  .btn.cokb { background:#1D5FBF; color:#fff; }
   .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
   .prog span { flex:1; min-width:0; line-height:1.35; } .prog b { color:#7ED89B; } .prog small { color:#B9BEC5; font-weight:500; }
   .prog button { flex:none; height:34px; padding:0 12px; border-radius:8px; border:0; background:var(--y); color:var(--ink); font:inherit; font-size:14px; font-weight:900; }
@@ -589,6 +595,9 @@
     <h2>장기 재고 기준</h2>
     <div class="card row"><span>입고 후 <input id="set-aging" type="number" inputmode="numeric" style="width:60px; display:inline-block; text-align:center; padding:0 4px"> 일 이상</span>
       <button class="btn2" onclick="saveAgingDays()">저장</button></div>
+    <h2>실사 주기</h2>
+    <div class="card row"><span>최근 실사 후 <input id="set-cycle" type="number" inputmode="numeric" style="width:60px; display:inline-block; text-align:center; padding:0 4px"> 일 경과 시 실사 필요 <small class="muted">(0 = 미사용)</small></span>
+      <button class="btn2" onclick="saveCycleDays()">저장</button></div>
     </div>
   </section>
 </main>
@@ -697,8 +706,9 @@ function refreshStock(force) {
   if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
   if (!force) call.quiet = true;   // 자동 새로 고침: 알림 · 처리 중 표시 없음 (실패하면 다음 번에 다시)
   refreshStock.on = true;
-  call('getStock', tok()).then(function (r) {
+  call('getStock', tok(), shareRevs()).then(function (r) {
     refreshStock.on = false;
+    if (r.cnt) S.cnt = r.cnt; shareApply(r.share);
     if (OB.q.length) return;   // 받는 사이 새 저장 → 이번 결과는 버림
     if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
@@ -893,6 +903,7 @@ var LC = {
     if (p.from === p.to) throw new Error('출발·도착 위치 동일 — 이동 불가');
     lcSub(T, p.from, p, Number(p.qty)).forEach(function (l) { lcAdd(T, p.to, p, l[1], l[0], l[2] || p.maker || ''); });
   },
+  countOk: function () { return { changed: 0 }; },
   outboundBatch: function (T, p) { p.items.forEach(function (it) { lcSub(T, it.loc, it, Number(it.qty)); }); return { arr: 1 }; },
   adjustRow: function (T, p) {
     var cat = String(p.reason || '').split(' — ')[0], n = 0;
@@ -970,7 +981,7 @@ function obKick(now) {
     if (QSYNC[op.fn]) quickSync();
     if (!OB.q.length) {   // 다 보냄 → 서버 재고로 맞춤 (폰 계산과 다르면 서버가 맞음)
       var st = Array.isArray(r) ? r : r && r.stock;
-      if (st) { if (r.today) S.today = r.today; setStock(st); rerender(); }
+      if (st) { if (r.today) S.today = r.today; if (r.cnt) S.cnt = r.cnt; setStock(st); rerender(); }
     }
     obKick();
   }).withFailureHandler(function (e) {
@@ -995,8 +1006,8 @@ function obKick(now) {
 /* 서버 재고 다시 받고 + 대기 중인 저장을 폰에서 다시 반영 */
 function obResync() {
   call.quiet = true;
-  call('getStock', tok()).then(function (r) {
-    S.stock = r.stock; if (r.today) S.today = r.today;
+  call('getStock', tok(), shareRevs()).then(function (r) {
+    S.stock = r.stock; if (r.today) S.today = r.today; if (r.cnt) S.cnt = r.cnt; shareApply(r.share);
     obReplay(); rerender(); obKick();
   }, function () { setTimeout(obResync, 15000); });
 }
@@ -1004,7 +1015,7 @@ function obReplay() {
   var T = lcState();
   OB.q = OB.q.filter(function (op) {
     T.fx = [];
-    try { LC[op.fn](T, op.args); op.fx = T.fx; return true; }
+    try { LC[op.fn](T, op.args); op.fx = T.fx; if (op.fn === 'countOk' || op.fn === 'adjustRow') cntMark(op.args.loc, op.fn === 'countOk' ? '일치' : '차이'); return true; }
     catch (e) { toast('저장 실패: ' + e.message, true); return false; }
   });
   obSave();
@@ -1306,7 +1317,7 @@ function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() :
-    searchBar() + progLine() + (ST ? '<div class="ehint">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</div>' : ''));
+    searchBar() + progLine() + cntLine() + (ST ? '<div class="ehint">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1369,8 +1380,10 @@ function renderMap() {
         hit = false;
       }
       var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit ? ' tdy' : '') + mvc + sec + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
-        '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
+      var cx = !MV && !ST && !off ? cntDone(code) : null, cdu = !MV && !ST && !off && !cx && cntDue(code);   // 실사: 일치 파랑 ✓ · 차이 주황 ✓ · 실사 필요 점선
+      var cc = cx ? (cx.r === '일치' ? ' cok' : ' cdf') : cdu ? ' cdue' : '';
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + mvc + sec + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
+        '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
@@ -1665,14 +1678,14 @@ function consolidate(enc, whs, sep) {
       (P2 && P2.moves.length ? '\n입고일 혼합 시 ' + P2.before + '줄 → ' + P2.after + '줄 가능' : '') }, function () {});
     return;
   }
-  MJ = { sig: sig, before: P.before, after: P.after, rule: c.rule + (sep ? ' · 창고마다 따로' : ''), skip: [],
+  MJ = { ts: Date.now(), sig: sig, before: P.before, after: P.after, rule: c.rule + (sep ? ' · 창고마다 따로' : ''), skip: [],
     moves: P.moves.map(function (m) { return { from: m.from, to: m.to, qty: m.qty, mix: m.mix, d: m.d, td: m.td, done: 0, nos: [] }; }) };
   mjSave(); openMerge();
 }
 /* 병합 작업 목록: 실제로 옮긴 뒤 줄마다 완료 → 그때만 전산 이동 (이 기기에 보관 · 앱 다시 열어도 유지) */
 var MJ = null;
 try { MJ = JSON.parse(localStorage.getItem('mergeJob') || 'null'); } catch (e) { MJ = null; }
-function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
+function mjSave() { try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} sharePush('merge'); }
 function mjLeft() { return MJ ? MJ.moves.filter(function (m) { return !m.done; }).length : 0; }
 function openMerge() { shOpen({ code: null, mode: 'merge' }); }
 /* 미완료 병합 작업이 있을 때: 기존 작업 계속 / 신규 작업 시작(잔여분 삭제) 선택 (작업 목록은 한 번에 1개) */
@@ -1822,7 +1835,7 @@ function mjDone(i) {
   if (!cur) { toast(keyOf(m.from) + ' 재고 없음 · 새로고침 확인', true); return; }
   var q = Math.min(m.qty, cur.qty);
   fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '병합' })).then(function (r) {
-    setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; mjSave();
+    setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; m.t = Date.now(); m.by = worker(); mjSave();
     renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
 }
@@ -1832,7 +1845,7 @@ function mjUndo(i) {
   ask({ title: '이동 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n재고 원복 (출발 위치 복귀)', input: false, ok: '이동 취소', danger: true }, function (y) {
     if (!y || !requireWorker()) return;
     undoCall(m.nos).then(function (st) {
-      setStock(st); m.done = 0; m.nos = []; mjSave(); renderMap(); renderSheet(); refreshLog(); toast('이동 취소 · 재고 원복');
+      setStock(st); m.done = 0; m.nos = []; m.t = Date.now(); mjSave(); renderMap(); renderSheet(); refreshLog(); toast('이동 취소 · 재고 원복');
     });
   });
 }
@@ -1876,7 +1889,7 @@ function shMode(m) {
   SH.mode = m;
   if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지)
   if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
-  if (m === 'cnt') SH.cnt = { v: {}, extra: [] };
+  if (m === 'cnt' && !(SH.cnt && SH.cnt.code === SH.code)) { SH.cnt = cntDraftLoad(SH.code) || { v: {}, extra: [] }; SH.cnt.code = SH.code; }   // 임시 보관 입력 복원 (당일)
   renderSheet(); $('detail').scrollTop = 0;
 }
 function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비움 (제지사는 그대로)
@@ -2255,7 +2268,7 @@ function pickMatch(r) {
 }
 function pickApply(r) {
   var m = pickMatch(r);
-  if (m.id) { PL.picked[m.id] = true; savePL(); }
+  if (m.id) { PL.picked[m.id] = true; plMt('p', m.id); savePL(); }
   pkSay(m.msg, !m.ok);
   return m;
 }
@@ -2268,7 +2281,7 @@ function pickProg() {
 function pickByPhoto(cam) {
   if (cam && liveOK()) return liveScan({ title: '피킹 · 라벨 스캔', cont: true, progress: pickProg,
     done: function () { var p = PL.items.filter(function (it) { return LINES.slice(0, 3).indexOf(it.line) >= 0 && !PL.done[it.id]; }); return p.length && p.every(function (it) { return PL.picked[it.id]; }); },
-    onResult: function (r) { var m = pickApply(r); return { ok: m.ok, msg: m.msg, undo: m.id ? function () { delete PL.picked[m.id]; savePL(); pkSay('체크 취소', false); } : null }; },
+    onResult: function (r) { var m = pickApply(r); return { ok: m.ok, msg: m.msg, undo: m.id ? function () { delete PL.picked[m.id]; plMt('p', m.id); savePL(); pkSay('체크 취소', false); } : null }; },
     shot: function (d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) pickApply(r || {}); }); } });
   readLabel(cam, function (r) { pickApply(r); });
 }
@@ -2399,6 +2412,7 @@ function cntMigrate(oldS, newS) {
   if (!SH || !SH.cnt) return;
   var c = SH.cnt, ok = itemKey(oldS), nk = itemKey(newS);
   if (c.v[ok] != null) { c.v[nk] = c.v[ok] + (c.v[nk] != null ? c.v[nk] : 0); delete c.v[ok]; }
+  cntDraftSave();
 }
 function cntFix(i) { itemFix(SH.clist[i], cntMigrate); }
 /* 공통 부품: 제지사 미확인 → 지정 (setMaker) · localFn(m)→true면 서버 안 거치고 로컬 처리(실사 중 미등록 품목) */
@@ -2764,6 +2778,129 @@ function doIn() {
   });
 }
 
+/* ===== 실사 진행 (WMS 순환 실사) — 줄별 최근 실사 · 실사 범위(작업자 전원 공유) · 실사 주기 =====
+   S.cnt = { locs: {위치: {d, t, r: 일치|차이, w}}, tlocs: 테스트 실사, plan: {wh, zone, from, by} | null, cycle: 일(0 = 미사용) }
+   지도: 범위 기간(범위 없으면 오늘) 실사 줄 = 일치 파랑 ✓ · 차이 주황 ✓(재실사 대상) · 주기 경과 줄 = 점선 테두리(실사 필요) */
+function cntInfo() { return S.cnt || (S.cnt = { locs: {}, tlocs: {}, plan: null, cycle: 0 }); }
+function cntOf(code) {
+  var c = cntInfo(), r = (c.locs || {})[code] || null, t = isTest() ? (c.tlocs || {})[code] : null;
+  return t && (!r || t.d + t.t >= r.d + r.t) ? t : r;
+}
+function cntSince() { var p = cntInfo().plan; return p && p.from ? p.from : todayStr(); }
+/* 실사 표시 대상 기간 안의 실사 결과 (없으면 null) */
+function cntDone(code) { var x = cntOf(code); return x && x.d >= cntSince() ? x : null; }
+/* 실사 필요: 주기 사용 중 · 재고 보유 줄 · 실사 기록 없음 또는 주기 경과 */
+function cntDue(code) {
+  var cy = cntInfo().cycle; if (!cy) return false;
+  if (!S.stock.some(function (s) { return s.loc === code; })) return false;
+  var x = cntOf(code); return !x || ageOf(x.d) >= cy;
+}
+/* 저장 직후 폰에서 바로 표시 (서버 결과가 오면 서버 값으로 맞춤) */
+function cntMark(code, res) {
+  var c = cntInfo(), k = isTest() ? 'tlocs' : 'locs';
+  c[k] = c[k] || {}; c[k][code] = { d: todayStr(), t: hhmm(), r: res, w: worker() };
+}
+/* 실사 범위 안의 줄 (운용 줄만 · 지도 순서) */
+function cntScope() {
+  var p = cntInfo().plan; if (!p) return [];
+  var w = S.whs.filter(function (x) { return String(x.id) === String(p.wh); })[0], out = [];
+  if (!w) return out;
+  eachRow(w, function (z, key, code) { if ((!p.zone || z.code === p.zone) && !cfgOf(w, key).off) out.push(code); });
+  return out;
+}
+function cntPlanName(p) { return whName(p.wh) + (p.zone ? ' · ' + zoneShort(p.wh, p.zone) + '열' : ' 전체'); }
+/* 다음 실사 줄: 범위 지정 시 범위 안 미실사 줄(지도 순서) · 범위 없으면 실사 필요 줄 */
+function cntNextCode(after) {
+  var p = cntInfo().plan, list;
+  if (p) list = cntScope().filter(function (c) { return !cntDone(c); });
+  else { list = []; S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (!cfgOf(w, key).off && cntDue(code)) list.push(code); }); }); }
+  if (after) { var i = list.indexOf(after); if (i >= 0) list = list.slice(i + 1).concat(list.slice(0, i)); }
+  return list.filter(function (c) { return c !== after; })[0] || null;
+}
+function cntGo(code) {
+  if (!code) { toast(cntInfo().plan ? '실사 범위 전체 완료' : '실사 필요 줄 없음'); return; }
+  var w = whOf(code); if (w && w.id != M.wh) { M.wh = w.id; }
+  if (TAB !== 'map') show('map'); else renderMap();
+  openRow(code, 'cnt');
+}
+function cntNext() { cntGo(cntNextCode(SH && SH.code)); }
+/* 지도 머리글 실사 진행 한 줄 (입고 진행 한 줄과 같은 모양) */
+function cntLine() {
+  if (MV || ST) return '';
+  var c = cntInfo(), p = c.plan, last = null, n = 0, tot = 0, due = 0;
+  var pick = function (code) { var x = cntDone(code); if (!x) return; n++; if (!last || x.d + x.t > last.x.d + last.x.t) last = { code: code, x: x }; };
+  if (p) { var sc = cntScope(); tot = sc.length; sc.forEach(pick); }
+  else {
+    Object.keys(c.locs || {}).concat(isTest() ? Object.keys(c.tlocs || {}) : []).forEach(function (code) { if (whOf(code)) pick(code); });
+    if (c.cycle) S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (!cfgOf(w, key).off && cntDue(code)) due++; }); });
+    if (!n && !due) return '';
+  }
+  var lx = last ? '<br>마지막 ' + esc(keyOf(last.code)) + ' · ' + last.x.r + ' · ' + esc(last.x.w) + ' ' + last.x.t : '';
+  var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
+    : '<b>실사 오늘 ' + n + '줄</b>' + (due ? ' <small>실사 필요 ' + due + '줄</small>' : '');
+  var more = !p || n < tot ? '<button onclick="cntGo(cntNextCode())">다음 줄</button>' : '';
+  return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span>' + more + '</div>';
+}
+/* 실사 범위 지정 · 변경 · 해제 (작업자 전원 공유) */
+function cntPlanMenu() {
+  var p = cntInfo().plan;
+  var ch = S.whs.map(function (w) { var k = 0; eachRow(w, function (z, key) { if (!cfgOf(w, key).off) k++; }); return { v: 'w' + w.id, t: w.name, sub: '운용 ' + k + '줄' }; });
+  if (p) ch.push({ v: 'off', t: '실사 범위 해제', sub: cntPlanName(p) + ' · ' + p.from + ' 시작 · ' + (p.by || '') });
+  ask({ title: '실사 범위', msg: '범위 지정 시 진행률 · [다음 줄] 기준 · 작업자 전원 공유 · 지정일부터 집계', input: false, list: true, chips: ch }, function (v) {
+    if (!v) return;
+    if (v === 'off') return cntPlanSave({ wh: '' }, '실사 범위 해제');
+    var w = S.whs.filter(function (x) { return 'w' + x.id === v; })[0]; if (!w) return;
+    var zs = [{ v: '*', t: w.name + ' 전체' }].concat(w.zones.map(function (z) { return { v: z.code, t: zoneShort(w.id, z.code) + '열', sub: z.rows + '줄' }; }));
+    ask({ title: w.name + ' 실사 범위', input: false, list: true, chips: zs }, function (z) {
+      if (!z) return;
+      cntPlanSave({ wh: w.id, zone: z === '*' ? '' : z }, '실사 범위 지정');
+    });
+  });
+}
+function cntPlanSave(o, msg) {
+  if (!requireWorker()) return;
+  call('saveCountPlan', Object.assign({ worker: worker() }, o)).then(function (r) { S.cnt = r; cacheS(); renderMap(); if (SH) renderSheet(); toast(msg + (r.plan ? ' · ' + cntPlanName(r.plan) : '')); });
+}
+/* 실사 화면 최근 실사 한 줄: 최근 실사일 · 결과 · 작업자 · 재실사 대상 · 실사 필요 */
+function cntRecent(code) {
+  var x = cntOf(code), cy = cntInfo().cycle, h;
+  if (!x) h = '실사 기록 없음';
+  else h = '최근 실사 ' + x.d.slice(5).replace('-', '/') + ' ' + x.t + ' · ' + x.r + ' · ' + esc(x.w);
+  if (x && x.r === '차이') h += ' <span class="ctag">재실사 대상</span>';
+  else if (cntDue(code)) h += ' <span class="ctag">실사 필요' + (x ? ' · ' + ageOf(x.d) + '일 경과' : '') + '</span>';
+  return '<div class="muted" style="margin:2px 0 8px; font-size:13px">' + h + '</div>';
+}
+/* 실사 입력 임시 보관: 창을 닫아도 그 줄의 입력 수량 유지 (당일분만 · 저장 · 일치 확정 시 삭제) */
+function cntDrafts() { try { return JSON.parse(lsGet('cntDraft') || '{}') || {}; } catch (e) { return {}; } }
+function cntDraftSave() {
+  if (!SH || !SH.cnt || !SH.code) return;
+  var d = cntDrafts(); d[SH.code] = { v: SH.cnt.v, extra: SH.cnt.extra, d: todayStr() }; lsSet('cntDraft', JSON.stringify(d));
+}
+function cntDraftDrop(code) { var d = cntDrafts(); delete d[code]; lsSet('cntDraft', Object.keys(d).length ? JSON.stringify(d) : ''); }
+function cntDraftLoad(code) {
+  var x = cntDrafts()[code];
+  if (!x || x.d !== todayStr()) { if (x) cntDraftDrop(code); return null; }
+  return { v: x.v || {}, extra: x.extra || [], draft: true };
+}
+/* 일치 확정: 전산 수량 = 실물 → 재고 변동 없는 실사 기록 */
+function cntOk() {
+  if (!requireWorker()) return;
+  var code = SH.code, n = SH.clist.length;
+  fastCall('countOk', { loc: code, items: n, worker: worker(), test: isTest() }).then(function () {
+    cntMark(code, '일치'); cntDraftDrop(code); cacheS();
+    toast(keyOf(code) + ' 일치 확정');
+    cntAfter(code);
+  });
+}
+/* 실사 저장 · 일치 확정 후: 범위 지정 중이면 다음 미실사 줄 실사 화면으로 (작업 지시형) · 아니면 줄 화면 */
+function cntAfter(code) {
+  var nx = cntInfo().plan ? cntNextCode(code) : null;
+  if (nx) { cntGo(nx); toast(keyOf(code) + ' 완료 · 다음 줄 ' + keyOf(nx)); return; }
+  if (SH && SH.code === code) { SH.mode = ''; SH.cnt = null; }
+  renderMap(); if (SH) renderSheet();
+  if (cntInfo().plan) toast('실사 범위 전체 완료');
+}
+
 /* --- 실사 (작업창 안): 규격 · 제지사별 실제 롤 수 --- */
 function cntList() {
   var items = rowItems(SH.code), c = SH.cnt;
@@ -2775,7 +2912,8 @@ function sheetCount() {
   var list = SH.clist = cntList(), c = SH.cnt, diff = 0;
   var ds = [];
   list.forEach(function (s, i) { var d = c.v[itemKey(s)] - s.qty; if (d) ds.push(P(fmtItem(s) + ' ' + (d > 0 ? '+' : '') + d + '롤', '', 'cnt-' + i, null, true, ds.length ? ' · ' : '')); });
-  var h = shHead(esc(keyOf(SH.code)) + ' 실사', ds.length ? '' : '실제 롤 수로 맞춘 뒤 저장', true, ds.length ? sLine(ds, '차이 ' + ds.length + '건') : '');
+  var h = shHead(esc(keyOf(SH.code)) + ' 실사', ds.length ? '' : '실물 롤 수 확인 · 일치 시 [일치 확정]', true, ds.length ? sLine(ds, '차이 ' + ds.length + '건') : '') +
+    cntRecent(SH.code) + '<button class="lnk" style="margin:-4px 0 8px" onclick="cntPlanMenu()">실사 범위 · ' + (cntInfo().plan ? esc(cntPlanName(cntInfo().plan)) + ' ' + cntScope().filter(cntDone).length + '/' + cntScope().length + '줄' : '미지정') + ' ▸</button>' + (c.draft ? '<div class="hintbox" style="margin-bottom:8px">임시 보관 입력 복원 · 저장 전 상태</div>' : '');
   h += list.length ? list.map(function (s, i) {
     var a = c.v[itemKey(s)], d = a - s.qty; if (d) diff++;
     return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + specLp(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
@@ -2784,7 +2922,7 @@ function sheetCount() {
       stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량') + '</div></div>';
   }).join('') : '<div class="muted" style="padding:12px 0">재고 없음</div>';
   return h + '<button class="btn2" style="width:100%; margin:10px 0" onclick="shMode(\'add\')">+ 미등록 규격</button>' +
-    '<div class="shfoot"><button class="btn" onclick="saveCnt()"' + (diff ? '' : ' disabled style="opacity:.45"') + '>' + (diff ? '실사 저장' : '차이 없음') + '</button></div>';
+    '<div class="shfoot">' + (diff ? '<button class="btn" onclick="saveCnt()">실사 저장</button>' : '<button class="btn cokb" onclick="cntOk()">일치 확정</button>') + '</div>';
 }
 /* 실사 중 제지사 미확인 품목에 제지사 지정 — 입력해 둔 실사 수량은 새 품목(제지사 포함)으로 옮김
    같은 위치에 같은 규격 · 같은 제지사 재고가 이미 있으면 한 품목으로 합쳐지므로 실사 수량도 더함 */
@@ -2795,7 +2933,7 @@ function pickMakerCnt(i) {
     var old = Object.assign({}, s); s.maker = m; cntMigrate(old, s); renderMap(); renderSheet(); toast('제지사 지정: ' + m); return true;
   });
 }
-function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); renderSheet(); }
+function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); cntDraftSave(); renderSheet(); }
 function sheetAdd() {
   var sp = SH.sp, ready = sp.gsm && sp.width;
   return shHead(esc(keyOf(SH.code)) + ' 미등록 규격', '', true, '', shBox()) +
@@ -2806,7 +2944,7 @@ function addCnt() {
   var sp = SH.sp, x = { gsm: String(sp.gsm), width: String(sp.width), grade: sp.grade || '', maker: sp.maker || '', rem: false, qty: 0, date: '', lots: [] };
   if (!SH.cnt.extra.some(function (e) { return sameItem(e, x); })) SH.cnt.extra.push(x);
   if (!SH.cnt.v[itemKey(x)]) SH.cnt.v[itemKey(x)] = 1;
-  SH.mode = 'cnt'; renderSheet();
+  cntDraftSave(); SH.mode = 'cnt'; renderSheet();
 }
 function saveCnt() {
   if (!requireWorker()) return;
@@ -2820,9 +2958,9 @@ function saveCnt() {
     if (!reason) return;
     var go = function (dest) {
       fastCall('adjustRow', { loc: code, items: items, worker: worker(), test: isTest(), reason: reason, dest: dest || '' }).then(function (r) {
-        setStock(r.stock); if (SH && SH.code === code) SH.mode = '';
-        renderMap(); if (SH) renderSheet();
+        setStock(r.stock); cntMark(code, '차이'); cntDraftDrop(code);
         undoToast(r.type + ' ' + keyOf(code) + ' · ' + r.changed + '건', r.nos);
+        cntAfter(code);
       });
     };
     if (reason === '출고 누락') ask({ title: '출고처 선택', msg: '출고 누락분을 출고로 기록', chips: S.quick['출고처'] || [] }, function (d) { if (d) go(d); });
@@ -4274,10 +4412,118 @@ function cancelHist(i) {
    - 피킹: 호기별 하단 품목부터, 위치는 선입선출 · 1호기부터 배분, 제지사 다른 재고는 대체 후보로만
    - 출고 확정: 피킹 체크한 품목만 한 번에 출고 (이력 메모: 생산계획 · 호기 · 계획 번호) */
 var LINES = ['1호기', '2호기', '3호기', '기타'];
-function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, seq: 1, msg: '' }; }
+function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, seq: 1, msg: '', pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), mt: {} }; }   // pid · ts = 계획 식별 (공유 병합) · mt = 피킹 체크 · 출고 확정 변경 시각
 var PL = (function () { try { return JSON.parse(localStorage.getItem('plan') || 'null') || newPL(); } catch (e) { return newPL(); } })();
+if (!PL.pid) { PL.pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6); PL.ts = PL.ts || Date.now(); PL.mt = PL.mt || {}; }
 var PQ = { line: '1호기', gsm: null, width: null, maker: '', grade: '', qty: 1, all: false };
-function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} }
+function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} sharePush('plan'); }
+/* 피킹 체크(p) · 출고 확정(d) 변경 시각 기록 → 공유 병합 시 최근 변경 우선 */
+function plMt(kind, id) { PL.mt = PL.mt || {}; PL.mt[kind + ':' + id] = Date.now(); }
+/* ===== 공유 작업 (계획 · 피킹 체크 · 병합 작업 목록) — 서버 보관 → 모든 폰 같은 진행 =====
+   저장: 변경 1.2초 후 서버 전송 (판 번호 base) · 판 불일치 = 다른 폰 선저장 → 항목별 최근 변경 우선 병합 후 재전송
+   수신: 새로 고침 · 작업 중 30초 확인 (getShare) · 내 변경 전송 전이면 수신 보류
+   전송 형식 = { v: 계획 또는 병합 작업(null = 없음), at: 마지막 변경 시각 } */
+var SHR = (function () {
+  var o = {};
+  ['plan', 'merge'].forEach(function (k) { var x = {}; try { x = JSON.parse(lsGet('shr_' + k) || '{}') || {}; } catch (e) {} o[k] = { rev: Number(x.rev) || 0, at: Number(x.at) || 0, known: !!lsGet('shr_' + k) }; });
+  return o;
+})();
+function shareRevs() { return { plan: SHR.plan.rev, merge: SHR.merge.rev }; }
+function shareKeep(k) { var s = SHR[k]; s.known = true; lsSet('shr_' + k, JSON.stringify({ rev: s.rev, at: s.at })); }
+function shareVal(k) { return k === 'plan' ? PL : MJ; }
+/* 서버 값 적용 (재전송 없음) */
+function shareSetLocal(k, v) {
+  if (k === 'plan') { var st = PL && PL.stage, pid = PL && PL.pid; PL = v || newPL(); if (st && PL.pid === pid) PL.stage = st;   // 계획 입력 · 피킹 단계 = 폰별 유지
+    try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} }
+  else { MJ = v || null; try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
+}
+/* 내 변경 → 서버 전송 예약 */
+function sharePush(k) {
+  var s = SHR[k]; s.at = Date.now(); s.dirty = true; shareKeep(k);
+  clearTimeout(s.h); s.h = setTimeout(function () { shareSend(k); }, 1200);
+}
+function shareSend(k) {
+  var s = SHR[k];
+  if (s.run) { s.again = true; return; }
+  if (!S || !S.whs || !S.whs.length || !worker()) { s.h = setTimeout(function () { shareSend(k); }, 15000); return; }
+  s.run = true; s.dirty = false; s.again = false;
+  var mine = { v: shareVal(k), at: s.at };
+  call.quiet = true;
+  call('shareSave', { key: k, base: s.rev, data: JSON.stringify(mine), worker: worker() }).then(function (r) {
+    s.run = false;
+    if (r && r.conflict) {   // 다른 폰 선저장 → 병합 후 재전송
+      var theirs = null; try { theirs = r.data ? JSON.parse(r.data) : null; } catch (e) {}
+      var m = theirs ? shareMerge(k, mine, theirs) : mine;
+      s.rev = r.rev; s.at = m.at; shareKeep(k); shareSetLocal(k, m.v); rerenderShared();
+      return shareSend(k);
+    }
+    s.rev = r.rev; shareKeep(k);
+    if (s.again || s.dirty) shareSend(k);
+  }, function () { s.run = false; s.dirty = true; clearTimeout(s.h); s.h = setTimeout(function () { shareSend(k); }, 15000); });
+}
+/* 병합: 한쪽 없음 = 최근 변경 우선 · 계획 = 같은 계획(pid)이면 피킹 체크 · 출고 확정을 항목별 최근 변경 우선
+   · 병합 작업 = 같은 작업이면 이동 건별 최근 변경 우선 · 다른 계획 · 작업 = 최근 생성 우선 */
+function shareMerge(k, L, R) {
+  var la = L.at || 0, ra = R.at || 0, at = Math.max(la, ra);
+  if (!L.v || !R.v) return la >= ra ? L : R;
+  var nw = la >= ra ? L : R, od = nw === L ? R : L, v = JSON.parse(JSON.stringify(nw.v)), o = od.v;
+  if (k === 'plan') {
+    if ((L.v.pid || '') !== (R.v.pid || '')) return (L.v.ts || 0) >= (R.v.ts || 0) ? L : R;
+    v.picked = v.picked || {}; v.done = v.done || {}; v.mt = v.mt || {};
+    Object.keys(o.mt || {}).forEach(function (key) {
+      if ((o.mt[key] || 0) <= (v.mt[key] || 0)) return;
+      v.mt[key] = o.mt[key];
+      var f = key.charAt(0) === 'p' ? 'picked' : 'done', id = key.slice(2);
+      if (o[f] && o[f][id]) v[f][id] = o[f][id]; else delete v[f][id];
+    });
+    return { v: v, at: at };
+  }
+  if (L.v.sig !== R.v.sig || (L.v.ts || 0) !== (R.v.ts || 0)) return (L.v.ts || 0) >= (R.v.ts || 0) ? L : R;
+  (o.moves || []).forEach(function (m, i) { if (v.moves[i] && (m.t || 0) > (v.moves[i].t || 0)) v.moves[i] = m; });
+  return { v: v, at: at };
+}
+/* 서버 공유 값 수신 (새로 고침 · 30초 확인) */
+function shareApply(sh) {
+  if (!sh) return;
+  var ch = false;
+  ['plan', 'merge'].forEach(function (k) {
+    var x = sh[k], s = SHR[k];
+    if (!x || x.data === undefined || !(x.rev > s.rev) || s.run || s.dirty) return;   // 같은 판 · 내 변경 전송 대기 중 = 보류
+    var w = null; try { w = x.data ? JSON.parse(x.data) : null; } catch (e) { return; }
+    shareSetLocal(k, w ? w.v : null); s.rev = x.rev; s.at = w ? w.at || 0 : 0; shareKeep(k); ch = true;
+    if (x.by && x.by !== worker()) toast((k === 'plan' ? '계획 · 피킹' : '병합 작업') + ' 변경 수신 · ' + x.by + ' ' + (x.at || ''));
+  });
+  if (ch) rerenderShared();
+}
+function rerenderShared() {
+  if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
+  else if (TAB === 'map') { renderMap(); if (SH && SH.mode === 'merge') renderSheet(); }
+}
+/* 첫 사용: 이 폰에만 있던 계획 · 병합 작업을 서버로 (서버에 공유 값이 없을 때만) */
+function shareInit(sh) {
+  ['plan', 'merge'].forEach(function (k) {
+    var s = SHR[k], x = sh && sh[k];
+    if (s.known || (x && x.rev > 0)) return;
+    var v = shareVal(k);
+    if (k === 'plan' ? v && v.items && v.items.length : v) sharePush(k);
+  });
+}
+/* 작업 중 30초 확인: 계획 탭 · 병합 작업 · 실사 범위 진행 중 (보이는 화면 · 전송 대기 없음) */
+setInterval(function () {
+  if (document.visibilityState !== 'visible' || !S || !S.whs || !S.whs.length || BUSY || OB.q.length || getShareTick.on) return;
+  if (!(TAB === 'plan' || MJ || (SH && SH.mode === 'merge') || (TAB === 'map' && cntInfo().plan))) return;
+  getShareTick.on = true; call.quiet = true;
+  call('getShare', shareRevs()).then(function (r) {
+    getShareTick.on = false;
+    if (OB.q.length) return;
+    var before = JSON.stringify(S.cnt || null);
+    if (r.cnt) S.cnt = r.cnt;
+    shareApply(r.share);
+    if (JSON.stringify(S.cnt || null) !== before && TAB === 'map') { renderMap(); if (SH && SH.mode === 'cnt') renderSheet(); }
+  }, function () { getShareTick.on = false; });
+}, 30000);
+function getShareTick() {}
+
 
 /* 제지사 표준화: 기준정보의 별칭 (왕자|Oji|王子 → 왕자) */
 function normMk(x) { return String(x || '').replace(/\s+/g, '').replace(/제지$/, '').toUpperCase(); }
@@ -4451,7 +4697,7 @@ function plApply() {
   if (!it) {
     if (!sp.gsm || !sp.width) { toast('평량 · 지폭 선택 필요', true); return null; }
     var max = PL.items.filter(function (x) { return x.line === SH.line; }).reduce(function (m, x) { return Math.max(m, x.planNo); }, 0);
-    it = { id: 'p' + (PL.seq++), line: SH.line, planNo: max + 1, div: '', name: '', note: '' };
+    it = { id: 'p' + (PL.seq++) + '_' + Math.random().toString(36).slice(2, 5), line: SH.line, planNo: max + 1, div: '', name: '', note: '' };
     PL.items.push(it);
   }
   Object.assign(it, { gsm: sp.gsm || '', width: sp.width || '', maker: sp.maker || '', grade: sp.grade || '', qty: SH.all ? null : SH.qty, all: !!SH.all, note: SH.note || '' });
@@ -4536,7 +4782,7 @@ function setLineFrom(i, line) {
 function delPI(i) {
   var it = PL.items[i], ord = planOrder(), k = ord.indexOf(it), n = ord.length - k;
   var go = function (rm) {
-    rm.forEach(function (x) { delete PL.picked[x.id]; delete PL.done[x.id]; });
+    rm.forEach(function (x) { delete PL.picked[x.id]; delete PL.done[x.id]; plMt('p', x.id); plMt('d', x.id); });
     PL.items = PL.items.filter(function (x) { return rm.indexOf(x) < 0; });
     savePL(); renderPlan(); if (rm.length > 1) toast(rm.length + '건 삭제');
   };
@@ -4570,7 +4816,7 @@ function addPQ() {
   var max = PL.items.filter(function (it) { return it.line === PQ.line; }).reduce(function (m, it) { return Math.max(m, it.planNo); }, 0);
   // 제지사 · 지종은 버튼으로 고른 값 그대로 (원지명 글자 입력 없음)
   var mk = PQ.maker || '', gr = PQ.grade || '';
-  PL.items.push({ id: 'p' + (PL.seq++), line: PQ.line, planNo: max + 1, div: '', name: gr + (mk ? '(' + mk + ')' : ''), grade: gr, maker: mk,
+  PL.items.push({ id: 'p' + (PL.seq++) + '_' + Math.random().toString(36).slice(2, 5), line: PQ.line, planNo: max + 1, div: '', name: gr + (mk ? '(' + mk + ')' : ''), grade: gr, maker: mk,
     gsm: PQ.gsm, width: PQ.width, qty: PQ.all ? null : PQ.qty, all: !!PQ.all, note: '' });
   useSpec(PQ); savePL(); toast(PQ.line + ' 계획 #' + (max + 1) + ' 추가됨'); PQ.qty = 1; PQ.all = false; renderPlan();
 }
@@ -4597,7 +4843,7 @@ function planPhoto(cam) {
         var line = last ? last.line : '1호기', no = last ? last.planNo : 0;
         // 근거 없는 품목(손글씨 · 잡글자일 수 있음)은 맨 아래로
         var got = r.items.filter(function (it) { return !it.weak; }).concat(r.items.filter(function (it) { return it.weak; }));
-        got.forEach(function (it) { PL.items.push(fillMk(Object.assign({}, it, { id: 'p' + (PL.seq++), line: line, planNo: ++no }))); });
+        got.forEach(function (it) { PL.items.push(fillMk(Object.assign({}, it, { id: 'p' + (PL.seq++) + '_' + Math.random().toString(36).slice(2, 5), line: line, planNo: ++no }))); });
         PL.msg = '✓ ' + r.items.length + '건 ' + (add ? '추가' : '인식') + ' — 2호기 · 3호기 시작 품목의 호기 선택';   // 확인 필요는 각 줄 빨간 표시로만
         PL.msgBad = false;
         savePL(); renderPlan();
@@ -4715,7 +4961,7 @@ function sheetPkd() {
   }
   return h;
 }
-function togglePick(id) { PL.picked[id] = !PL.picked[id]; savePL(); renderPlan(); }
+function togglePick(id) { PL.picked[id] = !PL.picked[id]; if (!PL.picked[id]) delete PL.picked[id]; plMt('p', id); savePL(); renderPlan(); }
 function confirmLine(line) {
   if (!requireWorker()) return;
   var A = allocPlan();
@@ -4736,7 +4982,7 @@ function confirmLine(line) {
       if (!y) return;
       fastCall('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
         setStock(stock);
-        its.forEach(function (it) { PL.done[it.id] = true; });
+        its.forEach(function (it) { PL.done[it.id] = true; plMt('d', it.id); });
         savePL(); toast(line + ' 출고 확정 완료 · ' + total + '롤'); renderPlan();
       });
     });
@@ -5548,6 +5794,7 @@ function renderSet() {
   W = null; if (!QE.dirty) QE.items = null; setTab(); renderWh(); renderQuick(); renderPin();
   $('set-test').checked = isTest();
   $('set-aging').value = agingDays();
+  $('set-cycle').value = cntInfo().cycle || 0;
   if (!$('op-base').value) $('op-base').value = todayStr();
   renderWorkerBox(); renderWorkers();
   [].forEach.call(document.querySelectorAll('input[name=ocrEng]'), function (r) { r.checked = r.value === ocrEng(); });
@@ -5600,6 +5847,14 @@ function cancelOpening() {
   });
 }
 function saveAgingDays() { saveAgingN(Number($('set-aging').value)); }
+/* 실사 주기 저장 (재고 보유 줄 · 최근 실사 후 경과 일수 기준 → 지도 점선 · 실사 필요) */
+function saveCycleDays() {
+  var n = Number($('set-cycle').value);
+  if (!(n >= 0 && n <= 999) || Math.floor(n) !== n) { toast('실사 주기: 0~999 정수', true); return; }
+  needPin(function (pin) {
+    call('saveCountCycle', n, pin).then(function (r) { S.cnt = r; cacheS(); $('set-cycle').value = r.cycle || 0; toast(r.cycle ? '실사 주기 ' + r.cycle + '일 저장됨' : '실사 주기 미사용'); });
+  });
+}
 /* 장기 재고 기준일 저장 (설정 탭 · 길게 누르기 공통) → 보이는 화면 바로 다시 그림 */
 function saveAgingN(n) {
   if (!(n >= 1 && n <= 999) || Math.floor(n) !== n) { toast('기준일: 1~999 정수', true); return; }
@@ -5634,6 +5889,7 @@ function cacheS() {
 function initWith(d) {
   var me = d.me;   // S와 d는 같은 객체 — 먼저 꺼내 둠
   S = d; S.me = ''; setStock(d.stock, d.at); $('loading').style.display = 'none';
+  if (d.share) { shareApply(d.share); shareInit(d.share); delete S.share; }   // 공유 작업 (계획 · 피킹 · 병합)
   navBadge();
   setMe(me, true);
   if (tok() && S.me) { if (!lsGet('token')) lsSet('token', tok()); keepKey(tok()); }
