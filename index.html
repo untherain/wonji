@@ -1921,13 +1921,13 @@ function renderSheet() {
 }
 
 /* 표기 규칙 (앱 전체): 제지사 평량×지폭 · N롤 — 예: 무림 250×1010 · 10롤
-   제지사 없음 → (지종 약칭) 회색 · 둘 다 없음 → (미상) · o.nomk = 제지사 자리 비움 (이력의 출고 등 제지사 기록 없는 건) */
+   제지사 없음 → (지종 약칭) 회색 · 둘 다 없음 → (미확인) · o.nomk = 제지사 자리 비움 (이력의 출고 등 제지사 기록 없는 건) */
 function itemMk(o) {
   var ms = o.makers && o.makers.length > 1 ? o.makers.map(function (m) { return m.maker; }).filter(Boolean) : [];
   if (o.nomk) return null;
   if (ms.length) return { t: ms.join('·') };
   if (o.maker) return { t: o.maker };
-  return { t: '(' + (o.grade ? gradeShort(o.grade) : '미상') + ')', g: true };
+  return { t: '(' + (o.grade ? gradeShort(o.grade) : '미확인') + ')', g: true };
 }
 function fmtItem(o, qty) { var m = itemMk(o); return (m ? m.t + ' ' : '') + o.gsm + '×' + o.width + (qty != null && qty !== '' ? ' · ' + qty + '롤' : ''); }
 function itemHtml(o, qty) {
@@ -2387,9 +2387,9 @@ function itemFix(s, done) {
     if (c === '지종 변경') return pickFix(s, '지종', 'newGrade', 'grade', done);
   });
 }
-/* 공통 부품: 품목 수정 · 제지사 지정용 선택 — 공통 선택 창(valPick) 사용 · 지종은 '(지종 없음)' 포함 · 현재값과 같으면 무시 */
+/* 공통 부품: 품목 수정 · 제지사 지정용 선택 — 공통 선택 창(valPick) 사용 · 지종은 '미선택' 포함 · 현재값과 같으면 무시 */
 function pickQuick(kind, s, title, cur, cb) {
-  valPick(kind, { cur: cur, title: title, msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty), empty: kind === '지종' ? '(지종 없음)' : '' }, function (v) {
+  valPick(kind, { cur: cur, title: title, msg: plain(locLabel(s.loc || SH.code)) + ' · ' + fmtItem(s, s.qty), empty: kind === '지종' ? '미선택' : '' }, function (v) {
     if (cur != null && v === (cur || '')) return;
     cb(v);
   });
@@ -3135,7 +3135,7 @@ function inClear() {
 }
 function inSumText(where) {
   if (!I.gsm && !I.width) return '';   // 빈 칸 = 예시 표시
-  var mv = $('i-maker').value, imk = mv === MK_UNK ? '제지사 미상' : mv === '__new' ? '' : mv;
+  var imk = curMaker();
   return (imk ? imk + ' ' : '') + (I.gsm || '평량') + '×' + (I.width || '지폭') + ' · ' + I.qty + '롤' +
     (where ? ' → ' + where : '') + (I.rem ? ' · 반납 ' + (I.from || '호기?') : '');
 }
@@ -3144,17 +3144,15 @@ function inSumText(where) {
    고르면 원래 선택칸 값을 바꾸고 change 이벤트 → 화면마다 붙어 있던 처리(자동 제지사 · 추천 위치 등) 그대로 ===== */
 function pickSel(sel) {
   var kind = sel.getAttribute('aria-label'), first = sel.options[0] ? sel.options[0].textContent : '';
-  var all = [].filter.call(sel.options, function (o) { return o.value && o.value !== '__new'; });
-  var opts = all.filter(function (o) { return !/^__/.test(o.value); }).map(function (o) { return o.value; });
-  var fixed = all.filter(function (o) { return /^__/.test(o.value); }).map(function (o) { return { v: o.value, t: o.textContent }; });   // 특수 선택지 (예: __unk = 제지사 미상) → 표시 이름으로 맨 위 고정
-  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : fixed.length ? '' : '미선택', rawNew: true }, function (v) {   // 특수 선택지(제지사 미상)가 있으면 「미선택」 제외 (필수 칸 · 중복)
+  var opts = [].map.call(sel.options, function (o) { return o.value; }).filter(function (v) { return v && v !== '__new'; });
+  valPick(kind, { cur: sel.value, more: opts, empty: /전체/.test(first) ? first : '미선택', rawNew: true }, function (v) {   // 빈값 표준 = 미선택 (검색 화면은 「전체」)
     if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
     sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
 /* 공통 부품: 지종 · 제지사 선택 창 본체 — 선택칸(pickSel) · 품목 수정/제지사 지정(pickQuick) 공통
    o: { cur, more(목록에 더할 값), list(목록 직접 지정), empty(빈값 선택지 제목 · 없으면 안 보임), title, msg,
-        fixed([{v, t}] 특수 선택지 · 맨 위 고정), rawNew(true면 '__new' 그대로 반환), noNew(직접 입력 없음), noEdit(✎ 편집 없음) }
+        rawNew(true면 '__new' 그대로 반환), noNew(직접 입력 없음), noEdit(✎ 편집 없음) }
    cb(값) — 빈값 = '' */
 function valPick(kind, o, cb) {
   var cur = o.cur || '', list = (o.list || S.quick[kind] || []).slice();
@@ -3165,7 +3163,6 @@ function valPick(kind, o, cb) {
     return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v && v === cur ? '선택됨' : '', edit: !o.noEdit && !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
   }
   var ch = o.empty ? [{ v: '', t: o.empty, keep: 1 }] : [];
-  (o.fixed || []).forEach(function (x) { ch.push({ v: x.v, t: x.t, tag: x.v === cur ? '선택됨' : '', keep: 1 }); });   // 특수 선택지 (예: 제지사 미상 · 편집 없음)
   if (f.top.length) ch.push({ h: '자주 사용' });
   ch = ch.concat(f.top.map(item));
   if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
@@ -3216,7 +3213,7 @@ function selOpts(list, label, cur, first) {
     body = f.top.length ? '<optgroup label="자주 사용">' + f.top.map(op).join('') + '</optgroup><optgroup label="그 외 (가나다순)">' + f.rest.map(op).join('') + '</optgroup>'
       : f.rest.map(op).join('');
   }
-  return '<option value="">' + esc(first || label + ' (선택)') + '</option>' + body + '<option value="__new">+ 직접 입력</option>';
+  return '<option value="">' + esc(first || label + ' 미선택') + '</option>' + body + '<option value="__new">+ 직접 입력</option>';
 }
 function fillSelect(el, list, label, cur) {
   el.innerHTML = selOpts(list, label, cur);
@@ -3254,7 +3251,7 @@ function makerShort(m) {
 function makersOf(s) { return s.makers && s.makers.length ? s.makers : [{ maker: s.maker || '', qty: s.qty }]; }
 function mkTag(m) {
   var t = makerShort(m);
-  return '<span class="mk' + (t ? '' : ' none') + '" title="' + esc(m || '제지사 미상') + '">' + (t ? esc(t) : '–') + '</span>';
+  return '<span class="mk' + (t ? '' : ' none') + '" title="' + esc(m || '제지사 미확인') + '">' + (t ? esc(t) : '–') + '</span>';
 }
 /* 지도 줄 칸: 폭이 좁으면 규격 대신 이름을 줄임 — 1 전체 · 2 괄호 속 제지사 뺌(같은 칸에 겹치면 첫 글자) · 3 앞 글자 + 영문/숫자
    예: 단무(무림) → 단무·무 → 단·무 / 단무FSC → 단무FSC → 단FSC / 단무(20) → 단무20 → 단20 / 한솔제지 → 한솔제지 → 한솔 */
@@ -3310,7 +3307,7 @@ function mkTags(s) { return makersOf(s).map(function (m) { return mkTag(m.maker)
 function mkNames(s) {
   var ms = makersOf(s);
   if (ms.length === 1) return esc(ms[0].maker);
-  return ms.map(function (m) { return esc(m.maker || '제지사 미상') + ' ' + m.qty; }).join(' · ') + '롤';
+  return ms.map(function (m) { return esc(m.maker || '제지사 미확인') + ' ' + m.qty; }).join(' · ') + '롤';
 }
 /* 지종의 기본 제지사 자동 선택 (제지사가 비어 있을 때만) */
 function gradeMaker(gId, mId) {
@@ -3993,16 +3990,9 @@ function sugCands() {
   var mk = curMaker(), ok = out.filter(function (c) { return whAllows(whOf(c), mk); });
   return ok.filter(function (c) { return whDedicated(whOf(c), mk); }).concat(ok.filter(function (c) { return !whDedicated(whOf(c), mk); }));
 }
-function curMaker() { var m = $('i-maker').value; return m === '__new' || m === MK_UNK ? '' : m; }
-/* 입고 제지사 선택칸: 기준정보 목록 + [제지사 미상] (모를 때 · 저장 값 = 빈칸 · 전용 창고 제외 추천) */
-var MK_UNK = '__unk';
-function fillMakerSel() {
-  var el = $('i-maker'), cur = el.value;
-  fillSelect(el, S.quick['제지사'], '제지사', cur === MK_UNK ? '' : cur);
-  var o = document.createElement('option'); o.value = MK_UNK; o.textContent = '제지사 미상';
-  el.insertBefore(o, el.querySelector('option[value="__new"]'));
-  if (cur === MK_UNK) { el.value = MK_UNK; el.dataset.prev = MK_UNK; }
-}
+function curMaker() { var m = $('i-maker').value; return m === '__new' ? '' : m; }
+/* 입고 제지사 선택칸: 기준정보 목록 · 미선택 = 빈칸 저장(제지사 미확인 재고) · 전용 창고 제외 추천 */
+function fillMakerSel() { var el = $('i-maker'); fillSelect(el, S.quick['제지사'], '제지사', el.value); }
 /* 같은 규격 재고의 제지사가 하나뿐 → 자동 선택 (제지사 비어 있을 때 · 규격당 한 번) */
 function specMaker() {
   if (!I.gsm || !I.width || $('i-maker').value) return;
@@ -4013,12 +4003,11 @@ function specMaker() {
   ms = Object.keys(ms);
   if (ms.length === 1) { setSel('i-maker', ms[0]); toast('같은 규격 제지사 자동 선택: ' + ms[0]); }
 }
-/* 보관 위치 추천 전 필수 항목 (평량 · 지폭 · 제지사) 중 빈 것 */
+/* 보관 위치 추천 전 필수 항목 (평량 · 지폭) 중 빈 것 · 지종 · 제지사 = 선택 (미선택 = 빈칸 저장) */
 function inMissing() {
-  var m = $('i-maker').value, out = [];
+  var out = [];
   if (!I.gsm) out.push(['평량', 'i-gsm']);
   if (!I.width) out.push(['지폭', 'i-width']);
-  if (!m || m === '__new') out.push(['제지사', 'i-maker']);
   return out;
 }
 /* 추천 위치: 전량 수용 가능한 첫 후보 */
@@ -4101,7 +4090,7 @@ function inHint() {
   var auto = !I.locManual && I.gsm && I.width && (multi || sug === code);
   if (!I.locManual && I.gsm && I.width && !sug && !multi) {
     var exc = !curMaker() && S.whs.some(function (w) { return (w.only || []).length; });
-    h += ' · 전 창고 적재 공간 부족' + (exc ? ' (제지사 미상 → 전용 창고 제외)' : ''); bad = true;
+    h += ' · 전 창고 적재 공간 부족' + (exc ? ' (제지사 미선택 → 전용 창고 제외)' : ''); bad = true;
   }
   // 추천 표시: 칸 노란 테두리 + 제목 [추천] · 직접 고친 뒤 추천과 다르면 [추천 위치로] 버튼만
   $('i-loc').classList.toggle('sug', !!auto);
@@ -4125,7 +4114,7 @@ function saveIn() {
   if (!requireWorker()) return;
   var parts = (I.parts || []).filter(function (x) { return x.qty > 0; });
   var miss = inMissing();
-  if (miss.length) { toast(miss.map(function (x) { return x[0]; }).join('·') + ' 선택 필요' + (miss.some(function (x) { return x[0] === '제지사'; }) ? ' (미확인 시 [제지사 미상])' : ''), true); jumpTo(miss[0][1]); return; }
+  if (miss.length) { toast(miss.map(function (x) { return x[0]; }).join('·') + ' 선택 필요', true); jumpTo(miss[0][1]); return; }
   var p = { loc: parts.length ? parts[0].loc : '', gsm: I.gsm, width: I.width, qty: I.qty, grade: g === '__new' ? '' : g, maker: curMaker(), worker: worker(), memo: I.memo || '', test: isTest(), rem: I.rem, from: I.rem ? I.from : '' };
   if (I.rem && !I.from) { toast('반납 호기 선택 필요', true); return; }
   if (!p.gsm || !p.width) { toast('평량·폭 선택 필요', true); return; }
@@ -5399,7 +5388,7 @@ function delFlow(kind, v, u, stopFn) {
   var others = (S.quickAll || []).filter(function (x) { return x.k === kind && x.v !== v && x.st !== '중지'; }).map(function (x) { return x.v; });
   var ch = [];
   if (!num && others.length) ch.push({ v: 'to', t: '다른 ' + L + '로 바꾸고 삭제', sub: '재고 · 이력 명칭도 함께 변경' });
-  if (!num) ch.push({ v: 'blank', t: (u.stock || u.hist ? '빈칸으로 바꾸고 삭제' : '삭제'), sub: u.stock || u.hist ? (kind === '제지사' ? '제지사 미상으로' : kind === '지종' ? '지종 없음으로' : '출고처 없음으로') : '사용 기록 없음' });
+  if (!num) ch.push({ v: 'blank', t: (u.stock || u.hist ? '빈칸으로 바꾸고 삭제' : '삭제'), sub: u.stock || u.hist ? (kind === '제지사' ? '제지사 미확인으로' : kind === '지종' ? '지종 미확인으로' : '출고처 없음으로') : '사용 기록 없음' });
   ch.push({ v: 'stop', t: '사용 중지', sub: '기록 유지 · 선택 목록에서 숨김' });
   if (u.stock || u.hist) ch.push({ v: 'see', t: '사용 기록', sub: useTxt });
   ask({ title: '"' + v + '" 삭제', msg: u.stock || u.hist ? useTxt + '에서 사용 중' : '', input: false, list: true, chips: ch }, function (a) {
