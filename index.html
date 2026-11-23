@@ -3008,7 +3008,7 @@ function pickSel(sel) {
   var all = [].filter.call(sel.options, function (o) { return o.value && o.value !== '__new'; });
   var opts = all.filter(function (o) { return !/^__/.test(o.value); }).map(function (o) { return o.value; });
   var fixed = all.filter(function (o) { return /^__/.test(o.value); }).map(function (o) { return { v: o.value, t: o.textContent }; });   // 특수 선택지 (예: __unk = 제지사 미상) → 표시 이름으로 맨 위 고정
-  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : '선택 안 함', rawNew: true }, function (v) {
+  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : fixed.length ? '' : '선택 안 함', rawNew: true }, function (v) {   // 특수 선택지(제지사 미상)가 있으면 「선택 안 함」 없음 (필수 칸 · 중복)
     if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
     sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -3060,7 +3060,7 @@ function valEdit(kind, v) {
     else if (a === 'more') valMore(kind, v);
     else if (a === 'mk') {
       var dm = ((S.quickAll || []).filter(function (x) { return x.k === '지종' && x.v === v; })[0] || {}).maker || '';
-      valPick('제지사', { cur: dm, title: v + ' 기본 제지사', msg: '이 지종을 고르면 자동 선택', empty: '없음' }, function (d) { quickSave({ kind: '지종', from: v, maker: d }, v + ' 기본 제지사 저장'); });
+      valPick('제지사', { cur: dm, title: v + ' 기본 제지사', msg: '이 지종을 고르면 자동 선택', empty: '기본 제지사 없음' }, function (d) { quickSave({ kind: '지종', from: v, maker: d }, v + ' 기본 제지사 저장'); });
     }
     else if (a === 'stop') quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지');
     else if (a === 'del') call('quickUsage').then(function (u) { S.qusage = u; delFlow(kind, v, (u[kind] || {})[v] || { stock: 0, hist: 0 }, function () { quickSave({ kind: kind, from: v, hide: true }, kind + ' ' + v + ' 사용 중지'); }); });
@@ -3115,7 +3115,7 @@ function makerShort(m) {
 function makersOf(s) { return s.makers && s.makers.length ? s.makers : [{ maker: s.maker || '', qty: s.qty }]; }
 function mkTag(m) {
   var t = makerShort(m);
-  return '<span class="mk' + (t ? '' : ' none') + '" title="' + esc(m || '제지사 없음') + '">' + (t ? esc(t) : '–') + '</span>';
+  return '<span class="mk' + (t ? '' : ' none') + '" title="' + esc(m || '제지사 미상') + '">' + (t ? esc(t) : '–') + '</span>';
 }
 /* 지도 줄 칸: 폭이 좁으면 규격 대신 이름을 줄임 — 1 전체 · 2 괄호 속 제지사 뺌(같은 칸에 겹치면 첫 글자) · 3 앞 글자 + 영문/숫자
    예: 단무(무림) → 단무·무 → 단·무 / 단무FSC → 단무FSC → 단FSC / 단무(20) → 단무20 → 단20 / 한솔제지 → 한솔제지 → 한솔 */
@@ -3171,7 +3171,7 @@ function mkTags(s) { return makersOf(s).map(function (m) { return mkTag(m.maker)
 function mkNames(s) {
   var ms = makersOf(s);
   if (ms.length === 1) return esc(ms[0].maker);
-  return ms.map(function (m) { return esc(m.maker || '제지사 없음') + ' ' + m.qty; }).join(' · ') + '롤';
+  return ms.map(function (m) { return esc(m.maker || '제지사 미상') + ' ' + m.qty; }).join(' · ') + '롤';
 }
 /* 지종의 기본 제지사 자동 선택 (제지사가 비어 있을 때만) */
 function gradeMaker(gId, mId) {
