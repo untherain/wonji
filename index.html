@@ -3005,15 +3005,17 @@ function inSumText(where) {
    고르면 원래 선택칸 값을 바꾸고 change 이벤트 → 화면마다 붙어 있던 처리(자동 제지사 · 추천 위치 등) 그대로 ===== */
 function pickSel(sel) {
   var kind = sel.getAttribute('aria-label'), first = sel.options[0] ? sel.options[0].textContent : '';
-  var opts = [].map.call(sel.options, function (o) { return o.value; }).filter(function (v) { return v && v !== '__new'; });
-  valPick(kind, { cur: sel.value, more: opts, empty: /전체/.test(first) ? first : '선택 안 함', rawNew: true }, function (v) {
+  var all = [].filter.call(sel.options, function (o) { return o.value && o.value !== '__new'; });
+  var opts = all.filter(function (o) { return !/^__/.test(o.value); }).map(function (o) { return o.value; });
+  var fixed = all.filter(function (o) { return /^__/.test(o.value); }).map(function (o) { return { v: o.value, t: o.textContent }; });   // 특수 선택지 (예: __unk = 제지사 미상) → 표시 이름으로 맨 위 고정
+  valPick(kind, { cur: sel.value, more: opts, fixed: fixed, empty: /전체/.test(first) ? first : '선택 안 함', rawNew: true }, function (v) {
     if (v && ![].some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.insertBefore(o, sel.querySelector('option[value="__new"]')); }
     sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
 /* 공통 부품: 지종 · 제지사 선택 창 본체 — 선택칸(pickSel) · 품목 수정/제지사 지정(pickQuick) 공통
    o: { cur, more(목록에 더할 값), list(목록 직접 지정), empty(빈값 선택지 제목 · 없으면 안 보임), title, msg,
-        rawNew(true면 '__new' 그대로 반환), noNew(직접 입력 없음), noEdit(✎ 편집 없음) }
+        fixed([{v, t}] 특수 선택지 · 맨 위 고정), rawNew(true면 '__new' 그대로 반환), noNew(직접 입력 없음), noEdit(✎ 편집 없음) }
    cb(값) — 빈값 = '' */
 function valPick(kind, o, cb) {
   var cur = o.cur || '', list = (o.list || S.quick[kind] || []).slice();
@@ -3024,6 +3026,7 @@ function valPick(kind, o, cb) {
     return { v: v, t: v, s: [q.short, String(q.alias || '').replace(/\|/g, ' ')].join(' '), sub: q.short && q.short !== v ? '약칭 ' + q.short : '', tag: v && v === cur ? '선택됨' : '', edit: !o.noEdit && !!(S.quickAll || []).some(function (x) { return x.k === kind && x.v === v; }) };
   }
   var ch = o.empty ? [{ v: '', t: o.empty, keep: 1 }] : [];
+  (o.fixed || []).forEach(function (x) { ch.push({ v: x.v, t: x.t, tag: x.v === cur ? '선택됨' : '', keep: 1 }); });   // 특수 선택지 (예: 제지사 미상 · 편집 없음)
   if (f.top.length) ch.push({ h: '자주 쓰는' });
   ch = ch.concat(f.top.map(item));
   if (f.rest.length) ch.push({ h: f.top.length ? '그 외 (가나다순)' : (list.length > 6 ? '가나다순' : kind) });
