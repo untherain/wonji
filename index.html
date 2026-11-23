@@ -275,6 +275,7 @@
   .pkby { font-size:12px; font-weight:800; color:var(--ok); white-space:nowrap; } .pkby.ship { color:#9A6700; }
   .pkscan { margin-top:6px; padding:6px 10px; border-radius:8px; background:#E6E8EB; color:#5B6168; font-size:12px; font-weight:700; cursor:pointer; }
   .pkscan.on { background:#E7F3EA; color:var(--ok); }
+  .lchip.dn { background:#E9ECEF; color:#5B6168; font-weight:700; }   /* 완료 줄 출고 위치 (수정 불가) */
   .pkopt { margin-top:8px; } .pkopt .seg { background:#E6E8EB; margin-top:0; } .pkopt #pk-rule button { font-size:13px; }
   .stiles { display:grid; gap:6px; margin-top:8px; }
   .stile { padding:8px 10px; margin:0; color:var(--ink); background:#fff; } .stile .sv { margin-left:auto; font-weight:900; white-space:nowrap; } .stile .bar { height:6px; margin-top:6px; }
@@ -4482,14 +4483,14 @@ function cancelHist(i) {
    - 피킹: 호기별 하단 품목부터, 위치는 선입선출 · 1호기부터 배분, 제지사 다른 재고는 대체 후보로만
    - 출고 확정: 피킹 체크한 품목만 한 번에 출고 (이력 메모: 생산계획 · 호기 · 계획 번호) */
 var LINES = ['1호기', '2호기', '3호기', '기타'];
-function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, pin: {}, why: {}, memo: {}, opt: {}, by: {}, ship: {}, seq: 1, msg: '', pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), mt: {} }; }   // pid · ts = 계획 식별 (공유 병합) · mt = 피킹 체크 · 출고 확정 변경 시각
+function newPL() { return { date: '', items: [], stage: 'edit', picked: {}, done: {}, pin: {}, why: {}, memo: {}, opt: {}, by: {}, ship: {}, sloc: {}, dby: {}, seq: 1, msg: '', pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), mt: {} }; }   // pid · ts = 계획 식별 (공유 병합) · mt = 피킹 체크 · 출고 확정 변경 시각
 var PL = (function () { try { return JSON.parse(localStorage.getItem('plan') || 'null') || newPL(); } catch (e) { return newPL(); } })();
 if (!PL.pid) { PL.pid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6); PL.ts = PL.ts || Date.now(); PL.mt = PL.mt || {}; }
 var PQ = { line: '1호기', gsm: null, width: null, maker: '', grade: '', qty: 1, all: false };
 function savePL() { try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} sharePush('plan'); }
 /* 피킹 체크(p) · 출고 확정(d) 변경 시각 기록 → 공유 병합 시 최근 변경 우선 */
 /* 항목별 변경 시각 키 첫 글자 → PL 칸: 피킹 체크 · 출고 확정 · 위치 지정 · 규칙 어김 사유 · 출고 메모 · 계획 옵션(배정 규칙) */
-var PL_MT = { p: 'picked', d: 'done', l: 'pin', w: 'why', m: 'memo', o: 'opt', b: 'by', s: 'ship' };   // b = 체크한 사람 · 시각 / s = 부분 취소 후 기출고 롤
+var PL_MT = { p: 'picked', d: 'done', l: 'pin', w: 'why', m: 'memo', o: 'opt', b: 'by', s: 'ship', x: 'sloc', y: 'dby' };   // b = 체크한 사람 · 시각 / s = 부분 취소 후 기출고 롤 / x = 출고 위치 · 수량 / y = 출고 확정한 사람 · 시각
 function plMt(kind, id) { PL.mt = PL.mt || {}; PL.mt[kind + ':' + id] = Date.now(); }
 /* ===== 공유 작업 (계획 · 피킹 체크 · 병합 작업 목록) — 서버 보관 → 모든 폰 같은 진행 =====
    저장: 변경 1.2초 후 서버 전송 (판 번호 base) · 판 불일치 = 다른 폰 선저장 → 항목별 최근 변경 우선 병합 후 재전송
@@ -5085,7 +5086,10 @@ function pickRow(it, seq, a) {
   var l2 = [];
   if (!done && picked && PL.by && PL.by[it.id]) l2.push('<span class="pkby">✓ ' + esc(PL.by[it.id]) + '</span>');   // 체크한 사람 · 시각
   if (!done && PL.ship && PL.ship[it.id]) l2.push('<span class="pkby ship">기출고 ' + PL.ship[it.id] + '롤 · 잔여 ' + pkNeed(it) + '롤</span>');   // 부분 확정 취소 후
-  if (done) l2.push('<span class="muted" style="font-size:13px">출고 확정 완료</span>');
+  if (done) {   // 완료 줄: 출고 위치 · 수량(수정 불가 회색 칩) + 확정한 사람 · 시각
+    ((PL.sloc || {})[it.id] || []).forEach(function (l) { l2.push('<span class="lchip dn">' + esc(locLabel(l.loc)) + ' ' + l.qty + '</span>'); });
+    l2.push('<span class="muted" style="font-size:13px">출고 확정' + ((PL.dby || {})[it.id] ? ' · ' + esc(PL.dby[it.id]) : ' 완료') + '</span>');
+  }
   else if (a) {
     // 위치 칩 = 누르면 위치 변경 창 (후보 목록 · 지도에서 선택)
     a.locs.forEach(function (l) { l2.push('<button class="lchip lc" onclick="pkDetail(\'' + it.id + '\')">' + (l.pin ? '📌' : '') + esc(locLabel(l.loc)) + (a.locs.length > 1 || l.qty != it.qty ? ' ' + l.qty : '') + (l.check ? ' <span class="tt" style="background:#9A6700">제지사 확인</span>' : '') + (l.alt ? ' <span class="tt" style="background:#9A6700">대체</span>' : '') + ' <i>›</i></button>'); });
@@ -5283,19 +5287,20 @@ function pkDone(id) {
     ask({ title: '출고 확정 품목', msg: what + '\n' + (recs.length ? sum : '출고 기록 없음 (기취소 · 기수정)'), chips: recs.length ? ['수량 · 위치 수정', '출고 확정 취소'] : ['재피킹 (확정 해제)'] }, function (v) {
       if (!v) return;
       // 확정 취소 = 피킹 체크도 해제 · 남은 출고분(부분 취소) = 기출고로 기록 → 취소분만 재피킹
-      var reopen = function (kept) {
-        PL.ship = PL.ship || {}; PL.by = PL.by || {};
-        delete PL.done[id]; delete PL.picked[id]; delete PL.by[id];
+      var reopen = function (kept, keptRecs) {
+        PL.ship = PL.ship || {}; PL.by = PL.by || {}; PL.sloc = PL.sloc || {}; PL.dby = PL.dby || {};
+        delete PL.done[id]; delete PL.picked[id]; delete PL.by[id]; delete PL.dby[id];
         if (kept > 0 && !it.all) PL.ship[id] = kept; else delete PL.ship[id];
-        ['d', 'p', 'b', 's'].forEach(function (k) { plMt(k, id); }); savePL(); renderPlan();
+        if (kept > 0 && keptRecs && keptRecs.length) PL.sloc[id] = keptRecs.map(function (h) { return { loc: h.loc, qty: h.qty }; }); else delete PL.sloc[id];   // 남은 출고 위치 유지
+        ['d', 'p', 'b', 's', 'x', 'y'].forEach(function (k) { plMt(k, id); }); savePL(); renderPlan();
       };
       if (v === '재피킹 (확정 해제)') return reopen(0);
       if (v === '출고 확정 취소') {
         var cancel = function (sel) {   // sel = 취소할 기록들 (전체 또는 위치별 1건)
           var past = sel.some(function (h) { return h.day !== todayStr(); }), tot = sel.reduce(function (x, h) { return x + h.qty; }, 0);
-          var kept = recs.filter(function (h) { return sel.indexOf(h) < 0; }).reduce(function (x, h) { return x + h.qty; }, 0);
+          var keptRecs = recs.filter(function (h) { return sel.indexOf(h) < 0; }), kept = keptRecs.reduce(function (x, h) { return x + h.qty; }, 0);
           var go = function () {
-            undoCall(sel.map(function (h) { return h.no; })).then(function (r) { setStock(r && r.stock ? r.stock : r); reopen(kept); toast('출고 확정 취소 · 재고 복구 ' + tot + '롤' + (kept ? ' · 기출고 ' + kept + '롤 유지' : '')); });
+            undoCall(sel.map(function (h) { return h.no; })).then(function (r) { setStock(r && r.stock ? r.stock : r); reopen(kept, keptRecs); toast('출고 확정 취소 · 재고 복구 ' + tot + '롤' + (kept ? ' · 기출고 ' + kept + '롤 유지' : '')); });
           };
           ask({ title: '출고 확정 취소', msg: sel.map(function (h) { return '#' + h.no + ' ' + plain(locLabel(h.loc)) + ' ' + h.qty + '롤'; }).join('\n') +
               '\n→ 재고 복구 · 취소분 ' + tot + '롤 재피킹' + (kept ? '\n(나머지 ' + kept + '롤 = 기출고 유지)' : '') + (past ? '\n(지난 날짜 건: 관리자 PIN 필요)' : ''), input: false, ok: '확정 취소', danger: true },
@@ -5380,8 +5385,16 @@ function confirmLine(line) {
       fastCall('outboundBatch', { worker: worker(), test: isTest(), items: batch }).then(function (stock) {
         setStock(stock);
         PL.memo = PL.memo || {};
-        PL.ship = PL.ship || {};
-        its.forEach(function (it) { PL.done[it.id] = true; plMt('d', it.id); PL.memo[it.id] = it._memo; delete it._memo; plMt('m', it.id); if (PL.ship[it.id]) { delete PL.ship[it.id]; plMt('s', it.id); } });
+        PL.ship = PL.ship || {}; PL.sloc = PL.sloc || {}; PL.dby = PL.dby || {};
+        var who = (worker() || '') + ' ' + hhmm();
+        its.forEach(function (it) {
+          PL.done[it.id] = true; plMt('d', it.id); PL.memo[it.id] = it._memo; delete it._memo; plMt('m', it.id);
+          // 출고 위치 · 수량 · 확정한 사람 보관 (완료 후에도 표시 — WMS 완료 줄 = 출발 위치 · 완료 수량 유지) · 부분 취소 후 재확정 = 남은 위치에 이어 붙임
+          var prev = PL.ship[it.id] ? (PL.sloc[it.id] || []) : [];
+          PL.sloc[it.id] = prev.concat(((A[it.id] || {}).locs || []).map(function (l) { return { loc: l.loc, qty: l.qty }; }));
+          PL.dby[it.id] = who; plMt('x', it.id); plMt('y', it.id);
+          if (PL.ship[it.id]) { delete PL.ship[it.id]; plMt('s', it.id); }
+        });
         savePL(); toast(line + ' 출고 확정 완료 · ' + total + '롤'); renderPlan();
       });
     });
