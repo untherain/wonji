@@ -14,6 +14,26 @@
   var API = (qs.get('a') || ls('api')).replace(/[^A-Za-z0-9_-]/g, '');
   if (qs.get('a')) ls('api', API);
   var BASE = window.API_BASE || 'https://wonji.wonji-cloud.workers.dev/';
+  var CID = Math.random().toString(36).slice(2, 12);   // 이 화면 번호 (내 저장 알림은 받지 않음)
+  // 실시간 반영 (클라우드 서버 WebSocket): 다른 폰 저장 → 'sync' 신호 → 앱의 rtSync() (재고 · 공유 작업 조용히 갱신)
+  // 끊기면 5초 → 최대 60초 간격 재연결 · 화면 꺼지면 닫음 · 50초마다 연결 유지 신호
+  var ws = null, wsT = null, wsWait = 5000;
+  function wsOpen() {
+    if (false || ws || !window.WebSocket || document.visibilityState !== 'visible') return;
+    var t = typeof tok === 'function' ? tok() : '';
+    try { ws = new WebSocket(BASE.replace(/^http/, 'ws') + 'ws?t=' + encodeURIComponent(t) + '&c=' + CID); } catch (e) { ws = null; return; }
+    ws.onopen = function () { wsWait = 5000; };
+    ws.onmessage = function (e) { var m = null; try { m = JSON.parse(e.data); } catch (x) {} if (m && m.t === 'sync' && typeof rtSync === 'function') rtSync(); };
+    ws.onclose = function () { ws = null; clearTimeout(wsT); wsT = setTimeout(wsOpen, wsWait); wsWait = Math.min(wsWait * 2, 60000); };
+    ws.onerror = function () {};
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') { wsWait = 5000; wsOpen(); }
+    else if (ws) { ws.onclose = null; try { ws.close(); } catch (e) {} ws = null; }
+  });
+  setInterval(function () { if (ws && ws.readyState === 1) try { ws.send('ping'); } catch (e) {} }, 50000);
+  setTimeout(wsOpen, 1500);
+  window.rtReconnect = function () { if (ws) { ws.onclose = null; try { ws.close(); } catch (e) {} ws = null; } wsWait = 5000; wsOpen(); };   // 로그인 후 새 키로 다시 연결
   function fail(cb, msg) { if (cb) cb(new Error(msg)); }
   var needReload = false;
   function isRead(fn) { return /^(get|loginNames$)/.test(fn); }
@@ -45,7 +65,7 @@
     var ac = window.AbortController ? new AbortController() : null, killed = false;
     var tm = ac && each ? setTimeout(function () { ac.abort(); }, each) : null;
     fetch(BASE + API + '/exec', { method: 'POST', redirect: 'follow', signal: ac ? ac.signal : undefined,
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token, rid: rid || '' }) })
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args, token: token, rid: rid || '', cid: CID }) })
       .then(function (r) { if (!r.ok) throw new Error('서버 응답 ' + r.status); return r.json(); })
       .then(function (j) { clearTimeout(tm); return j; }, function (e) { clearTimeout(tm); throw e; })
       .catch(function (e) { if (killed) return new Promise(function () {}); if (retry) { retry(); retry = null; return new Promise(function () {}); } throw e; })
@@ -58,6 +78,7 @@
         var v = j.v;
         if (v && typeof v === 'object' && 'appUrl' in v) v.appUrl = reloadUrl();   // [새 버전] = 이 화면 다시 열기
         if (ok) ok(v);
+        if (fn === 'login') setTimeout(window.rtReconnect, 500);   // 새 로그인 키로 실시간 연결
         if (fn === 'login' && needReload) setTimeout(function () { location.reload(); }, 300);   // 첫 화면을 못 불렀으면 로그인 뒤 다시 열기
       }, function (e) { fail(bad, e && e.name === 'AbortError' ? '서버 응답 없음' : '연결 실패 — 네트워크 확인'); });
     return ac ? function () { killed = true; clearTimeout(tm); ac.abort(); } : null;
@@ -720,14 +741,15 @@ function setStock(stock, at) {
 }
 /* 서버 재고 다시 받기: 앱 복귀 때 5분 지났으면 (시트 직접 수정 반영) · 당겨서 새로 고침 = 바로
    전송 대기 중인 저장이 있으면 받지 않음 (서버 재고에 아직 없는 저장이 화면에서 사라지는 것 방지 · 다 보내면 서버 결과로 맞춰짐) */
+/* force: true = 당겨서 새로 고침(알림 표시) · 'rt' = 실시간 신호(조용히 · 5분 제한 없음) · false = 앱 복귀 자동(5분마다) */
 function refreshStock(force) {
   if (!S.whs || !S.whs.length) return;
   if (!force && Date.now() - (S.loadedAt || 0) < 300000) return;
-  if (BUSY || refreshStock.on) return;
-  if (OB.q.length) { if (force) { obKick(); toast('미전송 ' + OB.q.length + '건 전송 중 — 완료 후 서버 기준 동기화'); } return; }
+  if (BUSY || refreshStock.on) { if (force === 'rt') rtSync(); return; }
+  if (OB.q.length) { if (force === true) { obKick(); toast('미전송 ' + OB.q.length + '건 전송 중 — 완료 후 서버 기준 동기화'); } return; }
   S.loadedAt = Date.now();
-  if (!force) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
-  if (!force) call.quiet = true;   // 자동 새로 고침: 알림 · 처리 중 표시 없음 (실패하면 다음 번에 다시)
+  if (force !== true) lastBtn = null;   // 탭 버튼에 "처리 중…" 표시 안 함
+  if (force !== true) call.quiet = true;   // 자동 새로 고침: 알림 · 처리 중 표시 없음 (실패하면 다음 번에 다시)
   refreshStock.on = true;
   call('getStock', tok(), shareRevs()).then(function (r) {
     refreshStock.on = false;
@@ -735,9 +757,17 @@ function refreshStock(force) {
     if (OB.q.length) return;   // 받는 사이 새 저장 → 이번 결과는 버림
     if (r.today) S.today = r.today;
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
-    if (force) toast('재고 새로 고침 완료');
+    if (force === true) toast('재고 새로 고침 완료');
     rerender();
   }, function () { refreshStock.on = false; });
+}
+/* 실시간 반영: 다른 폰 저장 신호(클라우드 서버 WebSocket) → 재고 · 공유 작업 조용히 갱신
+   입력 중 · 팝업 열림 · 처리 중이면 끝난 뒤 (입력 내용 보존) · 연속 신호는 0.4초 묶음 */
+function rtSync() {
+  clearTimeout(rtSync.h);
+  var a = document.activeElement, typing = a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+  if (BUSY || typing || $('modal').style.display === 'flex') { rtSync.h = setTimeout(rtSync, 3000); return; }
+  rtSync.h = setTimeout(function () { refreshStock('rt'); }, 400);
 }
 /* 재고가 바뀐 뒤 지금 화면 다시 그리기 (설정 편집 · 입력 중엔 건너뜀) */
 function rerender() {
