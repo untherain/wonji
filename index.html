@@ -6,6 +6,7 @@
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+
 <meta charset="utf-8">
 <script>
 (function () {
@@ -210,6 +211,7 @@
   /* 이름(줄어듦) · 규격(고정) · 롤 수(고정) — 폭 좁으면 이름만 2·3단계로 줄임, 그래도 넘치면 이름만 … */
   .cell .sl .mkc { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; font-weight:900; color:var(--ink); margin-right:3px; }
   .cell .sl .mkc.none { display:none; }
+  .cell .sl .mkc.mkg { color:var(--sub); font-weight:700; }   /* 제지사 없음 → (지종 약칭) 회색 */
   .cell .sl .mkc i { font-style:normal; }
   .cell .sl .sp { flex:none; margin-right:auto; }
   .cell .sl .m2, .cell .sl .m3, .cell.lv2 .sl .m1, .cell.lv3 .sl .m1, .cell.lv3 .sl .m2 { display:none; }
@@ -480,6 +482,7 @@
   .chip.opt.off { opacity:.45; }
   #loading { padding:40px; text-align:center; color:var(--sub); }
 </style>
+
 </head>
 <body>
 <header>
@@ -1352,7 +1355,8 @@ function renderMap() {
       items.forEach(function (s) {
         var mh = hit && fMatch(s);   // 이 규격이 검색에 걸렸나 (셀이 hit일 때만 표시)
         makersOf(s).forEach(function (m) {
-          var k = m.maker + '|' + spec(s), e = (byS[k] = byS[k] || { mk: m.maker, sp: spec(s), q: 0, hit: false, sig: distSig(s, m.maker) });
+          var gr = m.maker ? '' : (s.grade || '');   // 제지사 없음 → 지종 약칭 표시 (표기 규칙 itemMk)
+          var k = m.maker + '|' + gr + '|' + spec(s), e = (byS[k] = byS[k] || { mk: m.maker, gr: gr, sp: spec(s), q: 0, hit: false, sig: distSig(s, m.maker) });
           e.q += m.qty; if (mh) e.hit = true;
         });
       });
@@ -1362,7 +1366,7 @@ function renderMap() {
       var specs = sk.map(function (k) {
         var x = byS[k];
         var q = (!MV && !ST && (DISTCNT[x.sig] || 1) > 1) ? '<span class="distb" title="여러 위치에 분산">' + x.q + '롤</span>' : x.q + '롤';
-        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '">' + mkCellTag(x.mk, mkv) + '<span class="sp">' + x.sp + '</span><span>' + q + '</span></div>';
+        return '<div class="sl' + (x.hit ? ' shit' : (anyHit ? ' dim' : '')) + '">' + (x.mk ? mkCellTag(x.mk, mkv) : grCellTag(x.gr)) + '<span class="sp">' + x.sp + '</span><span>' + q + '</span></div>';
       }).join('');
       var pct = ri.slots ? Math.min(100, Math.round(ri.used / ri.slots * 100)) : 0;
       var tag = ri.cfg.use && ri.cfg.use !== '원지' ? '<span class="utag">' + esc(ri.cfg.use) + '</span>' : '';
@@ -3284,6 +3288,11 @@ function mkCellTag(m, v) {
   var x = v[m], t = x && x.a;
   if (!t) return '<span class="mkc none"></span>';
   return '<span class="mkc" title="' + esc(m) + '"><i class="m1">' + esc(x.a) + '</i><i class="m2">' + esc(x.b) + '</i><i class="m3">' + esc(x.c) + '</i></span>';
+}
+/* 지도 줄 칸: 제지사 없는 줄 = (지종 약칭) 회색 · 둘 다 없음 = (미확인) — 표기 규칙(itemMk)과 같음 */
+function grCellTag(g) {
+  var t = '(' + (g ? gradeShort(g) : '미확인') + ')';
+  return '<span class="mkc mkg" title="' + esc(g ? '지종 ' + g + ' · 제지사 미확인' : '제지사 · 지종 미확인') + '"><i class="m1">' + esc(t) + '</i><i class="m2">' + esc(t) + '</i><i class="m3">' + esc(t) + '</i></span>';
 }
 /* 칸마다 이름이 넘치면 한 단계씩 줄임 (칸 안 모든 줄이 같은 단계 · 3단계도 넘치면 이름만 …) */
 function fitCells(root) {
