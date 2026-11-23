@@ -5002,7 +5002,7 @@ function renderPick(el) {
   var view = lsGet('pkView') === 'loc' ? 'loc' : 'line';
   h += '<div class="pkopt"><div class="seg" id="pk-view"></div><div class="row" style="gap:6px; margin-top:6px"><span class="muted" style="font-size:12px; flex:none; font-weight:700">배정 규칙</span><div class="seg" id="pk-rule" style="flex:1"></div></div>' +
     '<div class="pkscan' + (pkScanOn() ? ' on' : '') + '" role="button" data-lp="pkscan" onclick="pkScanSet()">' + (pkScanOn() ? '📷 위치 QR 확인 사용 중 · 순번 선택 시 배정 위치 QR 스캔' : '위치 QR 확인 미사용 · 순번 선택 = 바로 체크') + '</div></div>';
-  if (view === 'loc') { h += pkLocView(A); el.innerHTML = h; pkOptSeg(view); return; }
+  if (view === 'loc') { h += pkLocView(A); el.innerHTML = h; pkOptSeg(view); pkBackfill(); return; }
   LINES.slice(0, 3).forEach(function (line) {
     var its = PL.items.filter(function (it) { return it.line === line; }).sort(function (a, b) { return b.planNo - a.planNo; });
     if (!its.length) return;
@@ -5015,7 +5015,7 @@ function renderPick(el) {
       foot: pend.length ? '<button class="btn" style="height:48px; font-size:16px" onclick="confirmLine(\'' + line + '\')">' + line + ' 출고 확정</button>'
         : '<span class="muted">출고 확정 완료</span>' });
   });
-  el.innerHTML = h; pkOptSeg(view);
+  el.innerHTML = h; pkOptSeg(view); pkBackfill();
 }
 function pkOptSeg(view) {
   seg($('pk-view'), [['line', '호기 순'], ['loc', '동선 순']], view, function (v) { lsSet('pkView', v === 'loc' ? 'loc' : ''); renderPlan(); });
@@ -5284,6 +5284,28 @@ function pkMissing(i) {
 }
 /* ===== 출고 확정 완료 품목: 수량 · 위치 수정(기록 탭 이력 수정 · 공통) · 확정 취소(재고 복구 · 다시 피킹) ===== */
 function pkMemo(it) { return (PL.memo || {})[it.id] || '생산계획 ' + (PL.date || '') + ' · ' + it.line + ' 계획 #' + it.planNo; }
+/* 위치 보관 이전에 확정한 품목: 출고 기록에서 위치 · 수량 · 확정한 사람 채움 (품목당 1회 · 계획 공유) */
+var PK_BF = {};   // 이미 찾아본 품목 (기록 없음 포함) → 다시 찾지 않음
+function pkBackfill() {
+  if (pkBackfill.on) return;
+  var need = PL.items.filter(function (it) { return PL.done[it.id] && !((PL.sloc || {})[it.id] || []).length && !PK_BF[it.id]; });
+  if (!need.length) return;
+  pkBackfill.on = true; need.forEach(function (it) { PK_BF[it.id] = 1; });
+  call.quiet = true;
+  call('getHistory', { type: '출고', q: '생산계획' + (PL.date || ''), limit: 500 }).then(function (list) {
+    pkBackfill.on = false;
+    PL.sloc = PL.sloc || {}; PL.dby = PL.dby || {};
+    var ch = 0;
+    need.forEach(function (it) {
+      var m = pkMemo(it), recs = (list || []).filter(function (h) { return !h.status && (h.memo === m || String(h.memo).indexOf(m + ' · ') === 0); });
+      if (!recs.length) return;
+      PL.sloc[it.id] = recs.slice().reverse().map(function (h) { return { loc: h.loc, qty: h.qty }; });
+      if (!PL.dby[it.id]) PL.dby[it.id] = (recs[0].worker || '') + ' ' + String(recs[0].time || '').slice(-5);
+      plMt('x', it.id); plMt('y', it.id); ch++;
+    });
+    if (ch) { savePL(); if (TAB === 'plan' && PL.stage === 'pick') renderPlan(); }
+  }, function () { pkBackfill.on = false; });
+}
 function pkRecs(it, cb) {
   var m = pkMemo(it);
   call('getHistory', { type: '출고', q: m, limit: 50 }).then(function (list) {
