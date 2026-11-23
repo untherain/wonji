@@ -1874,7 +1874,7 @@ function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 
 ['wheel', 'touchmove'].forEach(function (ev) { $('dim').addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
 function shMode(m) {
   SH.mode = m;
-  if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: lsGet('lastMaker'), grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
+  if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' };   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지) SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
   if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
   if (m === 'cnt') SH.cnt = { v: {}, extra: [] };
   renderSheet(); $('detail').scrollTop = 0;
@@ -2756,7 +2756,7 @@ function doIn() {
   var sp = SH.sp, code = SH.code;
   var p = { loc: code, gsm: sp.gsm, width: sp.width, qty: SH.qty, grade: sp.grade || '', maker: sp.maker || '', worker: worker(), memo: SH.memo || '', test: isTest(), rem: !!SH.rem, from: SH.rem ? SH.from : '' };
   fastCall('intake', p).then(function (r) {
-    setStock(r); useSpec(p); if (p.maker) lsSet('lastMaker', p.maker);
+    setStock(r); useSpec(p);
     // 연속 입고: 입고창 유지 · 규격 그대로 · 롤 수만 1로 (다음 롤 · 다음 줄을 바로 이어서)
     if (SH && SH.code === code && SH.mode === 'in') { SH.cont = true; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }
     renderMap(); if (SH) renderSheet();
@@ -2992,6 +2992,7 @@ function inType(v) {
 function inClear() {
   I.gsm = I.width = null; I.qty = 1; I.mkAuto = null; I.memo = '';
   $('i-maker').value = ''; $('i-maker').dataset.prev = '';
+  $('i-grade').value = ''; $('i-grade').dataset.prev = '';   // 지우기 = 지종도 비움
   renderIn();
 }
 function inSumText(where) {
