@@ -4672,16 +4672,16 @@ function fillMk(it) {
 /* ===== 재고 배분 (WMS: 시스템 배정 + 작업자 위치 지정 · 규칙 어김 사유 기록) =====
    순서: 1호기 → 2호기 → 3호기, 계획 번호 순
    ① 작업자 지정(PL.pin[id] = [{ k: 재고 키, qty }] · qty 0 = 그 위치 제외)을 먼저 잡음 → 다른 품목이 그 롤을 가져가지 않음
-   ② 나머지 수량은 배정 규칙(PL.opt.rule)대로 자동: 선입선출 · 잔량 우선 · 단일 줄 우선 · 줄 정리 우선
+   ② 나머지 수량은 배정 규칙(PL.opt.rule)대로 자동: 선입선출 · 잔량 소진 · 분할 최소 · 공간 확보
    등급(tier): 1 같은 제지사 · 지종 / 2 같은 제지사 / 3 재고 제지사 미기록(제지사 확인) / 9 제지사 다름 · 잔량 = 대체 후보 (자동 배정 안 함) */
-var PK_RULES = [['fifo', '선입선출'], ['rem', '잔량 우선'], ['one', '단일 줄 우선'], ['empty', '줄 정리 우선']];
+var PK_RULES = [['fifo', '선입선출'], ['rem', '잔량 소진'], ['one', '분할 최소'], ['empty', '공간 확보']];   // 이름 = 목적 (사용자 확정 2026-11-23)
 function pkRule() { var r = (PL.opt || {}).rule; return PK_RULES.some(function (x) { return x[0] === r; }) ? r : 'fifo'; }
 function stkKey(s) { return s.loc + '|' + (s.grade || '') + '|' + s.gsm + '|' + s.width + '|' + (s.rem ? 'Y' : '') + '|' + (s.maker || ''); }
 function pkActive() {
   return PL.items.filter(function (it) { return it.line !== '기타' && !PL.done[it.id] && it.gsm && it.width; })
     .sort(function (a, b) { return LINES.indexOf(a.line) - LINES.indexOf(b.line) || a.planNo - b.planNo; });
 }
-/* 같은 규격 재고 후보 + 등급 (배정 규칙 '잔량 우선' = 같은 제지사 잔량 롤을 맨 앞으로) */
+/* 같은 규격 재고 후보 + 등급 (배정 규칙 '잔량 소진' = 같은 제지사 잔량 롤을 맨 앞으로) */
 function pkCands(it) {
   var nm = planMk(it), rule = pkRule();
   return S.stock.filter(function (s) { return s.gsm == it.gsm && s.width == it.width; }).map(function (s) {
@@ -4694,7 +4694,7 @@ function pkCands(it) {
     return { s: s, k: stkKey(s), tier: tier };
   });
 }
-/* 규칙별 정렬 (같은 등급 안에서) — need = 남은 수량 (한 곳에서: 한 번에 채우는 위치 먼저) */
+/* 규칙별 정렬 (같은 등급 안에서) — need = 남은 수량 (분할 최소: 한 번에 채우는 위치 먼저 · 공간 확보: 적게 남은 줄 먼저) */
 function pkSort(cands, need) {
   var rule = pkRule(), rolls = {};
   if (rule === 'empty') cands.forEach(function (c) { if (rolls[c.s.loc] == null) rolls[c.s.loc] = rowInfo(c.s.loc).rolls; });
