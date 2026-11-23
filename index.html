@@ -4518,7 +4518,7 @@ function shareKeep(k) { var s = SHR[k]; s.known = true; lsSet('shr_' + k, JSON.s
 function shareVal(k) { return k === 'plan' ? PL : MJ; }
 /* 서버 값 적용 (재전송 없음) */
 function shareSetLocal(k, v) {
-  if (k === 'plan') { var st = PL && PL.stage, pid = PL && PL.pid; PL = v || newPL(); if (st && PL.pid === pid) PL.stage = st;   // 생산계획 · 피킹 단계 = 폰별 유지
+  if (k === 'plan') { var st = PL && PL.stage, pid = PL && PL.pid; PL = v || newPL(); if (st && PL.pid === pid) PL.stage = st;   // 계획 입력 · 피킹 단계 = 폰별 유지
     try { localStorage.setItem('plan', JSON.stringify(PL)); } catch (e) {} }
   else { MJ = v || null; try { if (MJ) localStorage.setItem('mergeJob', JSON.stringify(MJ)); else localStorage.removeItem('mergeJob'); } catch (e) {} }
 }
@@ -4737,7 +4737,7 @@ function renderPlan() {
   if (!TSR.p) setTimeout(tsrReady, 3000);
   if (PL.stage !== 'pick' && !DOCS.p && docOK()) setTimeout(docReady, 6000);
   PL.items.forEach(function (it) { var m = !it.maker && it.grade && makerOf(it.grade); if (m) { it.maker = m; it.grade = ''; delete it.weak; } });
-  seg($('p-seg'), [['edit', '생산계획'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
+  seg($('p-seg'), [['edit', '계획 입력'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
     if (v === 'pick') { makePick(); if (PL.stage !== 'pick') renderPlan(); }
     else { PL.stage = 'edit'; savePL(); renderPlan(); window.scrollTo(0, 0); }
   });
