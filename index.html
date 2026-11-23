@@ -4,8 +4,7 @@
 <title>원지 창고</title>
 <meta name="apple-mobile-web-app-title" content="원지 창고">
 <meta name="robots" content="noindex">
-<link rel="preconnect" href="https://script.google.com" crossorigin>
-<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="preconnect" href="https://wonji.wonji-cloud.workers.dev" crossorigin>
 
 <meta charset="utf-8">
 <script>
@@ -14,7 +13,7 @@
   function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k) || ''; localStorage.setItem(k, v); } catch (e) { return ''; } }
   var API = (qs.get('a') || ls('api')).replace(/[^A-Za-z0-9_-]/g, '');
   if (qs.get('a')) ls('api', API);
-  var BASE = window.API_BASE || 'https://script.google.com/macros/s/';
+  var BASE = window.API_BASE || 'https://wonji.wonji-cloud.workers.dev/';
   function fail(cb, msg) { if (cb) cb(new Error(msg)); }
   var needReload = false;
   function isRead(fn) { return /^(get|loginNames$)/.test(fn); }
@@ -23,7 +22,7 @@
   // 저장은 같은 요청 번호(rid) → 서버가 이미 처리(중)이면 그 결과만 돌려줌 (중복 저장 없음)
   // 2026-11-23 측정: 정상 응답 1.6~2.8초 · 막히면 60초 넘게 무응답(몇 분씩 몰려서) · 브라우저는 요청에 시간 제한이 없어
   // 최대 5분 "처리 중"으로 화면이 멈춤 → 요청마다 시간 제한 + 읽기는 빨리 다시 보내기 + 끝내 응답 없으면 오류로 풀어 줌
-  var CFG = { read: { at: [5000, 12000, 22000], each: 25000, all: 40000, msg: '서버 응답 없음 (구글 지연) — 잠시 후 다시 시도' },
+  var CFG = { read: { at: [5000, 12000, 22000], each: 25000, all: 40000, msg: '서버 응답 없음 — 잠시 후 재시도' },
               write: { at: [15000, 35000], each: 50000, all: 70000, msg: '서버 응답 없음 — 저장됐을 수 있음 · 기록 탭에서 확인 후 다시' } };
   function hedge(fn, args, ok, bad) {
     var read = isRead(fn), c = read ? CFG.read : CFG.write, rid = read ? '' : (args[0] && args[0].__rid) || Date.now().toString(36) + Math.random().toString(36).slice(2, 10);   // 앱 대기열 저장 = 그 저장의 고정 번호
@@ -60,7 +59,7 @@
         if (v && typeof v === 'object' && 'appUrl' in v) v.appUrl = reloadUrl();   // [새 버전] = 이 화면 다시 열기
         if (ok) ok(v);
         if (fn === 'login' && needReload) setTimeout(function () { location.reload(); }, 300);   // 첫 화면을 못 불렀으면 로그인 뒤 다시 열기
-      }, function (e) { fail(bad, e && e.name === 'AbortError' ? '서버 응답 없음 (구글 지연)' : '연결 실패 — 네트워크 확인'); });
+      }, function (e) { fail(bad, e && e.name === 'AbortError' ? '서버 응답 없음' : '연결 실패 — 네트워크 확인'); });
     return ac ? function () { killed = true; clearTimeout(tm); ac.abort(); } : null;
   }
   // 로그인 키 없음 · 만료: 그 자리에서 이름 · PIN 로그인 (앱의 quickLogin 사용)
@@ -560,8 +559,7 @@
     <div id="set-workerBox"></div>
     <h2>사진 글자 인식</h2>
     <div class="card">
-      <label class="radio"><input type="radio" name="ocrEng" value="ko5" onchange="saveLocal()"> <span><b>PaddleOCR</b> (폰)</span></label>
-      <label class="radio"><input type="radio" name="ocrEng" value="drive" onchange="saveLocal()"> <span><b>구글 드라이브</b> (서버)</span></label>
+      <div><b>PaddleOCR</b> (폰 · 한국어)</div>
       <div class="muted" id="ocr-st" style="margin-top:4px"></div>
     </div>
     </div>
@@ -797,7 +795,7 @@ document.addEventListener('click', function (e) {
   var b = e.target && e.target.closest ? e.target.closest('button') : null;
   if (b) { lastBtn = b; lastBtnAt = Date.now(); }
 }, true);
-var NO_BLOCK = { ocrPhoto: 1, ocrPhotoText: 1, getHistory: 1, getStock: 1, getReport: 1 };
+var NO_BLOCK = { ocrPhotoText: 1, getHistory: 1, getStock: 1, getReport: 1 };
 function busy(on, block) {
   BUSY = Math.max(0, BUSY + (on ? 1 : -1));
   $('busy').style.display = BUSY ? 'block' : 'none';
@@ -1994,10 +1992,10 @@ function photoBar(fn, note) {
     '<button class="btn2" onclick="' + fn + '(false)">' + ICON_ALB + '앨범</button></div>' + (note ? '<div class="phnote' + (bad ? ' bad' : '') + '">' + note + '</div>' : '') + '</div>';
 }
 /* ===== 공통 부품: 사진 글자 인식 — PaddleOCR 한국어 (폰 안에서 읽고 서버는 해석만)
-   ocrCall('ocrPhoto' | 'ocrPlan', 사진) → 서버 결과와 같은 모양 · PaddleOCR 실패 시 구글 드라이브로 자동 전환 ===== */
+   ocrCall('ocrPhoto' | 'ocrPlan', 사진) → 서버 결과와 같은 모양 · 인식 실패 시 빈 결과 (재촬영 · 직접 입력) ===== */
 var PAD = { svc: null, p: null, st: '' };
-function ocrEng() { return lsGet('ocrEng') === 'drive' ? 'drive' : 'ko5'; }   // 기본 = PaddleOCR 한국어 · 실패 시 구글 드라이브
-function padStatus(t) { if (t != null) PAD.st = t; var el = $('ocr-st'); if (el) el.textContent = ocrEng() === 'drive' ? '' : PAD.st; }
+function ocrEng() { return 'ko5'; }   // PaddleOCR 한국어 (구글 드라이브 인식 제거 · 2026-11-23)
+function padStatus(t) { if (t != null) PAD.st = t; var el = $('ocr-st'); if (el) el.textContent = PAD.st; }
 function padReady() {
   if (PAD.p) return PAD.p;
   if (!document.querySelector('script[type=importmap]')) {
@@ -2144,7 +2142,6 @@ function tsrPlan(t, text) {
   return { date: dm ? Number(dm[2]) + '/' + dm[3].replace(/\s/g, '') : '', items: items, raw: hd + '\n\n' + text, table: true };
 }
 function ocrCall(kind, d) {
-  if (ocrEng() === 'drive') return call(kind, d);
   var t0 = Date.now(), blk = kind === 'ocrPlan';
   busy(true, blk);
   // 못 읽으면 90° · 270° 돌려 다시 (옆으로 누운 계획서 · 라벨)
@@ -2174,11 +2171,11 @@ function ocrCall(kind, d) {
     });
   }, function (e) {
     busy(false);
-    toast('PaddleOCR 실패 → 구글 드라이브로 읽기 (' + ((e && e.message) || e) + ')', true);
-    return call(kind, d);
+    toast('사진 인식 실패 — 재촬영 · 직접 입력 (' + ((e && e.message) || e) + ')', true);
+    return kind === 'ocrPlan' ? { items: [], raw: '', date: '' } : {};
   });
 }
-if (ocrEng() !== 'drive') setTimeout(padReady, 4000);   // 앱 열 때 미리 모델 준비 (첫 촬영 대기 줄임)
+setTimeout(padReady, 4000);   // 앱 열 때 미리 모델 준비 (첫 촬영 대기 줄임)
 /* 라벨 사진 읽기 (공통): 평량 · 지폭 · 제지사 · 지종 · 롤 수 · 롤번호 등 → cb(r) · 나중에 고른 사진 결과만 반영 */
 function readLabel(cam, cb, doc) {   // doc = 비추기 화면 [문서] 버튼 (문서 전체 읽기)
   function photo(d) { var my = ++ocrSeq; ocrCall('ocrPhoto', d).then(function (r) { if (my === ocrSeq) cb(r || {}); }); }
@@ -3437,7 +3434,7 @@ function labelParse(text) {
    o = { title, cont: 연속 모드(피킹), onResult(r, d) → { ok, msg, undo }, progress() → 글, done() → true면 종료, shot(d): [찍기] 결과(영역 지정 후 사진) }
    틀 안만 읽음(= 영역 지정) · 두 번 연속 같으면 확정 · 글자 상자 · 안내 문구 · 확대 · 플래시 · 틀 모양 · 세로 라벨 회전 ===== */
 var LV = null;
-function liveOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && ocrEng() !== 'drive'; }
+function liveOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ; }
 var LV_SHAPES = [{ k: '가로', w: 0.88, h: 0.30 }, { k: '네모', w: 0.80, h: 0.50 }, { k: '세로', w: 0.55, h: 0.62 }];
 function lvBuild() {
   var el = $('live');
@@ -4671,7 +4668,7 @@ function pkMoving() { var m = {}; if (MJ && MJ.moves) MJ.moves.forEach(function 
 
 function renderPlan() {
   var el = $('f-plan');
-  if (ocrEng() !== 'drive' && !TSR.p) setTimeout(tsrReady, 3000);
+  if (!TSR.p) setTimeout(tsrReady, 3000);
   if (PL.stage !== 'pick' && !DOCS.p && docOK()) setTimeout(docReady, 6000);
   PL.items.forEach(function (it) { var m = !it.maker && it.grade && makerOf(it.grade); if (m) { it.maker = m; it.grade = ''; delete it.weak; } });
   seg($('p-seg'), [['edit', '계획 입력'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
@@ -4899,7 +4896,7 @@ function planPhoto(cam) {
         if (!r.items.length) { PL.msg = '규격 인식 실패 — 재촬영 또는 직접 입력'; PL.msgBad = true; renderPlan(); return; }
         if (!PL.date && r.date) PL.date = r.date;
         PL.raw = r.raw || '';
-        // 사진 조각: 인식한 사진(돌려 읽었으면 돌린 사진) + 품목별 위치 · 구글 드라이브로 읽었으면 위치 없이 사진만
+        // 사진 조각: 인식한 사진(돌려 읽었으면 돌린 사진) + 품목별 위치 · 위치 정보 없으면 사진만
         if (r._c) { planImgSave(r._c); planSnips(r.items, r._boxes, r._c.height); }
         else { var im = new Image(); im.onload = function () { var c = document.createElement('canvas'); c.width = im.width; c.height = im.height; c.getContext('2d').drawImage(im, 0, 0); planImgSave(c); }; im.src = d; }
         // 호기는 자동 구분 안 함: 교체 = 모두 1호기 · 추가 = 마지막 품목의 호기 뒤에 이어서
@@ -6080,7 +6077,6 @@ function renderSet() {
   $('set-cycle').value = cntInfo().cycle || 0;
   if (!$('op-base').value) $('op-base').value = todayStr();
   renderWorkerBox(); renderWorkers();
-  [].forEach.call(document.querySelectorAll('input[name=ocrEng]'), function (r) { r.checked = r.value === ocrEng(); });
   padStatus();
 }
 /* ===== 기초재고 일괄 등록 ===== */
@@ -6157,8 +6153,6 @@ function agingEdit() {
 }
 function saveLocal() {
   if ($('set-worker')) lsSet('worker', $('set-worker').value.trim().replace(/\s+/g, ' '));   // 처음 도입용 직접 입력
-  var e = document.querySelector('input[name=ocrEng]:checked');
-  if (e && e.value !== ocrEng()) { lsSet('ocrEng', e.value); padStatus(); if (e.value !== 'drive') padReady(); }
   toast('저장됨');
 }
 
