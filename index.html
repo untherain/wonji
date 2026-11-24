@@ -3734,7 +3734,7 @@ function lvBuild() {
       '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-pv"></canvas><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
       '<button class="lv-st" id="lv-st"></button><div class="lv-card" id="lv-card"></div>' +
       '<div class="lv-bar"><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
-      '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">촬영</button></div>';
+      '<button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">촬영</button></div>';
     document.body.appendChild(el);
   }
   return el;
@@ -3753,7 +3753,6 @@ function liveScan(o) {
   $('lv-x').onclick = liveClose;
   $('lv-shape').onclick = function () { LV.shape = (LV.shape + 1) % LV_SHAPES.length; lsSet('lvShape', String(LV.shape)); lvShape(); };
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
-  $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
   $('lv-shot').onclick = lvShot;
   // [문서]: 라벨 대신 문서(주문서 · 계획서) 전체 읽기 — 종이 찾아 반듯하게 (계획서 촬영과 같은 방식)
   $('lv-doc').style.display = o.doc ? '' : 'none';
@@ -3771,10 +3770,9 @@ function lvCam(ready) {
     if (!LV || !LV.run) { camRelease(); return; }
     LV.stream = st; LV.track = st.getVideoTracks()[0];
     var v = $('lv-v'); v.onloadedmetadata = v.onresize = lvFit; if (v.srcObject !== st) v.srcObject = st; try { v.play(); } catch (e) {}
-    $('lv-torch').style.display = 'none'; $('lv-torch').classList.remove('on');
     $('lv-pv').style.transform = ''; if (!LV.draw) { LV.draw = 1; requestAnimationFrame(lvDraw); }
     var cap = LV.track.getCapabilities ? LV.track.getCapabilities() : {};
-    if (cap.torch) $('lv-torch').style.display = '';
+    LV.canTorch = !!cap.torch; LV.torch = false;   // 플래시 = 어두우면 자동 (버튼 없음)
     if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; try { LV.track.applyConstraints({ advanced: [{ zoom: +zi.min }] }); } catch (e) {} }   // 다시 쓴 카메라 = 확대 처음으로
     ready();
   }, function (e) {
@@ -3787,6 +3785,7 @@ function liveClose() {
   if (!LV) return;
   LV.run = false;
   if (LV.torch && LV.track) try { LV.track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) {}
+  [LV.gc, LV.rc, LV.dc, LV.qc].forEach(function (c) { if (c) { c.width = 0; c.height = 0; } });   // 아이폰: 캔버스 메모리 바로 반납
   camRelease();
   $('live').style.display = 'none'; document.body.classList.remove('cropopen');
   var c = LV.o.onClose; LV = null; if (c) c();
@@ -3834,7 +3833,7 @@ function lvMap() {
 }
 function lvGrab(full) {
   var v = $('lv-v'); if (!v.videoWidth) return null;
-  var m = lvMap(), c = document.createElement('canvas');
+  var m = lvMap(), c = full ? document.createElement('canvas') : (LV.gc = LV.gc || document.createElement('canvas'));   // 연속 읽기용은 한 장 다시 씀
   if (full) { c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0); return { c: c, m: m }; }
   var sc = Math.min(1, 1400 / m.w); c.width = Math.round(m.w * sc); c.height = Math.round(m.h * sc);
   c.getContext('2d').drawImage(v, m.x, m.y, m.w, m.h, 0, 0, c.width, c.height);
@@ -3842,8 +3841,8 @@ function lvGrab(full) {
 }
 /* 밝기 · 선명도 (작게 줄여 흑백 · 라플라시안 분산) */
 function lvQuality(c) {
-  var w = 160, h = Math.max(1, Math.round(c.height * w / c.width)), t = document.createElement('canvas'); t.width = w; t.height = h;
-  var x = t.getContext('2d'); x.drawImage(c, 0, 0, w, h);
+  var w = 160, h = Math.max(1, Math.round(c.height * w / c.width)), t = lvQuality.t = lvQuality.t || document.createElement('canvas'); t.width = w; t.height = h;
+  var x = t.getContext('2d', { willReadFrequently: true }); x.drawImage(c, 0, 0, w, h);
   var d = x.getImageData(0, 0, w, h).data, g = new Float32Array(w * h), sum = 0, i;
   for (i = 0; i < w * h; i++) { g[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114; sum += g[i]; }
   var mean = sum / (w * h), lap = 0, n = 0, lm = 0, vals = [];
@@ -3851,7 +3850,15 @@ function lvQuality(c) {
   lm /= n || 1; vals.forEach(function (L) { lap += (L - lm) * (L - lm); });
   return { bright: mean, sharp: lap / (n || 1) };
 }
-function lvRot(c) { var n = document.createElement('canvas'); n.width = c.height; n.height = c.width; var x = n.getContext('2d'); x.translate(n.width, 0); x.rotate(Math.PI / 2); x.drawImage(c, 0, 0); return n; }
+/* 플래시 자동: 어두우면 켜고 창 닫을 때까지 유지 (깜빡임 방지) · 광택 라벨 반사 때문에 처음부터 켜지 않음 · 플래시 없는 폰(아이폰 웹)은 안내만 */
+function lvAutoTorch() {
+  if (!LV || LV.torch || !LV.canTorch || !LV.track) return false;
+  LV.torch = true;
+  try { LV.track.applyConstraints({ advanced: [{ torch: true }] }); } catch (e) { LV.canTorch = false; return false; }
+  lvSay('어두움 — 플래시 자동 켬', 'warn');
+  return true;
+}
+function lvRot(c, into) { var n = into || document.createElement('canvas'); n.width = c.height; n.height = c.width; var x = n.getContext('2d'); x.translate(n.width, 0); x.rotate(Math.PI / 2); x.drawImage(c, 0, 0); return n; }
 function lvBoxes(items, g, rot, keys) {
   var ov = $('lv-ov'), m = g.m; ov.width = m.W; ov.height = m.H;
   var x = ov.getContext('2d'); x.clearRect(0, 0, m.W, m.H); x.lineWidth = 2;
@@ -3869,10 +3876,10 @@ function lvTick() {
   if (LV.busy || document.hidden) return setTimeout(lvTick, 300);
   var g = lvGrab(); if (!g || g.c.width < 20) return setTimeout(lvTick, 300);
   var q = lvQuality(g.c);
-  if (q.bright < 45) { lvSay('어두움 — 밝은 쪽으로' + ($('lv-torch').style.display === 'none' ? '' : ' · 플래시'), 'warn'); return setTimeout(lvTick, 500); }
+  if (q.bright < 45) { if (lvAutoTorch()) return setTimeout(lvTick, 600); lvSay('어두움 — 밝은 쪽으로', 'warn'); return setTimeout(lvTick, 500); }
   if (q.sharp < 12) { lvSay('흔들림 — 잠시 멈춰 주세요', 'warn'); return setTimeout(lvTick, 300); }
   LV.busy = true;
-  var rot = LV.rot, src = rot ? lvRot(g.c) : g.c, tr = Date.now();
+  var rot = LV.rot, src = rot ? lvRot(g.c, LV.rc = LV.rc || document.createElement('canvas')) : g.c, tr = Date.now();
   var ex = src.getContext('2d'); enhance(ex, src.width, src.height);   // 사진 경로와 같은 보정 (흑백 · 명암 늘리기)
   padReady().then(function (svc) { return svc.recognize(src, { flatten: true, noCache: true }); }).then(function (res) {
     LV.busy = false; if (!LV || !LV.run) return;
@@ -3910,9 +3917,9 @@ function lvQrTick() {
   if (!LV || !LV.run || !LV.o.qr) return;
   if (document.hidden) return setTimeout(lvQrTick, 300);
   var g = lvGrab(); if (!g || g.c.width < 20) return setTimeout(lvQrTick, 200);
-  var k = Math.min(1, 640 / Math.max(g.c.width, g.c.height)), c = document.createElement('canvas');
+  var k = Math.min(1, 640 / Math.max(g.c.width, g.c.height)), c = LV.qc = LV.qc || document.createElement('canvas');   // 한 장 다시 씀
   c.width = Math.round(g.c.width * k); c.height = Math.round(g.c.height * k);
-  var x = c.getContext('2d'), q = null; x.drawImage(g.c, 0, 0, c.width, c.height);
+  var x = c.getContext('2d', { willReadFrequently: true }), q = null; x.drawImage(g.c, 0, 0, c.width, c.height);
   try { q = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'dontInvert' }); } catch (e) {}
   var t = q && q.data ? q.data.trim() : '';
   if (t) { var o = LV.o; lvBeep(true); liveClose(); return o.onResult(t); }
@@ -3973,7 +3980,6 @@ function docScan(o) {
   $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none';
   $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null; $('lv-doc').style.display = 'none';
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
-  $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
   lvSay('문서 인식 준비 중… (최초 1회 약 9MB)');
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   var ready = LOWMEM ? padReady().then(docReady, docReady) : docReady();   // 아이폰: 글자 인식 엔진 먼저 자리 잡기
@@ -3985,8 +3991,9 @@ function docScan(o) {
 function docTick() {
   if (!LV || !LV.run || !LV.doc) return;
   var v = $('lv-v'); if (!v.videoWidth || document.hidden) return setTimeout(docTick, 300);
-  var W = 480, H = Math.round(v.videoHeight * W / v.videoWidth), c = document.createElement('canvas'); c.width = W; c.height = H;
+  var W = 480, H = Math.round(v.videoHeight * W / v.videoWidth), c = LV.dc = LV.dc || document.createElement('canvas'); c.width = W; c.height = H;
   c.getContext('2d').drawImage(v, 0, 0, W, H);
+  if (!LV.torch && LV.canTorch && lvQuality(c).bright < 45) lvAutoTorch();
   var cn = null, mat = null, ct = null;
   try {
     mat = cv.imread(c); ct = DOCS.sc.findPaperContour(mat);
