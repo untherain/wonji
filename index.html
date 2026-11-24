@@ -5908,6 +5908,8 @@ function renderWh() {
     return '<div class="card">' +
       '<div class="row" style="gap:6px">' + inp(i + '.name', w.name, false, ' style="font-weight:900; flex:1" aria-label="창고 이름"') +
       '<span class="muted">번호</span>' + inp(i + '.id', w.id, true, ' style="width:46px; flex:none; text-align:center; padding:0 4px" aria-label="창고번호"') +
+      '<button class="xbtn" style="width:32px' + (i ? '' : '; visibility:hidden') + '" onclick="whMove(' + i + ',-1)" aria-label="표시 순서 앞으로">◀</button>' +
+      '<button class="xbtn" style="width:32px' + (i < W.length - 1 ? '' : '; visibility:hidden') + '" onclick="whMove(' + i + ',1)" aria-label="표시 순서 뒤로">▶</button>' +
       '<button class="btn2" style="height:38px" onclick="delWh(' + i + ')">삭제</button></div>' +
       '<div class="sub" id="whsec-only"><h3>전용 제지사</h3><div class="muted" style="margin:-4px 0 6px">비움 = 전체 허용</div>' +
       '<div class="row" style="gap:6px; flex-wrap:wrap; justify-content:flex-start">' +
@@ -5951,6 +5953,12 @@ function addWh() {
     zones: [{ code: 'A', name: '', rows: 24, slot: 1 }, { code: 'B', name: '', rows: 24, slot: 2 }], rows: {} });
   WI = W.length - 1;
   renderWh();
+}
+/* 창고 표시 순서 (WMS 정렬 순서 값): 지도 창고 버튼 · 설정 창고 목록 순서 · [저장] 시 반영 */
+function whMove(i, d) {
+  var j = i + d; if (j < 0 || j >= W.length) return;
+  var t = W[i]; W[i] = W[j]; W[j] = t; WI = j; renderWh();
+  toast('순서 변경 · [저장] 시 반영');
 }
 function delWh(i) {
   ask({ title: W[i].name + ' 삭제', msg: '저장 시 반영 · 재고 보유 시 저장 불가', input: false, ok: '삭제', danger: true },
