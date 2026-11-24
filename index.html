@@ -3710,7 +3710,9 @@ document.addEventListener('visibilitychange', function () {
 });
 /* 뒤로 버튼(안드로이드 · 뒤로 밀기): 카메라 · 영역 지정 화면을 한 단계씩 닫기 (앱 화면이 통째로 닫히지 않게) */
 var OVH = { on: false, skip: false };
-function ovOpen() { if (OVH.on) return; OVH.on = true; try { history.pushState({ wov: 1 }, ''); } catch (e) {} }
+/* 아이폰 · 아이패드는 건너뜀 (2026-11-24 「허용 메시지 계속」): 홈 화면 앱은 같은 화면 안 주소 이동(pushState · # 변경)마다
+   카메라 허용을 취소하고 켜 둔 카메라도 끔 (WebKit 버그 215884) → 카메라 유지(camGet)가 소용없이 매번 다시 물음 · 아이폰은 뒤로 버튼도 없음 */
+function ovOpen() { if (OVH.on || LOWMEM) return; OVH.on = true; try { history.pushState({ wov: 1 }, ''); } catch (e) {} }
 function ovDone() {
   setTimeout(function () {
     if (LV || CROP || !OVH.on) return;
