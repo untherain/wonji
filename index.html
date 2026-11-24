@@ -139,6 +139,7 @@
   .grid4 { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; }
   .grid3 { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
   .grid2 { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+  .grid1 { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; }
   .chip { height:46px; border-radius:10px; border:1px solid #B9BEC5; background:#fff; font:inherit; font-size:17px; font-weight:700; color:var(--ink); padding:0 6px; }
   .chip.on { background:var(--y); border:2px solid var(--ink); font-weight:900; }
   .chip.etc { border-style:dashed; font-size:14px; background:var(--bg); }
@@ -220,6 +221,7 @@
   /* 실사 상태: 일치 파랑 · 차이 주황(재실사 대상) · 실사 필요 점선 */
   .cell.cok { border:2px solid #1D5FBF; } .cell.cdf { border:2px solid #C25E00; } .cell.cdue { border:2px dashed #8A6D00; }
   .cell .cck { color:#1D5FBF; } .cell.cdf .cck { color:#C25E00; }
+  .prog .px { width:34px; padding:0; background:#2E3339; color:#C9CDD3; font-size:15px; margin-left:-2px; }   /* 진행 띠 닫기 */
   .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; }
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
@@ -461,7 +463,8 @@
   .lv-top { display:flex; align-items:center; gap:8px; padding:10px 12px; } .lv-top b { font-size:17px; } #lv-prog { flex:1; font-size:14px; font-weight:800; color:var(--y); text-align:right; }
   .lv-top .xb { flex:none; height:40px; width:44px; background:#2A2E33; color:#fff; border:0; }
   .lv-stage { position:relative; flex:1; overflow:hidden; }
-  #lv-v { position:absolute; left:0; top:0; width:100%; height:100%; max-width:none; object-fit:cover; transform-origin:center; }   /* 크기 · 위치 = lvFit 계산 */
+  #lv-v { position:absolute; left:0; top:0; width:100%; height:100%; opacity:0; pointer-events:none; }   /* 재생만 · 화면 표시는 #lv-pv (lvDraw) */
+  #lv-pv { position:absolute; inset:0; width:100%; height:100%; transform-origin:center; }
   #lv-ov { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
   .lv-frame { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); border:3px solid var(--y); border-radius:10px; box-shadow:0 0 0 9999px rgba(0,0,0,.45); pointer-events:none; }
   .lv-st { margin:8px 12px 0; min-height:44px; border:0; border-radius:10px; background:#2A2E33; color:#fff; font:inherit; font-size:16px; font-weight:800; padding:8px 12px; text-align:left; }
@@ -785,7 +788,17 @@ function rtSync() {
 function rerender() {
   if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
   else if (TAB === 'in') inHint();
-  else if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
+  else if (TAB === 'plan') planRedraw();
+}
+/* 계획 · 피킹 다시 그리기 — 계획 칸에 글자 입력 중이면 입력 끝난 뒤(포커스 빠질 때) 그림
+   (2026-11-24: 버튼 누른 뒤 남은 포커스까지 '입력 중'으로 보고 건너뛰어 입고해도 「부족」이 안 풀리던 문제) */
+function planRedraw() {
+  var a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest && a.closest('#f-plan')) {
+    if (!a.dataset.redraw) { a.dataset.redraw = 1; a.addEventListener('blur', function () { delete a.dataset.redraw; setTimeout(function () { if (TAB === 'plan') planRedraw(); }, 50); }, { once: true }); }
+    return;
+  }
+  renderPlan();
 }
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') refreshStock(false); });
 /* 위쪽 버튼: 재고 탭 = [🔍 검색](검색 팝업) · 새 버전 배포 감지 시 모든 탭 = [↑ 새 버전](앱 다시 열기) · 그 외 숨김
@@ -1440,6 +1453,7 @@ function renderMap() {
       var mvc = '', fit = '';
       if (MV) {
         if (code === MV.from) { mvc = ' from'; fit = '<div class="fit" style="color:var(--ink)">출발</div>'; }
+        else if (MV.all) { var ab = off ? true : allFitBad(code, MV.all); mvc = ab ? ' cant' : ' can'; fit = '<div class="fit">' + (ab ? '공간 부족' : '전체 가능') + '</div>'; }
         else { var fr = off ? 0 : freeFor(code, MV.item.gsm, MV.item.width, MV.item.grade); mvc = fr >= MV.qty ? ' can' : ' cant'; fit = '<div class="fit">' + (fr >= MV.qty ? fr + '롤 가능' : '공간 부족') + '</div>'; }
         hit = false;
       }
@@ -1645,10 +1659,15 @@ function searchBar() {
 /* 오늘 입고 진행 한 줄: 몇 줄 · 몇 롤 · 마지막 입고 → [이어서] = 그 줄 입고창을 같은 규격으로 */
 function progLine() {
   var t = S.today; if (!t || !t.rolls || !t.last) return '';
-  var L = t.last, n = Object.keys(t.locs).length;
+  var L = t.last, n = Object.keys(t.locs).length, sig = todayStr() + '_' + t.rolls;
+  if (progHid('in', sig)) return '';
   return '<div class="prog"><span><b>✓ 오늘 ' + n + '줄 · ' + t.rolls + '롤</b> <small>' + esc(L.at) + '</small><br>마지막 ' + esc(keyOf(L.loc)) + ' · ' + esc(fmtItem(L, L.qty)) + '</span>' +
-    '<button onclick="contIn()">이어서</button></div>';
+    '<button onclick="contIn()">이어서</button>' + progXBtn('in', sig) + '</div>';
 }
+/* 진행 띠(입고 · 실사) 닫기 [✕]: 지금 상태로 숨김 → 새 입고 · 새 실사가 생기면 다시 표시 (머리글이 지도를 가리지 않게 · 2026-11-24) */
+function progHid(k, sig) { return lsGet('progx-' + k) === sig; }
+function progXBtn(k, sig) { return '<button class="px" aria-label="닫기" onclick="progX(event,\'' + k + '\',\'' + sig + '\')">✕</button>'; }
+function progX(e, k, sig) { if (e) e.stopPropagation(); lsSet('progx-' + k, sig); renderMap(); }
 function contIn() {
   var L = S.today && S.today.last; if (!L) return;
   var w = whOf(L.loc); if (w) { M.wh = w.id; renderMap(); }
@@ -1673,6 +1692,11 @@ function goNextRow() {
   renderMap(); renderSheet(); $('detail').scrollTop = 0;
 }
 function moveBand() {
+  if (MV.all) {   // 줄 전체 이동
+    var n = MV.all.reduce(function (a, x) { return a + x.qty; }, 0);
+    return '<div class="band"><div class="row"><b>줄 전체 이동 · ' + esc(keyOf(MV.from)) + ' · ' + MV.all.length + '품목 ' + n + '롤</b><button class="btn2" style="height:34px; flex:none" onclick="cancelMove()">취소</button></div>' +
+      '<div style="font-size:13px; font-weight:700; margin-top:4px">도착 줄 선택 시 저장 · 타 창고는 상단에서 선택</div></div>';
+  }
   var s = MV.item;
   return '<div class="band"><div class="row"><b>이동 · ' + esc(keyOf(MV.from)) + ' · ' + esc(fmtItem(s)) + '</b><button class="btn2" style="height:34px; flex:none" onclick="cancelMove()">취소</button></div>' +
     '<div class="row" style="margin-top:6px"><span style="font-weight:700">롤 수</span>' + stepper(MV.qty, 'mvQty(-1)', 'mvQty(1)', '이동 롤 수', '', { max: s.qty }) + '</div>' +
@@ -2047,6 +2071,10 @@ function photoBar(fn, note) {
 /* ===== 공통 부품: 사진 글자 인식 — PaddleOCR 한국어 (폰 안에서 읽고 서버는 해석만)
    ocrCall('ocrPhoto' | 'ocrPlan', 사진) → 서버 결과와 같은 모양 · 인식 실패 시 빈 결과 (재촬영 · 직접 입력) ===== */
 var PAD = { svc: null, p: null, st: '' };
+/* 아이폰 · 아이패드 (2026-11-24 「RangeError: Out of memory」): Safari는 WASM 엔진마다 큰 메모리를 미리 잡아 동시에 여러 개 못 띄움
+   (표 인식 Transformers.js = 자체 onnxruntime · 문서 윤곽 OpenCV · 글자 인식 onnxruntime = 3개)
+   → 글자 인식 먼저 · 나머지는 필요할 때만 · GPU 없이 WASM 전용 가벼운 엔진 */
+var LOWMEM = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function ocrEng() { return 'ko5'; }   // PaddleOCR 한국어 (구글 드라이브 인식 제거 · 2026-11-23)
 function padStatus(t) { if (t != null) PAD.st = t; var el = $('ocr-st'); if (el) el.textContent = PAD.st; }
 function padReady() {
@@ -2054,7 +2082,7 @@ function padReady() {
   if (!document.querySelector('script[type=importmap]')) {
     var m = document.createElement('script'); m.type = 'importmap';
     m.textContent = JSON.stringify({ imports: {
-      'onnxruntime-web': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.all.bundle.min.mjs',
+      'onnxruntime-web': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/' + (LOWMEM ? 'ort.wasm.bundle.min.mjs' : 'ort.all.bundle.min.mjs'),
       'ppu-ocv/web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.web.js',
       'ppu-ocv/canvas-web': 'https://cdn.jsdelivr.net/npm/ppu-ocv@3.3.0/index.canvas-web.js' } });
     document.head.appendChild(m);
@@ -2062,7 +2090,9 @@ function padReady() {
   var t0 = Date.now(), eng = ocrEng();
   padStatus('모델 준비 중 (최초 1회 10~20MB)');
   PAD.p = import('https://cdn.jsdelivr.net/npm/ppu-paddle-ocr@6.7.1/web/index.js').then(function (mod) {
-    var svc = new mod.PaddleOcrService({ model: mod[eng === 'ko5' ? 'V5_KOREAN_MOBILE_MODEL' : 'V6_SMALL_MODEL'] });
+    var opt = { model: mod[eng === 'ko5' ? 'V5_KOREAN_MOBILE_MODEL' : 'V6_SMALL_MODEL'] };
+    if (LOWMEM) opt.session = { executionProviders: ['wasm'] };
+    var svc = new mod.PaddleOcrService(opt);
     return svc.initialize().then(function () { PAD.svc = svc; padStatus('준비 완료 (' + ((Date.now() - t0) / 1000).toFixed(1) + '초)'); return svc; });
   });
   PAD.p.catch(function (e) { PAD.p = null; padStatus('모델 준비 실패: ' + ((e && e.message) || e)); });
@@ -2101,7 +2131,7 @@ var TSR = { p: null };
 function tsrReady() {
   if (TSR.p) return TSR.p;
   TSR.p = import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1').then(function (T) {
-    return T.pipeline('object-detection', 'Xenova/table-transformer-structure-recognition-v1.1-all', { dtype: 'q8' });
+    return T.pipeline('object-detection', 'Xenova/table-transformer-structure-recognition-v1.1-all', LOWMEM ? { dtype: 'q8', device: 'wasm' } : { dtype: 'q8' });
   });
   TSR.p.catch(function () { TSR.p = null; });
   return TSR.p;
@@ -2224,7 +2254,9 @@ function ocrCall(kind, d) {
     });
   }, function (e) {
     busy(false);
-    toast('사진 인식 실패 — 재촬영 · 직접 입력 (' + ((e && e.message) || e) + ')', true);
+    var em = String((e && e.message) || e);
+    toast(/memory/i.test(em) ? '폰 메모리 부족으로 사진 인식 실패 — 브라우저 다른 탭 닫고 새로고침 후 다시 촬영' + (blk ? ' (계획 품목은 저장됨)' : '')
+      : '사진 인식 실패 — 재촬영 · 직접 입력 (' + em + ')', true);
     return kind === 'ocrPlan' ? { items: [], raw: '', date: '' } : {};
   });
 }
@@ -2350,7 +2382,8 @@ function sheetRow() {
     return h;
   }
   h += items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '<div class="muted" style="padding:12px 0">비어 있음</div>';
-  h += (items.length > 1 ? '<button class="btn2" style="width:100%; margin-top:10px" onclick="ordStart()">↕ 적재순서 변경</button>' : '') +
+  h += (items.length ? '<div class="' + (items.length > 1 ? 'grid2' : 'grid1') + '" style="margin-top:10px">' + (items.length > 1 ? '<button class="btn2" onclick="ordStart()">↕ 적재순서 변경</button>' : '') +
+    '<button class="btn2" onclick="startMoveAll()">줄 전체 이동 ' + ri.rolls + '롤</button></div>' : '') +
     '<div class="grid3" style="margin-top:12px">' +
     (ri.cfg.off ? '<span></span>' : '<button class="btn2 dk" onclick="shMode(\'in\')">＋ 입고</button>') +
     '<button class="btn2" onclick="shMode(\'cnt\')">실사</button><button class="btn2" onclick="shMode(\'cfg\')">줄 설정</button></div>';
@@ -2471,7 +2504,38 @@ function pickMaker(i) { assignMaker(SH.items[i], SH.items[i].loc); }
 function startMove(i) { var s = SH.items[i]; MV = { from: s.loc, item: s, qty: 1 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
 function mvQty(d) { if (d > 0 && MV.qty >= MV.item.qty) { toast('최대 ' + MV.item.qty + '롤', true); return; } MV.qty = Math.max(1, Math.min(MV.item.qty, MV.qty + d)); renderMap(); }
 function cancelMove() { var c = MV.from; MV = null; M.wh = whOf(c).id; renderMap(); openRow(c); }
+/* 줄 전체 이동: 이 줄의 모든 품목을 도착 줄로 한 번에 (서버 moveRow · 하나라도 실패 시 전부 취소) */
+function startMoveAll() { if (!SH || !SH.items.length) return; MV = { from: SH.code, all: SH.items.slice(), qty: 0 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
+/* 도착 줄에 품목 전부 들어가나: 하나씩 넣어 보며 확인 (앞 품목이 차지한 칸 반영) → 못 들어가는 품목 · 다 들어가면 null */
+function allFitBad(code, all) {
+  var orig = S.stock, bad = null, tmp = orig.slice();
+  try {
+    all.forEach(function (s) {
+      if (bad) return; S.stock = tmp;
+      if (freeFor(code, s.gsm, s.width, s.grade) < s.qty) { bad = s; return; }
+      tmp = tmp.concat([Object.assign({}, s, { loc: code })]);
+    });
+  } finally { S.stock = orig; }
+  return bad;
+}
+function moveAllTo(code) {
+  var from = MV.from, all = MV.all;
+  if (code === from) { toast('출발 줄 — 다른 줄 선택', true); return; }
+  var bad = allFitBad(code, all);
+  if (bad) { toast(keyOf(code) + ' 공간 부족 — ' + fmtItem(bad, bad.qty) + ' 못 들어감', true); return; }
+  if (!requireWorker()) return;
+  var mks = all.map(function (s) { return s.maker || ''; }).filter(function (m, i, a) { return a.indexOf(m) === i; });
+  (function chk(i) {
+    if (i < mks.length) return onlyOk([code], mks[i], function () { chk(i + 1); });
+    var p = itemP(all[0]);
+    fastCall('moveRow', { from: from, to: code, worker: p.worker, test: p.test, items: all.map(function (s) { return Object.assign(itemP(s), { qty: s.qty }); }) }).then(function (r) {
+      setStock(r); MV = null; renderMap();
+      undoToast('줄 전체 이동 ' + plain(locRoute(from, code)) + ' · ' + all.length + '품목 ' + all.reduce(function (a, x) { return a + x.qty; }, 0) + '롤', r.nos);
+    });
+  })(0);
+}
 function moveTo(code) {
+  if (MV.all) return moveAllTo(code);
   var s = MV.item, q = MV.qty, from = MV.from;
   if (code === from) { toast('출발 줄 — 다른 줄 선택', true); return; }
   var free = freeFor(code, s.gsm, s.width, s.grade);
@@ -2877,8 +2941,10 @@ function cntLine() {
   var lx = last ? '<br>마지막 ' + esc(keyOf(last.code)) + ' · ' + last.x.r + ' · ' + esc(last.x.w) + ' ' + last.x.t : '';
   var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
     : '<b>실사 오늘 ' + n + '줄</b>' + (due ? ' <small>실사 필요 ' + due + '줄</small>' : '');
+  var sig = todayStr() + '_' + n + '_' + tot + '_' + due;
+  if (progHid('cnt', sig)) return '';
   var more = !p || n < tot ? '<button onclick="cntGo(cntNextCode())">다음 줄</button>' : '';
-  return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span>' + more + '</div>';
+  return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span>' + more + progXBtn('cnt', sig) + '</div>';
 }
 /* 실사 범위 지정 · 변경 · 해제 (작업자 전원 공유) */
 function cntPlanMenu() {
@@ -3464,7 +3530,7 @@ function lvBuild() {
   if (!el) {
     el = document.createElement('div'); el.id = 'live';
     el.innerHTML = '<div class="lv-top"><b id="lv-title"></b><span id="lv-prog"></span><button class="btn2 xb" id="lv-x" aria-label="닫기">✕</button></div>' +
-      '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
+      '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-pv"></canvas><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
       '<button class="lv-st" id="lv-st"></button><div class="lv-card" id="lv-card"></div>' +
       '<div class="lv-bar"><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
       '<button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">촬영</button></div>';
@@ -3499,7 +3565,8 @@ function lvCam(ready) {
   navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(function (st) {
     if (!LV || !LV.run) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
     LV.stream = st; LV.track = st.getVideoTracks()[0];
-    var v = $('lv-v'); v.dataset.fit = ''; v.onloadedmetadata = v.onresize = lvFit; v.srcObject = st; v.play();
+    var v = $('lv-v'); v.onloadedmetadata = v.onresize = lvFit; v.srcObject = st; v.play();
+    $('lv-pv').style.transform = ''; if (!LV.draw) { LV.draw = 1; requestAnimationFrame(lvDraw); }
     var cap = LV.track.getCapabilities ? LV.track.getCapabilities() : {};
     if (cap.torch) $('lv-torch').style.display = '';
     if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; }
@@ -3521,19 +3588,27 @@ function lvShape() { var s = LV_SHAPES[LV.shape], f = $('lv-frame'); f.style.wid
 function lvZoom(z) {
   if (!LV) return;
   if (LV.hz) { try { LV.track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {} return; }
-  LV.z = z; $('lv-v').style.transform = 'scale(' + z + ')';
+  LV.z = z; $('lv-pv').style.transform = 'scale(' + z + ')';
 }
 function lvProg() { var p = LV && LV.o.progress ? LV.o.progress() : ''; $('lv-prog').textContent = [p, LV && LV.ms ? (LV.ms / 1000).toFixed(1) + '초' : ''].filter(String).join(' · '); }   // 프레임당 인식 시간
 function lvSay(t, cls) { var s = $('lv-st'); s.textContent = t; s.className = 'lv-st' + (cls ? ' ' + cls : ''); }
-/* 카메라 영상 꽉 채우기를 직접 계산 (iOS Safari: 카메라 영상에 object-fit 가끔 미적용 → 원본 비율로 좁게 표시)
-   lvMap 과 같은 계산 (영상 좌표 ↔ 화면 좌표 일치) · 해상도 변경 · 화면 회전 시 다시 계산 */
+/* 카메라 미리보기 = 영상을 캔버스(lv-pv)에 직접 꽉 채워 그림 (2026-11-24)
+   iOS Safari: <video> 표시 크기 · 비율이 계산과 달라 좁게 보이고 윤곽 테두리가 어긋남 (object-fit · 크기 직접 지정 모두 실패)
+   → 영상 요소는 투명하게 재생만 · 그림과 lvMap(테두리 · 자르기 좌표)이 같은 계산(꽉 채우기 + 확대) 사용 */
 function lvFit() {
-  var v = $('lv-v'), st = $('lv-stage'); if (!v || !st || !v.videoWidth || !st.clientWidth) return;
-  var W = st.clientWidth, H = st.clientHeight, s = Math.max(W / v.videoWidth, H / v.videoHeight);
-  var w = Math.round(v.videoWidth * s), h = Math.round(v.videoHeight * s), k = w + 'x' + h + '@' + W + 'x' + H;
-  if (v.dataset.fit === k) return;
-  v.dataset.fit = k;
-  v.style.width = w + 'px'; v.style.height = h + 'px'; v.style.left = Math.round((W - w) / 2) + 'px'; v.style.top = Math.round((H - h) / 2) + 'px';
+  var c = $('lv-pv'), st = $('lv-stage'); if (!c || !st || !st.clientWidth) return;
+  var d = Math.min(2, window.devicePixelRatio || 1), W = Math.round(st.clientWidth * d), H = Math.round(st.clientHeight * d);
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+}
+function lvDraw() {
+  if (!LV || !LV.run) return;
+  var v = $('lv-v'), c = $('lv-pv');
+  if (v && c && v.videoWidth && v.readyState >= 2) {
+    lvFit();
+    var W = c.width, H = c.height, s = Math.max(W / v.videoWidth, H / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s;
+    try { c.getContext('2d').drawImage(v, (W - w) / 2, (H - h) / 2, w, h); } catch (e) {}
+  }
+  requestAnimationFrame(lvDraw);
 }
 window.addEventListener('resize', function () { if (LV) lvFit(); });
 /* 화면 좌표 ↔ 영상 좌표 (꽉 채우기 + 화면 확대) */
@@ -3676,7 +3751,7 @@ function docScan(o) {
   $('lv-torch').onclick = function () { LV.torch = !LV.torch; try { LV.track.applyConstraints({ advanced: [{ torch: LV.torch }] }); } catch (e) {} this.classList.toggle('on', LV.torch); };
   lvSay('문서 인식 준비 중… (최초 1회 약 9MB)');
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
-  var ready = docReady();
+  var ready = LOWMEM ? padReady().then(docReady, docReady) : docReady();   // 아이폰: 글자 인식 엔진 먼저 자리 잡기
   lvCam(function () {
     ready.then(function () { if (LV && LV.doc) { lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
       function () { lvSay('문서 인식 로드 실패 — [촬영] 사용', 'warn'); });
@@ -4563,7 +4638,7 @@ function shareApply(sh) {
   if (ch) rerenderShared();
 }
 function rerenderShared() {
-  if (TAB === 'plan' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('#f-plan'))) renderPlan();
+  if (TAB === 'plan') planRedraw();
   else if (TAB === 'map') { renderMap(); if (SH && SH.mode === 'merge') renderSheet(); }
 }
 /* 첫 사용: 이 폰에만 있던 계획 · 병합 작업을 서버로 (서버에 공유 값이 없을 때만) */
@@ -4716,8 +4791,8 @@ function pkMoving() { var m = {}; if (MJ && MJ.moves) MJ.moves.forEach(function 
 
 function renderPlan() {
   var el = $('f-plan');
-  if (!TSR.p) setTimeout(tsrReady, 3000);
-  if (PL.stage !== 'pick' && !DOCS.p && docOK()) setTimeout(docReady, 6000);
+  if (!TSR.p && !LOWMEM) setTimeout(tsrReady, 3000);   // 아이폰: 미리 안 띄움 (글자 인식 뒤 필요할 때)
+  if (PL.stage !== 'pick' && !DOCS.p && docOK() && !LOWMEM) setTimeout(docReady, 6000);
   PL.items.forEach(function (it) { var m = !it.maker && it.grade && makerOf(it.grade); if (m) { it.maker = m; it.grade = ''; delete it.weak; } });
   seg($('p-seg'), [['edit', '계획 입력'], ['pick', '피킹']], PL.stage === 'pick' ? 'pick' : 'edit', function (v) {
     if (v === 'pick') { makePick(); if (PL.stage !== 'pick') renderPlan(); }
@@ -6093,7 +6168,7 @@ function setMe(me, quiet) {
 function setWorkers(w) {
   if (w) S.workers = w; navBadge();
   var a = document.activeElement;   // 입력 중이면 다시 그리지 않음
-  if (TAB === 'set' && !(a && a.closest && a.closest('#set-workers, #set-workerBox'))) { renderWorkerBox(); renderWorkers(); }
+  if (TAB === 'set' && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.closest && a.closest('#set-workers, #set-workerBox'))) { renderWorkerBox(); renderWorkers(); }   // 버튼 포커스는 입력 아님
 }
 /* 설정 탭 빨간 숫자: 승인 대기 인원 */
 function navBadge() {
