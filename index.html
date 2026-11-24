@@ -228,7 +228,7 @@
   .cell .ctg.cur { background:var(--ink); color:#fff; } .cell .ctg.nx { background:#fff; color:var(--ink); border:1px dashed var(--ink); line-height:14px; }   /* 꼬리표: 실사 중 = 검정 · 직전 = 회색 · 다음 = 점선 */
   .prog .pbtns { display:flex; gap:6px; flex:none; }
   .prog .pbtns .pc, .prog .pbtns .pd { background:#2E3339; color:#fff; padding:0 10px; }   /* 취소 · 완료 · 종료 (주 동작 = 노랑) */
-  .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
+  .prog.cprog b { color:#8DB8FF; } .zh .zemp { color:var(--ok); font-weight:900; } .seg.noemp .wemp { display:none; }   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
   .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
@@ -1435,8 +1435,13 @@ function renderMap() {
       return [x.id, '<span style="' + (q ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (q ? '<b class="fhit">' + q + '롤</b>' : '없음') + '</small></span>', 'wh:' + x.id];
     }
     var n = S.stock.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
-    return [x.id, esc(x.name) + ' <small>' + n + '롤</small>', 'wh:' + x.id];
+    var e = whEmpty(x);   // 운용 중 빈 줄 (적치 가능 위치 · WMS 빈 로케이션)
+    return [x.id, esc(x.name) + ' <small>' + n + '롤' + (e ? '<span class="wemp"> · 빈 ' + e + '</span>' : '') + '</small>', 'wh:' + x.id];
   }), M.wh, function (v) { M.wh = v; renderMap(); }, true);
+  (function () {   // 창고 버튼에 빈 줄 수가 안 들어가면(좁은 폰) 숨김 → 구역 머리말 [빈 n] 으로 확인
+    var sg = $('m-whseg'); if (!sg) return; sg.classList.remove('noemp');
+    if ([].some.call(sg.querySelectorAll('button'), function (b) { return b.scrollWidth > b.clientWidth + 1; })) sg.classList.add('noemp');
+  })();
   if (!w) { $('m-body').innerHTML = '<div class="card muted">설정 탭에서 창고 등록 필요</div>'; return; }
   // 같은 원지가 몇 곳에 있는지 (서명 → 위치 수) — 셀 규격 "분산" 배지용. 전 창고 기준, 한 번만 계산
   var DISTCNT = {};
@@ -1609,6 +1614,8 @@ function zoneStat(w, z) {
   }
   return { idle: idle, empty: empty, lines: lines, pillar: pillar, total: z.rows };
 }
+/* 창고 전체 운용 중 빈 줄 수 (창고 버튼 · 구역 머리말 "빈 n" 과 같은 기준) */
+function whEmpty(w) { return (w.zones || []).reduce(function (a, z) { return a + zoneStat(w, z).empty.length; }, 0); }
 /* 운용 정지 모드: 반영된(대기 포함) 상태 · 토글 가능 여부 */
 function stState(code) { if (ST && (code in ST.chg)) return ST.chg[code]; var c = rowInfo(code).cfg; return c.st || (c.off ? '미사용' : ''); }
 function stTog(code) {   // 활성 구역 · 재고 없음 · 원래 사용/미사용(통로·비사용 제외)만 토글
@@ -1635,7 +1642,7 @@ function zHead(w, z) {
   // 구역마다 ✎ 아이콘: 누르면 그 구역만 편집 활성(빈 줄 탭 = 사용↔미사용) · 다시 누르면 저장
   var key = w.id + '|' + z.code, on = !!(ST && ST.active[key]), n = on ? zonePairs(w.id, z.code).length : 0;
   var btn = MV ? '' : '<button class="zedit' + (on ? ' on' : '') + '" onclick="toggleZone(\'' + w.id + '\',\'' + z.code + '\',event)" aria-label="줄 사용 편집">' + (on ? '✓ 완료' + (n ? ' ' + n : '') : '✎') + '</button>';
-  var meta = st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
+  var meta = (st.empty.length ? '<b class="zemp">빈 ' + st.empty.length + '</b> · ' : '') + st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
   return '<div class="zh' + (on ? ' editing' : '') + '"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
     ' <span class="muted">' + meta + '</span></span>' + btn + '</div>';
 }
@@ -3588,10 +3595,7 @@ function pickPhoto(cb, useCamera) {
   filePicker(useCamera ? 'fp-cam' : 'fp-album', useCamera, function (f) {
     var img = new Image();
     img.onload = function () {
-      var sc = Math.min(1, 1800 / Math.max(img.width, img.height));
-      var c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
-      var x = c.getContext('2d');
-      x.drawImage(img, 0, 0, c.width, c.height);
+      var c = photoCanvas(img);
       URL.revokeObjectURL(img.src);
       // 인식 전 영역 지정 (라벨 · 계획서 표만 잘라 보내면 주변 글자가 섞이지 않음)
       cropPhoto(c, function (cc) {
@@ -3982,6 +3986,18 @@ function docTick() {
   }
   setTimeout(docTick, 250);
 }
+/* 공통 부품: 사진 크기 상한 (2026-11-24 「메모리 부족」: 카메라 최대 해상도 4000×3000 그대로 → 사본 · 회전 · 보정마다 수십 MB)
+   글자 인식은 어차피 960px 안팎으로 줄여 읽음 → 긴 변 2000px이면 글자 선명도 충분 · 앨범 · 카메라 · 자동 찍기 모두 이 크기 */
+var PHOTO_MAX = 2000;
+function photoCanvas(src, max) {   // src = 이미지 · 캔버스 · ImageBitmap → 긴 변 max 이하 캔버스 (ImageBitmap은 바로 해제)
+  max = max || PHOTO_MAX;
+  var w = src.width, h = src.height, k = Math.min(1, max / Math.max(w, h));
+  if (k === 1 && src.getContext) return src;
+  var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  if (src.close) src.close();
+  return c;
+}
 /* 자동 찍기: 가능하면 카메라 최대 해상도(ImageCapture) · 모서리 비율 맞춰 원근 보정 → 영역 확인(전체 선택) → shot */
 function docCapture(pts) {
   var v = $('lv-v'), o = LV.o, vw = v.videoWidth, vh = v.videoHeight, track = LV.track;
@@ -3990,7 +4006,7 @@ function docCapture(pts) {
   var hi = (window.ImageCapture && track) ? new ImageCapture(track).takePhoto().then(createImageBitmap).catch(function () { return null; }) : Promise.resolve(null);
   hi.then(function (bm) {
     var src = frame, sc = 1;
-    if (bm && Math.abs(bm.width / bm.height - vw / vh) < 0.03) { src = document.createElement('canvas'); src.width = bm.width; src.height = bm.height; src.getContext('2d').drawImage(bm, 0, 0); sc = bm.width / vw; }
+    if (bm && Math.abs(bm.width / bm.height - vw / vh) < 0.03) { src = photoCanvas(bm); sc = src.width / vw; } else if (bm && bm.close) bm.close();
     var P = pts.map(function (pt) { return { x: pt.x * sc, y: pt.y * sc }; });
     var w = Math.max(Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y), Math.hypot(P[2].x - P[3].x, P[2].y - P[3].y));
     var h = Math.max(Math.hypot(P[3].x - P[0].x, P[3].y - P[0].y), Math.hypot(P[2].x - P[1].x, P[2].y - P[1].y));
@@ -4012,7 +4028,7 @@ function lvVis() {   // 화면에 보이는 범위 (영상 좌표 크기)
 }
 function lvCut(src, P) {
   var k = Math.min(src.width / P.vw, src.height / P.vh), w = Math.min(src.width, P.w * k), h = Math.min(src.height, P.h * k);
-  var sc = Math.min(1, 1800 / Math.max(w, h)), c = document.createElement('canvas');
+  var sc = Math.min(1, PHOTO_MAX / Math.max(w, h)), c = document.createElement('canvas');
   c.width = Math.round(w * sc); c.height = Math.round(h * sc);
   c.getContext('2d').drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, c.width, c.height);
   return c;
@@ -4027,9 +4043,8 @@ function lvShot() {
   if (tk && window.ImageCapture) {
     try {
       new ImageCapture(tk).takePhoto().then(createImageBitmap).then(function (bm) {
-        if ((bm.width > bm.height) !== (P.vw > P.vh)) return go(frame);
-        var c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; c.getContext('2d').drawImage(bm, 0, 0);
-        go(c);
+        if ((bm.width > bm.height) !== (P.vw > P.vh)) { if (bm.close) bm.close(); return go(frame); }
+        go(photoCanvas(bm));
       }, function () { go(frame); });
       return;
     } catch (e) {}
