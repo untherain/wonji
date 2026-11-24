@@ -228,7 +228,12 @@
   .cell .ctg.cur { background:var(--ink); color:#fff; } .cell .ctg.nx { background:#fff; color:var(--ink); border:1px dashed var(--ink); line-height:14px; }   /* 꼬리표: 실사 중 = 검정 · 직전 = 회색 · 다음 = 점선 */
   .prog .pbtns { display:flex; gap:6px; flex:none; }
   .prog .pbtns .pc, .prog .pbtns .pd { background:#2E3339; color:#fff; padding:0 10px; }   /* 취소 · 완료 · 종료 (주 동작 = 노랑) */
-  .prog.cprog b { color:#8DB8FF; } .zh .zemp { color:var(--ok); font-weight:900; } .seg.noemp .wemp { display:none; }   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
+  .prog.cprog b { color:#8DB8FF; } /* 빈 줄 동그라미: 초록 테두리(가용 · 알림 빨강과 구분) · 누르면 강조 → 채움 */
+  .ebadge { display:inline-block; min-width:18px; height:18px; padding:0 4px; border:1.5px solid #3FB96A; border-radius:9px; color:#3FB96A; background:transparent; font-size:11px; line-height:15px; font-weight:900; text-align:center; vertical-align:2px; cursor:pointer; }
+  .zh .ebadge { border-color:var(--ok); color:var(--ok); }
+  .ebadge.on, .zh .ebadge.on { background:var(--ok); border-color:var(--ok); color:#fff; }
+  .seg button.on .ebadge { border-color:var(--ok); color:var(--ok); } .seg button.on .ebadge.on { color:#fff; }
+  .cell.emp { border:2px solid var(--ok); background:#E9F6EE; } .cell.edim { opacity:.35; }   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
   .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
@@ -1413,11 +1418,12 @@ function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   var anc = renderMap.shownWh === M.wh ? mapAnchor() : null;   // 다시 그려도 보던 칸 그대로 (머리 높이 · 칸 높이가 바뀌어도)
+  if (EMP && (EMP != M.wh || MV || ST || PKM)) EMP = null;   // 다른 창고 · 다른 작업 시작 → 빈 줄 강조 끝
   /* 실사 표시: 지금 실사 중 · 직전 완료 · 다음 차례 줄 */
   var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
   var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
-    searchBar() + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
+    searchBar() + empLine(w) + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1435,13 +1441,8 @@ function renderMap() {
       return [x.id, '<span style="' + (q ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (q ? '<b class="fhit">' + q + '롤</b>' : '없음') + '</small></span>', 'wh:' + x.id];
     }
     var n = S.stock.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
-    var e = whEmpty(x);   // 운용 중 빈 줄 (적치 가능 위치 · WMS 빈 로케이션)
-    return [x.id, esc(x.name) + ' <small>' + n + '롤' + (e ? '<span class="wemp"> · 빈 ' + e + '</span>' : '') + '</small>', 'wh:' + x.id];
+    return [x.id, esc(x.name) + empBadge(x.id, whEmpty(x)) + ' <small>' + n + '롤</small>', 'wh:' + x.id];
   }), M.wh, function (v) { M.wh = v; renderMap(); }, true);
-  (function () {   // 창고 버튼에 빈 줄 수가 안 들어가면(좁은 폰) 숨김 → 구역 머리말 [빈 n] 으로 확인
-    var sg = $('m-whseg'); if (!sg) return; sg.classList.remove('noemp');
-    if ([].some.call(sg.querySelectorAll('button'), function (b) { return b.scrollWidth > b.clientWidth + 1; })) sg.classList.add('noemp');
-  })();
   if (!w) { $('m-body').innerHTML = '<div class="card muted">설정 탭에서 창고 등록 필요</div>'; return; }
   // 같은 원지가 몇 곳에 있는지 (서명 → 위치 수) — 셀 규격 "분산" 배지용. 전 창고 기준, 한 번만 계산
   var DISTCNT = {};
@@ -1493,12 +1494,13 @@ function renderMap() {
       var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
       var cx = !MV && !ST && !off ? cntDone(code) : null, cdu = !MV && !ST && !off && !cx && cntDue(code);   // 실사: 일치 파랑 ✓ · 차이 주황 ✓ · 실사 필요 점선
       var cc = cx ? (cx.r === '일치' ? ' cok' : ' cdf') : cdu ? ' cdue' : '';
+      var emo = EMP ? (!off && !ri.cfg.st && n === 0 ? ' emp' : ' edim') : '';   // 빈 줄 강조 모드
       var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : code === CLAST && cx ? '<span class="ctg">직전</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (cur ? ' ccur' : '') + mvc + sec + '" data-c="' + code + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (cur ? ' ccur' : '') + emo + mvc + sec + '" data-c="' + code + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + ctg + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
-        (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
+        (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + barColor(ri.used, ri.slots) + '"></i></div>') + '</button>';
     }
     return h;
   }
@@ -1614,6 +1616,34 @@ function zoneStat(w, z) {
   }
   return { idle: idle, empty: empty, lines: lines, pillar: pillar, total: z.rows };
 }
+/* ===== 빈 줄 (WMS 빈 로케이션 = 사용 중 · 재고 0 · 미사용 · 통로 제외) =====
+   표시: 창고 이름 · 구역 머리말 옆 초록 동그라미 숫자 (0 = 숨김 · 99+) · 누르면 빈 줄 강조 · 길게 누르면 설명 */
+var EMP = null;   // 빈 줄 강조 중인 창고
+function empBadge(whId, n) {
+  if (!n || MV || ST || PKM) return '';
+  return ' <span class="ebadge' + (EMP == whId ? ' on' : '') + '" role="button" aria-label="빈 줄 ' + n + '" data-lp="emp:' + whId + '" onclick="empTap(\'' + whId + '\', event)">' + (n > 99 ? '99+' : n) + '</span>';
+}
+/* 동그라미 누름: 그 창고로 가서 빈 줄 강조 · 다시 누르면 끝 (창고 버튼 안이면 버튼 누름이 창고 전환 · 다시 그림) */
+function empTap(whId, ev) {
+  var on = EMP != whId;
+  EMP = on ? whId : null;
+  if (!(ev && ev.target.closest && ev.target.closest('#m-whseg button'))) { if (ev) ev.stopPropagation(); M.wh = (S.whs.filter(function (w) { return w.id == whId; })[0] || {}).id || M.wh; renderMap(); }
+  // 창고가 바뀌면 처음 위치(주 출입구) 맞춤이 다음 그림 때 실행됨 → 그 뒤에 빈 줄로
+  if (on) requestAnimationFrame(function () { requestAnimationFrame(function () { var el = $('m-body').querySelector('.cell.emp'); if (el) mapReveal(el.getAttribute('data-c')); }); });
+}
+function empEnd() { EMP = null; renderMap(); }
+/* 강조 중 머리 띠: 빈 줄 수 · [종료] (모드는 항상 끝낼 수 있게) */
+function empLine(w) {
+  if (!EMP || !w) return '';
+  var n = whEmpty(w);
+  return '<div class="ehint row"><span style="flex:1">빈 줄 <b>' + n + '</b> 강조 중 · 사용 중 · 재고 0인 줄</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="empEnd()">종료</button></div>';
+}
+/* 칸 막대 색 = 적재율 (지도형 WMS 관행): 60% 미만 검정 · 60~90% 노랑 · 90% 이상 빨강 · 넘침 진한 빨강 */
+function barColor(used, slots) {
+  if (used > slots) return '#9A1C1C';
+  var p = slots ? used / slots : 0;
+  return p >= 0.9 ? '#D64545' : p >= 0.6 ? 'var(--y)' : 'var(--ink)';
+}
 /* 창고 전체 운용 중 빈 줄 수 (창고 버튼 · 구역 머리말 "빈 n" 과 같은 기준) */
 function whEmpty(w) { return (w.zones || []).reduce(function (a, z) { return a + zoneStat(w, z).empty.length; }, 0); }
 /* 운용 정지 모드: 반영된(대기 포함) 상태 · 토글 가능 여부 */
@@ -1642,9 +1672,9 @@ function zHead(w, z) {
   // 구역마다 ✎ 아이콘: 누르면 그 구역만 편집 활성(빈 줄 탭 = 사용↔미사용) · 다시 누르면 저장
   var key = w.id + '|' + z.code, on = !!(ST && ST.active[key]), n = on ? zonePairs(w.id, z.code).length : 0;
   var btn = MV ? '' : '<button class="zedit' + (on ? ' on' : '') + '" onclick="toggleZone(\'' + w.id + '\',\'' + z.code + '\',event)" aria-label="줄 사용 편집">' + (on ? '✓ 완료' + (n ? ' ' + n : '') : '✎') + '</button>';
-  var meta = (st.empty.length ? '<b class="zemp">빈 ' + st.empty.length + '</b> · ' : '') + st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
+  var meta = st.lines + '줄' + (st.idle.length ? ' · 미사용 ' + st.idle.length : '') + (st.pillar ? ' · 통로 ' + st.pillar : '');
   return '<div class="zh' + (on ? ' editing' : '') + '"><span class="zh-lab" data-lp="wh:' + w.id + '">' + label +
-    ' <span class="muted">' + meta + '</span></span>' + btn + '</div>';
+    empBadge(w.id, st.empty.length) + ' <span class="muted">' + meta + '</span></span>' + btn + '</div>';
 }
 function zoneKeyOf(code) { var p = String(code).split('-'); return p[0] + '|' + p[1]; }
 /* 구역 ✎ 토글: 꺼져 있으면 그 구역 편집 켜기 · 켜져 있으면 변경분 저장하고 끄기 */
@@ -2840,6 +2870,7 @@ function lpAct(s) {
   if (k === 'wh') return openWhCfg(v);
   if (k === 'whs') { var q = v.split(':'); return openWhCfg(q[0], q[1]); }   // 창고 설정 특정 항목 (only · zone · rule)
   if (k === 'row') { if (MV) return; openRow(v, 'cfg'); return; }
+  if (k === 'emp') return ask({ title: whName(v) + ' 빈 줄 ' + whEmpty(S.whs.filter(function (w) { return w.id == v; })[0] || {}), msg: '사용 중이면서 재고 0인 줄 (입고 가능 자리)\n미사용 줄 · 통로 제외\n동그라미 누르면 지도에 빈 줄만 강조', input: false, ok: '빈 줄 보기' }, function (y) { if (y && EMP != v) empTap(v); });
   if (k === 'aging') return agingEdit();
   if (k === 'pkscan') return pkScanSet();
   if (k === 'test') return ask({ title: '테스트 모드 해제', msg: '이후 입력 건 = 실제 기록', input: false, ok: '해제' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
