@@ -221,9 +221,14 @@
   /* 실사 상태: 일치 파랑 · 차이 주황(재실사 대상) · 실사 필요 점선 */
   .cell.cok { border:2px solid #1D5FBF; } .cell.cdf { border:2px solid #C25E00; } .cell.cdue { border:2px dashed #8A6D00; }
   .cell .cck { color:#1D5FBF; } .cell.cdf .cck { color:#C25E00; }
+  /* 실사 진행 표시 (지시형 실사 표준): 지금 실사 중 = 가장 진하게 · 완료 = 옅게 칠함 + ✓ · 직전 · 다음 = 작은 꼬리표 */
+  .cell.cok { background:#EDF3FC; } .cell.cdf { background:#FDF1E6; }
+  .cell.ccur { border:3px solid var(--ink); background:#FFF3C4; box-shadow:0 0 0 3px var(--y); position:relative; z-index:1; }
+  .cell { position:relative; } .cell .ctg { position:absolute; top:-8px; right:8px; padding:0 6px; border-radius:6px; font-size:11px; line-height:16px; font-weight:900; background:#5B6168; color:#fff; pointer-events:none; z-index:2; }   /* 칸 위 테두리에 걸침: 칸 안 글자 자리 안 차지 */
+  .cell .ctg.cur { background:var(--ink); color:#fff; } .cell .ctg.nx { background:#fff; color:var(--ink); border:1px dashed var(--ink); line-height:14px; }   /* 꼬리표: 실사 중 = 검정 · 직전 = 회색 · 다음 = 점선 */
   .prog .pbtns { display:flex; gap:6px; flex:none; }
   .prog .pbtns .pc, .prog .pbtns .pd { background:#2E3339; color:#fff; padding:0 10px; }   /* 취소 · 완료 · 종료 (주 동작 = 노랑) */
-  .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; }
+  .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
   .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
@@ -387,7 +392,7 @@
   /* 작업창이 열려 있으면 뒤 화면(지도)은 스크롤 잠금: 작업창 끝까지 굴려도 휠 · 손가락 움직임이 뒤로 넘어가지 않음 */
   html { scrollbar-gutter:stable; }
   body.shopen { overflow:hidden; }
-  .sheet { overscroll-behavior:contain; }
+  .sheet, #modal .mbox, #md-chips.list, .plsnip { overscroll-behavior:contain; }   /* 팝업 안 스크롤 끝에서 뒤 화면으로 넘어감 방지 (짧은 내용은 topLayer 잠금이 처리) */
   .sheet .it { padding:10px 0; border-bottom:1px solid #E6E8EB; }
   .sheet .it.open { background:#FFF8E1; margin:0 -16px; padding:10px 16px; }
   .fold2 { display:flex; width:100%; align-items:center; padding:12px 0; border:0; border-bottom:1px solid #E6E8EB; background:none; font:inherit; font-size:15px; font-weight:800; color:#555B63; text-align:left; } .fold2 span { flex:1; }
@@ -839,7 +844,7 @@ function syncTap() {   // 당겨서 새로고침
 /* 화면 맨 위에서 아래로 당기면 새로 고침 */
 (function () {
   var y0 = null, dy = 0, P = $('ptr');
-  document.addEventListener('touchstart', function (e) { y0 = window.scrollY <= 0 && !SH && $('modal').style.display !== 'flex' ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  document.addEventListener('touchstart', function (e) { y0 = window.scrollY <= 0 && !topLayer() ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
   document.addEventListener('touchmove', function (e) {
     if (y0 === null) return;
     dy = e.touches[0].clientY - y0;
@@ -1407,6 +1412,10 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
+  var anc = renderMap.shownWh === M.wh ? mapAnchor() : null;   // 다시 그려도 보던 칸 그대로 (머리 높이 · 칸 높이가 바뀌어도)
+  /* 실사 표시: 지금 실사 중 · 직전 완료 · 다음 차례 줄 */
+  var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
+  var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
     searchBar() + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
@@ -1479,8 +1488,9 @@ function renderMap() {
       var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
       var cx = !MV && !ST && !off ? cntDone(code) : null, cdu = !MV && !ST && !off && !cx && cntDue(code);   // 실사: 일치 파랑 ✓ · 차이 주황 ✓ · 실사 필요 점선
       var cc = cx ? (cx.r === '일치' ? ' cok' : ' cdf') : cdu ? ' cdue' : '';
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + mvc + sec + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
-        '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
+      var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : code === CLAST && cx ? '<span class="ctg">직전</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (cur ? ' ccur' : '') + mvc + sec + '" data-c="' + code + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
+        '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + ctg + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
         (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + (ri.used > ri.slots ? '#9A1C1C' : 'var(--ink)') + '"></i></div>') + '</button>';
@@ -1540,6 +1550,7 @@ function renderMap() {
   html += '<div class="mainent" data-lp="whs:' + w.id + ':zone">▲ 주 출입구</div>';   // 지도 = 주 출입구(상차 공간)에서 들어가며 본 평면도 · 주 출입구 항상 아래
   $('m-body').innerHTML = html;
   fitCells($('m-body'));
+  mapRestore(anc);
   // 창고를 처음 보여 줄 때(앱 시작 · 창고 변경): 주 출입구(아래)에 맞춰 시작 · 다시 그릴 때는 현재 위치 유지
   if (renderMap.shownWh !== M.wh && !(fo && fh.length)) {
     var ent = $('m-body').querySelector('.mainent');
@@ -1554,6 +1565,33 @@ function renderMap() {
   if (!fo) renderMap.scrolled = '';
 }
 /* 지도 주 출입구 표시가 화면 아래(하단 탭 바로 위)에 오도록 스크롤 */
+/* 공통 부품: 지도 보던 위치 유지 (표준 스크롤 고정 · 브라우저 기본 고정은 지도를 통째로 다시 그리면 못 씀)
+   기준 칸 = 실사 · 작업 중인 줄이 보이면 그 줄, 아니면 머리 아래 처음 보이는 칸 → 다시 그린 뒤 같은 화면 높이로 맞춤 */
+function mapTopY() { var h = document.querySelector('header'); return h ? h.getBoundingClientRect().bottom : 0; }
+function mapAnchor() {
+  if (TAB !== 'map') return null;
+  var body = $('m-body'); if (!body || !body.offsetParent) return null;
+  var top = mapTopY(), vh = window.innerHeight, cells = body.querySelectorAll('.cell[data-c]'), pick = null;
+  for (var i = 0; i < cells.length; i++) {
+    var r = cells[i].getBoundingClientRect(); if (r.bottom <= top || r.top >= vh) continue;
+    if (SH && cells[i].getAttribute('data-c') === SH.code) { pick = cells[i]; break; }
+    if (!pick) pick = cells[i];
+  }
+  return pick ? { c: pick.getAttribute('data-c'), y: pick.getBoundingClientRect().top } : null;
+}
+function mapRestore(a) {
+  if (!a) return;
+  var el = $('m-body').querySelector('.cell[data-c="' + a.c + '"]'); if (!el) return;
+  var d = el.getBoundingClientRect().top - a.y; if (Math.abs(d) >= 1) window.scrollBy(0, d);
+}
+/* 그 줄이 지도 화면(머리 아래 · 작업창 위) 밖이면 가운데로 · 이미 보이면 그대로 */
+function mapReveal(code) {
+  var el = $('m-body').querySelector('.cell[data-c="' + code + '"]'); if (!el) return;
+  var r = el.getBoundingClientRect(), top = mapTopY(), d = $('detail'), nav = document.querySelector('nav');
+  var bot = d && d.style.display === 'block' ? d.getBoundingClientRect().top : window.innerHeight - (nav ? nav.offsetHeight : 0);
+  if (r.top >= top && r.bottom <= bot) return;
+  window.scrollBy(0, r.top - (top + Math.max(0, (bot - top - r.height) / 2)));
+}
 function toEntrance(el) {
   var nav = document.querySelector('nav'), nh = nav ? nav.offsetHeight : 0;
   var y = el.getBoundingClientRect().bottom + window.pageYOffset - (window.innerHeight - nh - 8);
@@ -2008,19 +2046,51 @@ function showDetail(code) { openRow(code); }
 function dimTap() { if (SH && (SH.ord || ['in', 'add', 'cnt', 'cfg', 'wh', 'plan', 'tbl'].indexOf(SH.mode) >= 0)) return; shClose(); }
 function closeSheet() { if (SH && SH.mode === 'wh') W = null;   // 지도에서 열었던 창고 설정: 저장 안 한 변경은 버림
   SHST = [];   // 돌아갈 곳은 shClose(✕ · ← · 바깥 누름)만 씀 · 작업 중 닫힘(이동 시작 등)은 버림
-  var wasFilter = SH && SH.mode === 'filter', wasPlan = SH && SH.mode === 'plan';
+  var wasFilter = SH && SH.mode === 'filter', wasPlan = SH && SH.mode === 'plan', wasCnt = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt;
   document.body.classList.remove('shopen'); SH = null; $('detail').style.display = 'none'; $('dim').style.display = 'none';
   if (wasPlan && TAB === 'plan') renderPlan();   // 계획 품목 창 닫음 → 목록 표시(노란 줄) 원래대로 · 스크롤 위치 그대로
-  if (wasFilter && TAB === 'map') renderMap();   // 검색창 닫으면("지도 보기") 걸린 줄로 스크롤
+  if ((wasFilter || wasCnt) && TAB === 'map') renderMap();   // 실사 창 닫음 → [실사 중] 표시 해제 (보던 위치 그대로)   // 검색창 닫으면("지도 보기") 걸린 줄로 스크롤
 }
-/* 어두운 배경 위의 휠 · 손가락 끌기는 무시 (아이폰 사파리는 overflow:hidden만으로 안 막힘) */
-['wheel', 'touchmove'].forEach(function (ev) { $('dim').addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false }); });
+/* 공통 부품: 팝업 뒤 화면 스크롤 잠금 (표준 = 맨 위 팝업 안 스크롤 영역만 움직임 · body-scroll-lock 방식)
+   팝업 · 작업창 · 사진 · 카메라가 열려 있으면 손가락 끌기 · 휠이 뒤 화면(지도 등)으로 넘어가지 않음
+   - 팝업 안이라도 스크롤할 곳이 없거나 끝에 닿았으면 막음 (overscroll-behavior는 내용이 짧으면 효과 없음 · 아이폰은 overflow:hidden 무시)
+   - 가로 끌기(가로 스크롤 줄) · 슬라이더(확대 막대)는 그대로 */
+function topLayer() {
+  var c = ['live', 'crop', 'modal'];
+  for (var i = 0; i < c.length; i++) { var e = $(c[i]); if (e && e.style.display === 'flex') return e; }
+  return SH && $('detail').style.display === 'block' ? $('detail') : null;
+}
+function layerCanScroll(el, top, dy) {   // dy > 0 = 손가락 아래로 = 위쪽 내용으로
+  if (!top.contains(el)) return false;
+  for (; el; el = el.parentElement) {
+    var oy = getComputedStyle(el).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1 &&
+        (dy > 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1)) return true;
+    if (el === top) break;
+  }
+  return false;
+}
+(function () {
+  var x0 = 0, y0 = 0;
+  document.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    var top = topLayer(); if (!top || e.touches.length > 1) return;   // 두 손가락(확대)은 그대로
+    var t = e.target; if (t && t.type === 'range') return;
+    var dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (Math.abs(dx) > Math.abs(dy)) return;
+    if (!layerCanScroll(t, top, dy) && e.cancelable) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('wheel', function (e) {
+    var top = topLayer(); if (top && !layerCanScroll(e.target, top, -e.deltaY)) e.preventDefault();
+  }, { passive: false });
+})();
 function shMode(m) {
   SH.mode = m;
   if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지)
   if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
   if (m === 'cnt' && !(SH.cnt && SH.cnt.code === SH.code)) { SH.cnt = cntDraftLoad(SH.code) || { v: {}, extra: [] }; SH.cnt.code = SH.code; }   // 임시 보관 입력 복원 (당일)
   renderSheet(); $('detail').scrollTop = 0;
+  if (m === 'cnt' && TAB === 'map') { renderMap(); mapReveal(SH.code); }   // 지도에 [실사 중] 표시 · 그 줄이 보이게
 }
 function newSpec() {   // 같은 줄에서 다른 규격: 평량 · 지폭 비움 (제지사는 그대로)
   SH.sp = { gsm: null, width: null, maker: SH.sp.maker || '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = '';
@@ -2972,6 +3042,13 @@ function cntGo(code) {
   openRow(code, 'cnt');
 }
 function cntNext() { cntGo(cntNextCode(SH && SH.code)); }
+/* 직전 실사 완료 줄 (범위 지정 시 범위 안 · 아니면 오늘 실사한 줄 중 가장 최근) */
+function cntLastCode() {
+  var c = cntInfo(), last = null;
+  var codes = c.plan ? cntScope() : Object.keys(c.locs || {}).concat(isTest() ? Object.keys(c.tlocs || {}) : []).filter(function (code) { return whOf(code); });
+  codes.forEach(function (code) { var x = cntDone(code); if (x && (!last || x.d + x.t > last.x.d + last.x.t)) last = { code: code, x: x }; });
+  return last ? last.code : '';
+}
 /* 지도 머리글 실사 진행 한 줄 (입고 진행 한 줄과 같은 모양) */
 function cntLine() {
   if (MV || ST) return '';
@@ -2983,7 +3060,7 @@ function cntLine() {
     if (c.cycle) S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (!cfgOf(w, key).off && cntDue(code)) due++; }); });
     if (!n && !due) return '';
   }
-  var lx = last ? '<br>마지막 ' + esc(keyOf(last.code)) + ' · ' + last.x.r + ' · ' + esc(last.x.w) + ' ' + last.x.t : '';
+  var lx = '';   // 직전 줄은 지도 칸 꼬리표 [직전]으로 표시 (한 줄 고정 · 잘림 방지)
   var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
     : '<b>실사 오늘 ' + n + '줄</b>' + (due ? ' <small>실사 필요 ' + due + '줄</small>' : '');
   var sig = todayStr() + '_' + n + '_' + tot + '_' + due;
