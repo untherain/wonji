@@ -478,7 +478,8 @@
   .lv-bar .btn2 { height:46px; background:#2A2E33; color:#fff; border:0; padding:0 12px; } .lv-bar .btn2.on { background:var(--y); color:var(--ink); }
   .lv-bar .btn { height:46px; width:auto; padding:0 18px; background:var(--y); color:var(--ink); margin:0; }
   body.cropopen { overflow:hidden; }
-  .cr-top { color:#fff; padding:12px 16px 8px; display:flex; flex-direction:column; gap:2px; } .cr-top b { font-size:18px; } .cr-top span { font-size:13px; color:#B9BEC5; }
+  .cr-top { position:relative; color:#fff; padding:12px 64px 8px 16px; display:flex; flex-direction:column; gap:2px; }
+  #cr-x { position:absolute; right:12px; top:10px; height:40px; width:44px; background:#2A2E33; color:#fff; border:0; } .cr-top b { font-size:18px; } .cr-top span { font-size:13px; color:#B9BEC5; }
   .cr-stage { position:relative; flex:1; overflow:hidden; touch-action:none; }
   .cr-stage canvas { position:absolute; }
   .cr-box { position:absolute; border:2px solid var(--y); box-shadow:0 0 0 9999px rgba(0,0,0,.55); pointer-events:none; }
@@ -1294,8 +1295,12 @@ function locPicker(el, code, onChange) {
   el.dataset.code = cur();
 }
 
-/* ===== QR 읽기: 폰 카메라로 사진 → jsQR ===== */
+/* ===== QR 읽기: 카메라 비추기(공통 비추기 화면 · 매 화면 jsQR) · 카메라 못 켜면 사진 → jsQR ===== */
 function scanQR(cb) {
+  if (liveOK()) return liveScan({ title: '위치 QR 스캔', qr: true, onResult: cb, fail: function () { scanQRPhoto(cb); } });
+  scanQRPhoto(cb);
+}
+function scanQRPhoto(cb) {
   filePicker('fp-qr', true, function (f) {
     var img = new Image();
     img.onload = function () {
@@ -3516,7 +3521,7 @@ function pickPhoto(cb, useCamera) {
         var cx = cc.getContext('2d');
         enhance(cx, cc.width, cc.height);
         cb(cc.toDataURL('image/jpeg', 0.9));
-      });
+      }, { retake: function () { pickPhoto(cb, useCamera); }, label: useCamera ? '다시 찍기' : '다시 선택' });
     };
     img.src = URL.createObjectURL(f);
   });
@@ -3569,6 +3574,44 @@ function labelParse(text) {
    o = { title, cont: 연속 모드(피킹), onResult(r, d) → { ok, msg, undo }, progress() → 글, done() → true면 종료, shot(d): [찍기] 결과(영역 지정 후 사진) }
    틀 안만 읽음(= 영역 지정) · 두 번 연속 같으면 확정 · 글자 상자 · 안내 문구 · 확대 · 플래시 · 틀 모양 · 세로 라벨 회전 ===== */
 var LV = null;
+/* 카메라 다시 쓰기 (2026-11-24 「켤 때마다 허용 메시지」): 닫을 때 바로 끄지 않고 3분 유지 → 다시 켜면 허용 묻지 않음
+   (아이폰 홈 화면 앱은 카메라를 끈 뒤 다시 켤 때마다 허용을 물음) · 앱을 내리면 바로 끔 */
+var CAM = { st: null, t: 0 };
+function camGet() {
+  clearTimeout(CAM.t);
+  if (CAM.st && CAM.st.getVideoTracks().some(function (t) { return t.readyState === 'live'; })) {
+    CAM.st.getTracks().forEach(function (t) { t.enabled = true; });
+    return Promise.resolve(CAM.st);
+  }
+  CAM.st = null;
+  return navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(function (st) { CAM.st = st; return st; });
+}
+function camRelease() {
+  if (!CAM.st) return;
+  CAM.st.getTracks().forEach(function (t) { t.enabled = false; });
+  clearTimeout(CAM.t); CAM.t = setTimeout(camStop, 180000);
+}
+function camStop() { clearTimeout(CAM.t); if (CAM.st) CAM.st.getTracks().forEach(function (t) { t.stop(); }); CAM.st = null; }
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { if (!LV) camStop(); return; }
+  if (LV && LV.run && LV.track && LV.track.readyState === 'ended') { CAM.st = null; lvCam(function () {}); }   // 다녀오는 사이 꺼진 카메라 다시 켜기
+});
+/* 뒤로 버튼(안드로이드 · 뒤로 밀기): 카메라 · 영역 지정 화면을 한 단계씩 닫기 (앱 화면이 통째로 닫히지 않게) */
+var OVH = { on: false, skip: false };
+function ovOpen() { if (OVH.on) return; OVH.on = true; try { history.pushState({ wov: 1 }, ''); } catch (e) {} }
+function ovDone() {
+  setTimeout(function () {
+    if (LV || CROP || !OVH.on) return;
+    OVH.on = false; OVH.skip = true;
+    try { history.back(); } catch (e) { OVH.skip = false; }
+  }, 0);
+}
+window.addEventListener('popstate', function () {
+  if (OVH.skip) { OVH.skip = false; return; }
+  if (!OVH.on) return;
+  OVH.on = false;
+  if (CROP) $('cr-cancel').click(); else if (LV) liveClose();
+});
 function liveOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ; }
 var LV_SHAPES = [{ k: '가로', w: 0.88, h: 0.30 }, { k: '네모', w: 0.80, h: 0.50 }, { k: '세로', w: 0.55, h: 0.62 }];
 function lvBuild() {
@@ -3586,10 +3629,13 @@ function lvBuild() {
 }
 function liveScan(o) {
   var el = lvBuild();
-  $('lv-frame').style.display = ''; $('lv-shape').style.display = '';
+  $('lv-frame').style.display = ''; $('lv-shape').style.display = o.qr ? 'none' : '';
+  $('lv-shot').style.display = o.qr ? 'none' : '';
+  $('lv-zoom').style.gridColumn = o.qr ? '1 / -1' : '';   // 틀 · 촬영 버튼이 없으면 확대 막대를 줄 전체로
+  o.re = function () { liveScan(o); };   // 영역 지정 화면 [다시 찍기] → 같은 스캔 다시
   LV = { o: o, run: true, busy: false, last: '', cnt: 0, hold: '', seen: {}, t0: Date.now(), z: 1, hz: false, shape: +(lsGet('lvShape') || 0) % LV_SHAPES.length, rot: false, torch: false };
   $('lv-title').textContent = o.title || '라벨 스캔';
-  el.style.display = 'flex'; document.body.classList.add('cropopen');
+  el.style.display = 'flex'; document.body.classList.add('cropopen'); ovOpen();
   lvShape(); lvProg(); lvSay('카메라 켜는 중…');
   $('lv-card').style.display = 'none';
   $('lv-x').onclick = liveClose;
@@ -3602,35 +3648,42 @@ function liveScan(o) {
   $('lv-doc').onclick = function () { var f = LV && LV.o.doc; liveClose(); if (f) f(); };
   $('lv-st').onclick = function () { if (LV && LV.cand) lvConfirm(LV.cand.r, LV.cand.d); };
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  if (o.qr) return lvCam(function () { lvSay('QR을 틀 안에 위치'); lvShape(); setTimeout(lvQrTick, 300); });
   padReady();
   lvCam(function () { lvSay('라벨을 틀 안에 위치'); setTimeout(lvTick, 600); });
 }
 /* 카메라 켜기 (후면 · 확대 · 플래시 확인) → ready() · 실패 시 사진 찍기로 */
 function lvCam(ready) {
   var o = LV.o;
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false }).then(function (st) {
-    if (!LV || !LV.run) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+  camGet().then(function (st) {
+    if (!LV || !LV.run) { camRelease(); return; }
     LV.stream = st; LV.track = st.getVideoTracks()[0];
-    var v = $('lv-v'); v.onloadedmetadata = v.onresize = lvFit; v.srcObject = st; v.play();
+    var v = $('lv-v'); v.onloadedmetadata = v.onresize = lvFit; if (v.srcObject !== st) v.srcObject = st; try { v.play(); } catch (e) {}
+    $('lv-torch').style.display = 'none'; $('lv-torch').classList.remove('on');
     $('lv-pv').style.transform = ''; if (!LV.draw) { LV.draw = 1; requestAnimationFrame(lvDraw); }
     var cap = LV.track.getCapabilities ? LV.track.getCapabilities() : {};
     if (cap.torch) $('lv-torch').style.display = '';
-    if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; }
+    if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; try { LV.track.applyConstraints({ advanced: [{ zoom: +zi.min }] }); } catch (e) {} }   // 다시 쓴 카메라 = 확대 처음으로
     ready();
   }, function (e) {
     liveClose();
     toast('카메라를 켤 수 없음 (' + ((e && e.name) || e) + ') → 사진 촬영 전환', true);
-    if (o.shot) pickPhoto(o.shot, true);
+    if (o.fail) o.fail(); else if (o.shot) pickPhoto(o.shot, true);
   });
 }
 function liveClose() {
   if (!LV) return;
   LV.run = false;
-  if (LV.stream) LV.stream.getTracks().forEach(function (t) { t.stop(); });
+  if (LV.torch && LV.track) try { LV.track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) {}
+  camRelease();
   $('live').style.display = 'none'; document.body.classList.remove('cropopen');
   var c = LV.o.onClose; LV = null; if (c) c();
+  ovDone();
 }
-function lvShape() { var s = LV_SHAPES[LV.shape], f = $('lv-frame'); f.style.width = s.w * 100 + '%'; f.style.height = s.h * 100 + '%'; $('lv-shape').textContent = '틀: ' + s.k; }
+function lvShape() {
+  var f = $('lv-frame');
+  if (LV.o.qr) { var st = $('lv-stage'), q = Math.round(Math.min(st.clientWidth, st.clientHeight) * 0.7) || 240; f.style.width = f.style.height = q + 'px'; return; }   // QR = 정사각 틀
+  var s = LV_SHAPES[LV.shape]; f.style.width = s.w * 100 + '%'; f.style.height = s.h * 100 + '%'; $('lv-shape').textContent = '틀: ' + s.k; }
 function lvZoom(z) {
   if (!LV) return;
   if (LV.hz) { try { LV.track.applyConstraints({ advanced: [{ zoom: z }] }); } catch (e) {} return; }
@@ -3656,7 +3709,7 @@ function lvDraw() {
   }
   requestAnimationFrame(lvDraw);
 }
-window.addEventListener('resize', function () { if (LV) lvFit(); });
+window.addEventListener('resize', function () { if (LV) { lvFit(); if (LV.o.qr) lvShape(); } });
 /* 화면 좌표 ↔ 영상 좌표 (꽉 채우기 + 화면 확대) */
 function lvMap() {
   lvFit();
@@ -3740,6 +3793,19 @@ function lvTick() {
     setTimeout(lvTick, 250);
   }, function () { LV && (LV.busy = false); setTimeout(lvTick, 600); });
 }
+/* QR 비추기: 틀 안을 작게 줄여 매 화면 jsQR → 읽히면 삑 · 닫고 결과 */
+function lvQrTick() {
+  if (!LV || !LV.run || !LV.o.qr) return;
+  if (document.hidden) return setTimeout(lvQrTick, 300);
+  var g = lvGrab(); if (!g || g.c.width < 20) return setTimeout(lvQrTick, 200);
+  var k = Math.min(1, 640 / Math.max(g.c.width, g.c.height)), c = document.createElement('canvas');
+  c.width = Math.round(g.c.width * k); c.height = Math.round(g.c.height * k);
+  var x = c.getContext('2d'), q = null; x.drawImage(g.c, 0, 0, c.width, c.height);
+  try { q = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: 'dontInvert' }); } catch (e) {}
+  var t = q && q.data ? q.data.trim() : '';
+  if (t) { var o = LV.o; lvBeep(true); liveClose(); return o.onResult(t); }
+  setTimeout(lvQrTick, 120);
+}
 function lvBeep(ok) {
   try { navigator.vibrate && navigator.vibrate(ok ? 80 : [60, 60, 60]); } catch (e) {}
   try { var a = LV.ac, o = a.createOscillator(), gn = a.createGain(); o.frequency.value = ok ? 1200 : 300; gn.gain.value = 0.08; o.connect(gn); gn.connect(a.destination); o.start(); o.stop(a.currentTime + (ok ? 0.08 : 0.2)); } catch (e) {}
@@ -3788,9 +3854,10 @@ function docOK() { return !!(navigator.mediaDevices && navigator.mediaDevices.ge
 function docPhoto(cb, cam) { if (cam && docOK()) docScan({ title: '계획서 스캔', shot: cb }); else pickPhoto(cb, cam); }
 function docScan(o) {
   lvBuild();
+  o.re = function () { docScan(o); };
   LV = { o: o, run: true, doc: true, z: 1, hz: false, torch: false, stable: 0, prev: null };
-  $('lv-title').textContent = o.title; $('lv-prog').textContent = '';
-  $('live').style.display = 'flex'; document.body.classList.add('cropopen');
+  $('lv-title').textContent = o.title; $('lv-prog').textContent = ''; $('lv-shot').style.display = ''; $('lv-zoom').style.gridColumn = '1 / 3';
+  $('live').style.display = 'flex'; document.body.classList.add('cropopen'); ovOpen();
   $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none';
   $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null; $('lv-doc').style.display = 'none';
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
@@ -3855,42 +3922,57 @@ function docCapture(pts) {
     try { out = DOCS.sc.extractPaper(src, w, h, { topLeftCorner: P[0], topRightCorner: P[1], bottomRightCorner: P[2], bottomLeftCorner: P[3] }); } catch (e) {}
     liveClose();
     if (!out) { toast('보정 실패 → 영역 지정', true); out = frame; }
-    cropPhoto(out, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); o.shot(cc.toDataURL('image/jpeg', 0.92)); });
+    cropPhoto(out, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); o.shot(cc.toDataURL('image/jpeg', 0.92)); }, { retake: o.re });
     if (CROP) { CROP.r = { x: 0, y: 0, w: out.width, h: out.height }; crLayout(); }   // 이미 반듯하게 폈으니 전체 선택 상태로
   });
 }
-/* [찍기]: 지금 화면 전체 → 영역 지정 → 기존 사진 처리 */
+/* [촬영]: 미리보기에 보이던 범위 그대로 (2026-11-24 「사진 폭이 좁을 때 · 넓을 때」)
+   고해상도 사진(4:3 등)과 영상(16:9 · 세로)은 찍히는 범위가 달라 → 둘 다 화면에 보이던 가운데 범위만 잘라 같은 모양으로 · 이후 영역 지정 */
+function lvVis() {   // 화면에 보이는 범위 (영상 좌표 크기)
+  var v = $('lv-v'), st = $('lv-stage'), vw = v.videoWidth, vh = v.videoHeight, W = st.clientWidth, H = st.clientHeight;
+  var s = Math.max(W / vw, H / vh), z = LV.hz ? 1 : LV.z;
+  return { vw: vw, vh: vh, w: Math.min(vw, W / s / z), h: Math.min(vh, H / s / z) };
+}
+function lvCut(src, P) {
+  var k = Math.min(src.width / P.vw, src.height / P.vh), w = Math.min(src.width, P.w * k), h = Math.min(src.height, P.h * k);
+  var sc = Math.min(1, 1800 / Math.max(w, h)), c = document.createElement('canvas');
+  c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+  c.getContext('2d').drawImage(src, (src.width - w) / 2, (src.height - h) / 2, w, h, 0, 0, c.width, c.height);
+  return c;
+}
 function lvShot() {
-  if (!LV) return;
-  var o = LV.o, tk = LV.track;
-  // 가능하면 카메라 고해상도 사진 (영상 한 장보다 선명) · 안 되면 영상 프레임
+  if (!LV || LV.shooting) return;
+  var o = LV.o, tk = LV.track, g = lvGrab(true); if (!g) return;
+  var P = lvVis(), frame = g.c;
+  LV.shooting = true; lvSay('촬영 중…', 'cand');
+  function go(src) { if (!LV) return; liveClose(); lvShotGo(lvCut(src, P), o); }
+  // 가능하면 카메라 고해상도 사진 (영상 한 장보다 선명) · 가로/세로 방향이 영상과 다르면 영상 프레임
   if (tk && window.ImageCapture) {
-    var g0 = lvGrab(true);
     try {
       new ImageCapture(tk).takePhoto().then(createImageBitmap).then(function (bm) {
+        if ((bm.width > bm.height) !== (P.vw > P.vh)) return go(frame);
         var c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height; c.getContext('2d').drawImage(bm, 0, 0);
-        liveClose(); lvShotGo({ c: c }, o);
-      }, function () { liveClose(); if (g0) lvShotGo(g0, o); });
+        go(c);
+      }, function () { go(frame); });
       return;
     } catch (e) {}
   }
-  var g = lvGrab(true); liveClose();
-  if (g) lvShotGo(g, o);
+  go(frame);
 }
-function lvShotGo(g, o) {
-  var sc = Math.min(1, 1800 / Math.max(g.c.width, g.c.height)), c = document.createElement('canvas');
-  c.width = Math.round(g.c.width * sc); c.height = Math.round(g.c.height * sc); c.getContext('2d').drawImage(g.c, 0, 0, c.width, c.height);
-  cropPhoto(c, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); if (o.shot) o.shot(cc.toDataURL('image/jpeg', 0.9)); });
+function lvShotGo(c, o) {
+  cropPhoto(c, function (cc) { enhance(cc.getContext('2d'), cc.width, cc.height); if (o.shot) o.shot(cc.toDataURL('image/jpeg', 0.9)); }, { retake: o.re });
 }
 
 /* 공통: 사진 영역 지정 — 모서리 끌기 = 크기 · 안쪽 끌기 = 이동 · 빈 곳 끌기 = 새로 그리기
-   [취소] [↻ 회전] [전체] [이 영역 읽기] → done(잘라 낸 canvas) */
+   [다시 찍기](카메라로 복귀 · 앨범 = 다시 선택 · 다시 할 수 없으면 취소) [↻ 회전] [전체] [이 영역 읽기] → done(잘라 낸 canvas)
+   ✕ = 취소 (사진 버리고 닫기) · 뒤로 버튼 = 다시 찍기 */
 var CROP = null;
-function cropPhoto(src, done) {
+function cropPhoto(src, done, opt) {
+  opt = opt || {};
   var o = $('crop');
   if (!o) {
     o = document.createElement('div'); o.id = 'crop';
-    o.innerHTML = '<div class="cr-top"><b>읽을 영역 지정</b><span>모서리를 끌어 라벨 · 표만 남기기</span></div>' +
+    o.innerHTML = '<div class="cr-top"><b>읽을 영역 지정</b><span>모서리를 끌어 라벨 · 표만 남기기</span><button class="btn2 xb" id="cr-x" aria-label="취소">✕</button></div>' +
       '<div class="cr-stage" id="cr-stage"><canvas id="cr-cv"></canvas><div class="cr-box" id="cr-box">' +
       '<i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div>' +
       '<div class="cr-bar"><button class="btn2" id="cr-cancel">취소</button><button class="btn2" id="cr-rot">↻ 회전</button><button class="btn2" id="cr-all">전체</button>' +
@@ -3903,9 +3985,13 @@ function cropPhoto(src, done) {
     window.addEventListener('resize', function () { if (CROP) crLayout(); });
   }
   CROP = { src: src, done: done, drag: null };
-  o.style.display = 'flex'; document.body.classList.add('cropopen');
+  o.style.display = 'flex'; document.body.classList.add('cropopen'); ovOpen();
   crReset();
-  $('cr-cancel').onclick = function () { crClose(); };
+  var re = opt.retake;
+  $('cr-cancel').textContent = re ? (opt.label || '다시 찍기') : '취소';
+  $('cr-x').style.display = re ? '' : 'none';
+  $('cr-x').onclick = function () { crClose(); };
+  $('cr-cancel').onclick = function () { crClose(); if (re) re(); };
   $('cr-all').onclick = function () { var c = CROP.src, d = CROP.done; crClose(); d(c); };
   $('cr-rot').onclick = function () {
     var s = CROP.src, n = document.createElement('canvas'); n.width = s.height; n.height = s.width;
@@ -3919,7 +4005,7 @@ function cropPhoto(src, done) {
     var d = CROP.done; crClose(); d(n);
   };
 }
-function crClose() { $('crop').style.display = 'none'; document.body.classList.remove('cropopen'); CROP = null; }
+function crClose() { $('crop').style.display = 'none'; document.body.classList.remove('cropopen'); CROP = null; ovDone(); }
 function crReset() {
   var s = CROP.src, cv = $('cr-cv');
   cv.width = s.width; cv.height = s.height; cv.getContext('2d').drawImage(s, 0, 0);
