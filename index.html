@@ -221,7 +221,8 @@
   /* 실사 상태: 일치 파랑 · 차이 주황(재실사 대상) · 실사 필요 점선 */
   .cell.cok { border:2px solid #1D5FBF; } .cell.cdf { border:2px solid #C25E00; } .cell.cdue { border:2px dashed #8A6D00; }
   .cell .cck { color:#1D5FBF; } .cell.cdf .cck { color:#C25E00; }
-  .prog .px { width:34px; padding:0; background:#2E3339; color:#C9CDD3; font-size:15px; margin-left:-2px; }   /* 진행 띠 닫기 */
+  .prog .pbtns { display:flex; gap:6px; flex:none; }
+  .prog .pbtns .pc, .prog .pbtns .pd { background:#2E3339; color:#fff; padding:0 10px; }   /* 취소 · 완료 · 종료 (주 동작 = 노랑) */
   .prog.cprog b { color:#8DB8FF; } .prog.cprog span[role=button] { cursor:pointer; }
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
@@ -356,7 +357,9 @@
   #busy .track i { display:block; height:100%; width:40%; background:var(--y); animation:slide 1s ease-in-out infinite; }
   @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
   #busy .pill { position:absolute; top:10px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; font-size:14px; font-weight:700; padding:6px 14px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
-  #busy-block { position:fixed; inset:0; z-index:15; display:none; }
+  #busy-block { position:fixed; inset:0; z-index:15; display:none; background:rgba(0,0,0,.25); }
+  #busy-block .bbx { position:absolute; left:16px; right:16px; bottom:96px; display:flex; align-items:center; gap:10px; background:var(--ink); color:#fff; border-radius:12px; padding:10px 12px; font-weight:800; }
+  #busy-block .bbx span:nth-child(2) { flex:1; } #busy-block .bbx .btn2 { width:auto; flex:none; height:40px; padding:0 16px; }
   /* 빠른 저장 전송 상태 (처리 중 알약과 같은 모양 · 아래쪽 탭 위) — 보내는 중 = 흐리게 · 미전송(다시 시도 중) = 빨강 */
   #obb { position:fixed; bottom:calc(74px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:29; display:none; border:0; background:var(--ink); color:#fff; font:inherit; font-size:13px; font-weight:700; padding:5px 12px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,.25); opacity:.75; }
   #obb.late { background:#9A1C1C; opacity:1; }
@@ -771,6 +774,8 @@ function refreshStock(force) {
     if (r.cnt) S.cnt = r.cnt; shareApply(r.share);
     if (OB.q.length) return;   // 받는 사이 새 저장 → 이번 결과는 버림
     if (r.today) S.today = r.today;
+    if (r.whs && !ST && !W) S.whs = r.whs;   // 창고 설정 (내가 편집 중이면 그대로)
+    if (r.stack && !(SH && SH.ord)) S.stack = r.stack;   // 적재 순서 (내가 순서 바꾸는 중이면 그대로)
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force === true) toast('재고 새로 고침 완료');
     rerender();
@@ -786,9 +791,11 @@ function rtSync() {
 }
 /* 재고가 바뀐 뒤 지금 화면 다시 그리기 (설정 편집 · 입력 중엔 건너뜀) */
 function rerender() {
-  if (TAB === 'map') { renderMap(); if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet(); }   // 설정 편집 중엔 다시 그리지 않음
+  if (TAB === 'map') renderMap();
   else if (TAB === 'in') inHint();
   else if (TAB === 'plan') planRedraw();
+  else if (TAB === 'log' && LG.mode === '이력' && !E && $('g-hlist')) loadHist(true);   // 기록 목록도 실시간 (2026-11-24 · 수정 중엔 그대로)
+  if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet();   // 열린 작업창 (모든 탭 · 피킹 품목 창 포함) · 설정 편집 중엔 그대로
 }
 /* 계획 · 피킹 다시 그리기 — 계획 칸에 글자 입력 중이면 입력 끝난 뒤(포커스 빠질 때) 그림
    (2026-11-24: 버튼 누른 뒤 남은 포커스까지 '입력 중'으로 보고 건너뛰어 입고해도 「부족」이 안 풀리던 문제) */
@@ -865,7 +872,7 @@ function busy(on, block) {
   BUSY = Math.max(0, BUSY + (on ? 1 : -1));
   $('busy').style.display = BUSY ? 'block' : 'none';
   if (on && block) $('busy-block').style.display = 'block';
-  if (!BUSY) $('busy-block').style.display = 'none';
+  if (!BUSY) { $('busy-block').style.display = 'none'; $('busy-block').innerHTML = ''; }
 }
 function call(fn) {
   var args = [].slice.call(arguments, 1);
@@ -1396,7 +1403,7 @@ function renderMap() {
   if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
-    searchBar() + progLine() + cntLine() + (ST ? '<div class="ehint">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</div>' : ''));
+    searchBar() + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1599,6 +1606,13 @@ function toggleZone(whId, zc, ev) {
   if (ST.active[key]) zoneSave(whId, zc, key);        // 편집 끝 → 저장
   else { ST.active[key] = true; renderMap(); }         // 편집 시작
 }
+/* 줄 편집 [취소]: 저장 안 한 변경 모두 버리고 편집 끝 (2026-11-24: 저장으로만 나갈 수 있던 문제) */
+function stCancel() {
+  var n = ST ? Object.keys(ST.chg).filter(function (c) { var ri = rowInfo(c); return ST.chg[c] !== (ri.cfg.st || (ri.cfg.off ? '미사용' : '')); }).length : 0;
+  var go = function () { ST = null; renderMap(); toast('편집 취소'); };
+  if (!n) return go();
+  ask({ title: '편집 취소', msg: '변경 ' + n + '줄 저장 안 함', input: false, ok: '취소하고 나가기', danger: true }, function (y) { if (y) go(); });
+}
 function zonePairs(whId, zc) {   // 이 구역에서 원래와 달라진 줄만
   if (!ST) return [];
   var key = whId + '|' + zc;
@@ -1662,12 +1676,28 @@ function progLine() {
   var L = t.last, n = Object.keys(t.locs).length, sig = todayStr() + '_' + t.rolls;
   if (progHid('in', sig)) return '';
   return '<div class="prog"><span><b>✓ 오늘 ' + n + '줄 · ' + t.rolls + '롤</b> <small>' + esc(L.at) + '</small><br>마지막 ' + esc(keyOf(L.loc)) + ' · ' + esc(fmtItem(L, L.qty)) + '</span>' +
-    '<button onclick="contIn()">이어서</button>' + progXBtn('in', sig) + '</div>';
+    '<span class="pbtns"><button onclick="contIn()">이어서</button>' + (L.no ? '<button class="pc" onclick="inUndoLast()">취소</button>' : '') + progDoneBtn('in', sig) + '</span></div>';
 }
-/* 진행 띠(입고 · 실사) 닫기 [✕]: 지금 상태로 숨김 → 새 입고 · 새 실사가 생기면 다시 표시 (머리글이 지도를 가리지 않게 · 2026-11-24) */
+/* 진행 띠(입고 · 실사) 표준 버튼 (2026-11-24 「숨김이 아니라 취소 · 완료가 표준」)
+   [취소] = 마지막 입고 되돌리기 (잘못 입력) · [완료] = 이 작업 끝 → 띠 사라짐 · 새 입고 · 새 실사 시 다시 시작
+   [종료] = 실사 범위(작업자 공유 작업) 끝 */
 function progHid(k, sig) { return lsGet('progx-' + k) === sig; }
-function progXBtn(k, sig) { return '<button class="px" aria-label="닫기" onclick="progX(event,\'' + k + '\',\'' + sig + '\')">✕</button>'; }
-function progX(e, k, sig) { if (e) e.stopPropagation(); lsSet('progx-' + k, sig); renderMap(); }
+function progDoneBtn(k, sig) { return '<button class="pd" onclick="progDone(event,\'' + k + '\',\'' + sig + '\')">완료</button>'; }
+function progDone(e, k, sig) { if (e) e.stopPropagation(); lsSet('progx-' + k, sig); renderMap(); toast(k === 'in' ? '입고 작업 완료' : '실사 작업 완료'); }
+function inUndoLast() {
+  var L = S.today && S.today.last; if (!L || !L.no) return;
+  ask({ title: '마지막 입고 취소', msg: keyOf(L.loc) + ' · ' + fmtItem(L, L.qty) + ' · ' + L.at + '\n입고 기록 취소 · 재고에서 빠짐', input: false, ok: '입고 취소', danger: true }, function (y) {
+    if (!y || !requireWorker()) return;
+    undoCall([L.no]).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); refreshLog(); toast('입고 취소 · ' + keyOf(L.loc)); });
+  });
+}
+function cntPlanEnd() {
+  var p = cntInfo().plan; if (!p) return;
+  var sc = cntScope(), n = sc.filter(function (code) { return cntDone(code); }).length;
+  ask({ title: '실사 종료', msg: cntPlanName(p) + ' · ' + n + '/' + sc.length + '줄 완료' + (n < sc.length ? '\n남은 ' + (sc.length - n) + '줄 미실사로 종료' : '') + '\n작업자 전원 공유 범위 해제', input: false, ok: '종료', danger: n < sc.length }, function (y) {
+    if (y) cntPlanSave({ wh: '' }, '실사 종료');
+  });
+}
 function contIn() {
   var L = S.today && S.today.last; if (!L) return;
   var w = whOf(L.loc); if (w) { M.wh = w.id; renderMap(); }
@@ -2224,9 +2254,17 @@ function tsrPlan(t, text) {
   var hd = '[표 머리글] ' + t.head.map(function (h, i) { return (h || '(빈칸)') + '→' + (NM[f[i]] || '미사용'); }).join(' | ') + (qtyCol >= 0 && tsrField(t.head[qtyCol]) !== 'qty' ? ' (수량 열 추정)' : '');
   return { date: dm ? Number(dm[2]) + '/' + dm[3].replace(/\s/g, '') : '', items: items, raw: hd + '\n\n' + text, table: true };
 }
+/* 인식 중 [취소] (계획서 = 화면 잠금): 잠금 풀고 늦게 온 결과는 버림 (2026-11-24: 느리거나 멈추면 빠져나올 수 없던 문제) */
+var OCRJ = null;
+function ocrCancel() {
+  var j = OCRJ; if (!j) return;
+  j.off = true; j.end(); ocrSeq++; planSeq++; toast('사진 인식 취소');
+}
 function ocrCall(kind, d) {
   var t0 = Date.now(), blk = kind === 'ocrPlan';
+  var job = OCRJ = { off: false, done: false, end: function () { if (job.done) return; job.done = true; busy(false); if (OCRJ === job) OCRJ = null; } };
   busy(true, blk);
+  if (blk) $('busy-block').innerHTML = '<div class="bbx"><span class="spin"></span><span>계획서 인식 중…</span><button class="btn2" onclick="ocrCancel()">취소</button></div>';
   // 못 읽으면 90° · 270° 돌려 다시 (옆으로 누운 계획서 · 라벨)
   function readRot(o0, k) {
     var table = kind !== 'ocrPlan' ? Promise.resolve(null) :
@@ -2243,8 +2281,9 @@ function ocrCall(kind, d) {
   return padRun(d).then(function (o) { return readRot(o, 0); }).then(function (x) {
     var o = x.o, t1 = Date.now();
     return Promise.resolve(x.r).then(function (r) {
-      busy(false);
+      job.end();
       var t2 = Date.now();
+      if (job.off) return kind === 'ocrPlan' ? { items: [], raw: '', date: '' } : {};
       if (r) { r._c = o.c; r._boxes = o.items; toast('표 인식 ' + r.items.length + '건 · 글자 ' + ((t1 - t0) / 1000).toFixed(1) + '초 · 표 ' + ((t2 - t1) / 1000).toFixed(1) + '초'); return r; }
       return call(kind + 'Text', o.text).then(function (x) {
         if (x && typeof x === 'object') { x._c = o.c; x._boxes = o.items; }   // 사진 조각용 (계획서)
@@ -2253,7 +2292,8 @@ function ocrCall(kind, d) {
       });
     });
   }, function (e) {
-    busy(false);
+    job.end();
+    if (job.off) return kind === 'ocrPlan' ? { items: [], raw: '', date: '' } : {};
     var em = String((e && e.message) || e);
     toast(/memory/i.test(em) ? '폰 메모리 부족으로 사진 인식 실패 — 브라우저 다른 탭 닫고 새로고침 후 다시 촬영' + (blk ? ' (계획 품목은 저장됨)' : '')
       : '사진 인식 실패 — 재촬영 · 직접 입력 (' + em + ')', true);
@@ -2942,9 +2982,10 @@ function cntLine() {
   var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
     : '<b>실사 오늘 ' + n + '줄</b>' + (due ? ' <small>실사 필요 ' + due + '줄</small>' : '');
   var sig = todayStr() + '_' + n + '_' + tot + '_' + due;
-  if (progHid('cnt', sig)) return '';
+  if (!p && progHid('cnt', sig)) return '';   // 범위 지정(공유 작업)은 [종료]로만 끝
   var more = !p || n < tot ? '<button onclick="cntGo(cntNextCode())">다음 줄</button>' : '';
-  return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span>' + more + progXBtn('cnt', sig) + '</div>';
+  return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span><span class="pbtns">' + more +
+    (p ? '<button class="pd" onclick="cntPlanEnd()">종료</button>' : progDoneBtn('cnt', sig)) + '</span></div>';
 }
 /* 실사 범위 지정 · 변경 · 해제 (작업자 전원 공유) */
 function cntPlanMenu() {
@@ -3117,7 +3158,12 @@ function goLoc(loc, items, reopen) {
   var el = document.querySelector('#detail .it.hl'); if (el) el.scrollIntoView({ block: 'center' });
 }
 /* 창 닫기(✕ · ← · 바깥 누름): 쌓인 이전 창이 있으면 그 창(탭 · 스크롤 포함)으로 */
-function shClose() {
+function shClose(force) {
+  // 창고 설정 창: 저장 안 한 변경이 있으면 확인 후 닫기 (2026-11-24 · 확인 없이 버려지던 문제)
+  if (!force && SH && SH.mode === 'wh' && W && JSON.stringify(W) !== JSON.stringify(cloneWhs())) {
+    ask({ title: '저장 안 한 변경', msg: '창고 설정 변경 내용 버리고 닫기', input: false, ok: '버리고 닫기', danger: true }, function (y) { if (y) shClose(true); });
+    return;
+  }
   var st = SHST.slice(), r = st.pop(); closeSheet();
   if (!r) return;
   if (TAB !== r.tab) show(r.tab);
@@ -4301,12 +4347,13 @@ function histBar() {
   seg($('hf-period'), periods, HF.period, function (v) { HF.period = v; histBar(); loadHist(); });
 }
 function daysAgo(n) { var d = new Date(); d.setDate(d.getDate() - n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
-function loadHist() {
-  E = null; $('hdrExtra').innerHTML = '';
+function loadHist(quiet) {   // quiet = 실시간 갱신 (목록 비우지 않고 · 알림 없이)
+  E = null; if (!quiet) $('hdrExtra').innerHTML = '';
   if (!$('g-hlist')) histBar();
   var box = $('g-hlist');
-  box.innerHTML = '<div class="muted" style="padding:12px">불러오는 중...</div>';
+  if (!quiet) box.innerHTML = '<div class="muted" style="padding:12px">불러오는 중...</div>';
   var my = (loadHist.seq = (loadHist.seq || 0) + 1);
+  if (quiet) { call.quiet = true; lastBtn = null; }
   call('getHistory', { from: HF.period === '' ? '' : daysAgo(Number(HF.period)), type: HF.type, q: HF.q, limit: 300 }).then(function (list) {
     if (my !== loadHist.seq || !$('g-hlist')) return;
     HIST = list;
