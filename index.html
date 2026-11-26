@@ -722,11 +722,29 @@ function fOn() { return !!(F.gsm || F.width || F.maker || F.grade || fWords().le
 function fMatch(s) { return fMatchBy(s, F); }
 /* 검색 조건 f 에 맞는 재고인가 (F = 지도 검색 · 문서 목록은 규격별 조건) */
 function fMatchBy(s, f) {
-  if ((f.gsm && s.gsm != f.gsm) || (f.width && s.width != f.width) || (f.maker && s.maker !== f.maker) || (f.grade && s.grade !== f.grade)) return false;
+  // 제지사 조건: 별칭 같은 제지사 · 한 재고에 묶인 여러 제지사(로트) 포함 (2026-11-26)
+  var mks = makersOf(s).map(function (m) { return m.maker; }).concat(s.maker || '').filter(String);
+  if ((f.gsm && s.gsm != f.gsm) || (f.width && s.width != f.width) || (f.grade && s.grade !== f.grade)) return false;
+  if (f.maker && !mks.some(function (m) { return canonMaker(m) === canonMaker(f.maker); })) return false;
   var qs = fWords(f); if (!qs.length) return true;
-  var t = [s.maker, canonMaker(s.maker), s.grade, s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, whName(s.wh), s.zone + '-' + pad(s.no), keyOf(s.loc),
-    s.rem ? '잔량' : '', s.memo, s.note, s.date].join(' ').toUpperCase();
-  return qs.every(function (w) { return t.indexOf(w) >= 0; });
+  // 문구 검색 대상: 제지사(별칭 전체) · 지종(별칭 · 약칭) · 규격 · 창고 · 위치 · 잔량 · 비고 · 입고일 (WMS 통합 검색 관행)
+  var t = [mks.map(function (m) { return [m, canonMaker(m)].concat(aliasWords('제지사별칭', m)).join(' '); }).join(' '),
+    s.grade, s.grade ? aliasWords('지종별칭', s.grade).join(' ') + ' ' + (typeof gradeShort === 'function' ? gradeShort(s.grade) : '') : '',
+    s.gsm + '×' + s.width, s.gsm + 'x' + s.width, s.gsm + '*' + s.width, s.gsm + '-' + s.width, whName(s.wh), s.zone + '-' + pad(s.no), keyOf(s.loc),
+    s.rem ? '잔량' : '', memoOf(s), s.date].join(' ').toUpperCase();
+  // 낱말 = 글자 포함 또는 제지사 · 지종 표준명 일치 (예: 「무림제지」 = 무림 · 별칭 미등록 이름도 '제지' 생략 규칙으로)
+  var cm = mks.map(canonMaker), cg = s.grade ? canonGrade(s.grade) : '';
+  return qs.every(function (w) { return t.indexOf(w) >= 0 || cm.indexOf(canonMaker(w)) >= 0 || (cg && canonGrade(w) === cg); });
+}
+/* 재고 비고 (서버 이력 입고 · 반납 메모 · 위치|평량|폭) */
+function memoKey(loc, gsm, width) { return loc + '|' + Number(gsm) + '|' + Number(width); }
+function memoOf(s) { return (S.memos || {})[memoKey(s.loc, s.gsm, s.width)] || ''; }
+/* 별칭 묶음(기준정보 '제지사별칭' · '지종별칭' = 대표|별칭|…)에서 v 가 속한 묶음의 이름 전체 */
+function aliasWords(kind, v) {
+  var n = normMk(v); if (!n) return [];
+  var rows = (S.quick && S.quick[kind]) || [];
+  for (var i = 0; i < rows.length; i++) { var al = String(rows[i]).split('|').map(function (x) { return x.trim(); }); if (al.map(normMk).indexOf(n) >= 0) return al; }
+  return [];
 }
 /* 검색 조건 요약 줄 (재고 검색 공통) */
 function fSum(tail) {
@@ -800,6 +818,7 @@ function refreshStock(force) {
     if (OB.q.length) return;   // 받는 사이 새 저장 → 이번 결과는 버림
     if (r.today) S.today = r.today;
     if (r.whs && !ST && !W) S.whs = r.whs;   // 창고 설정 (내가 편집 중이면 그대로)
+    if (r.memos) S.memos = r.memos;   // 재고 비고 (검색용)
     if (r.stack && !(SH && SH.ord)) S.stack = r.stack;   // 적재 순서 (내가 순서 바꾸는 중이면 그대로)
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force === true) toast('재고 새로 고침 완료');
@@ -1050,10 +1069,28 @@ function lcState() {
   return { stock: JSON.parse(JSON.stringify(S.stock || [])), today: JSON.parse(JSON.stringify(S.today || { locs: {}, rolls: 0, last: null })), fx: [] };
 }
 /* 빠른 저장: 폰에서 계산해 바로 결과(서버 저장 결과와 같은 모양) · 서버 전송은 대기열 */
+/* 직전 작업 줄 (2026-11-26 · 모든 작업 공통): 저장 공통 경로(fastCall)에서 기록 · 이 기기 · 오늘만 표시 */
+var LW_T = { intake: '입고', outbound: '출고', outboundBatch: '출고', moveStock: '이동', moveRow: '이동', adjustRow: '실사', countOk: '실사' };
+function lastWorkSet(fn, p) {
+  if (!LW_T[fn] || !p) return;
+  var code = p.to || p.loc || (p.items && p.items.length ? p.items[p.items.length - 1].loc : '');
+  if (!code) return;
+  // 입고 비고: 서버 반영 전에도 바로 검색 (분산 입고 = 줄마다)
+  if (fn === 'intake' && p.memo) {
+    S.memos = S.memos || {};
+    (p.parts || [{ loc: p.loc }]).forEach(function (x) { var k = memoKey(x.loc, p.gsm, p.width); if ((' ' + (S.memos[k] || '') + ' ').indexOf(' ' + p.memo + ' ') < 0) S.memos[k] = ((S.memos[k] || '') + ' ' + p.memo).trim(); });
+  }
+  try { localStorage.setItem('lastW', JSON.stringify({ code: code, t: LW_T[fn], d: todayStr() })); } catch (e) {}
+}
+function lastWork() {
+  var x = null; try { x = JSON.parse(localStorage.getItem('lastW') || 'null'); } catch (e) {}
+  return x && x.d === todayStr() ? x : null;
+}
 function fastCall(fn, p) {
   return new Promise(function (res, rej) {
     var T = lcState(), x;
     try { x = LC[fn](T, p) || {}; } catch (e) { toast((e && e.message) || String(e), true); return rej(e); }
+    lastWorkSet(fn, p);
     var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     OB.q.push({ id: id, fn: fn, args: p, fx: T.fx, tries: 0, at: Date.now() });
     obSave();
@@ -1344,7 +1381,22 @@ function scanQRPhoto(cb) {
 }
 
 /* ===== 탭 ===== */
+/* 지도 보던 위치 보관 (2026-11-26 · 모바일 탭 표준 = 탭 복귀 시 위치 유지)
+   다른 탭으로 · 앱 숨김(백그라운드 · 새 버전 다시 읽기) 때 저장 → 재고 탭 복귀 · 앱 다시 열기 때 같은 창고면 복원 */
+var MAPANC = null;
+function mapSave() {
+  if (TAB !== 'map') return; var a = mapAnchor(); if (!a) return;
+  MAPANC = { wh: M.wh, a: a }; try { sessionStorage.setItem('mapAnc', JSON.stringify(MAPANC)); } catch (e) {}
+}
+function mapSaved() {
+  if (MAPANC) return MAPANC;
+  try { return JSON.parse(sessionStorage.getItem('mapAnc') || 'null'); } catch (e) { return null; }
+}
+function mapBack() { var x = mapSaved(); if (x && String(x.wh) === String(M.wh)) { mapRestore(x.a); return true; } return false; }
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') mapSave(); });
+window.addEventListener('pagehide', mapSave);
 function show(t) {
+  mapSave();   // 재고 탭을 떠날 때 보던 위치
   TAB = t; SHST = [];
   ['map', 'in', 'plan', 'log', 'set'].forEach(function (k) { $('s-' + k).classList.toggle('on', k === t); });
   [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
@@ -1357,6 +1409,7 @@ function show(t) {
   ({ map: renderMap, in: renderIn, plan: renderPlan, log: renderLog, set: renderSet })[t]();
   hdrFit();
   window.scrollTo(0, 0);
+  if (t === 'map' && renderMap.shownWh === M.wh) mapBack();   // 재고 탭 복귀 = 보던 위치
   refreshStock(false);
 }
 [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.onclick = function () { show(b.dataset.t); }; });
@@ -1429,13 +1482,14 @@ function eachRow(w, fn) { w.zones.forEach(function (z) { for (var i = 1; i <= z.
 
 /* ===== 2. 위치 현황 ===== */
 function renderMap() {
-  if (!M.wh && S.whs[0]) M.wh = S.whs[0].id;
+  if (!M.wh) { var sv0 = mapSaved(); M.wh = sv0 && S.whs.some(function (x) { return String(x.id) === String(sv0.wh); }) ? sv0.wh : S.whs[0] && S.whs[0].id; }   // 앱 다시 열기 = 보던 창고
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   var anc = renderMap.shownWh === M.wh ? mapAnchor() : null;   // 다시 그려도 보던 칸 그대로 (머리 높이 · 칸 높이가 바뀌어도)
   if (EMP && (EMP != M.wh || MV || ST || PKM)) EMP = null;   // 다른 창고 · 다른 작업 시작 → 빈 줄 강조 끝
   renderMap.n = (renderMap.n || 0) + 1; mkLoad();
   var MKA = mkActive() && !EMP, mkN = 0;   // 표시 기준 (빈 줄 강조 중엔 빈 줄 강조 우선)
   /* 실사 표시: 지금 실사 중 · 직전 완료 · 다음 차례 줄 */
+  var LW = lastWork();   // 직전 작업 줄 (입고 · 출고 · 이동 · 실사 · 오늘 · 이 기기)
   var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
   var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
@@ -1522,7 +1576,7 @@ function renderMap() {
         else cc = ' edim';
       }
       var emo = EMP ? (!off && !ri.cfg.st && n === 0 ? ' emp' : ' edim') : '';   // 빈 줄 강조 모드
-      var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : code === CLAST && cx ? '<span class="ctg">직전</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
+      var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : LW && code === LW.code ? '<span class="ctg">직전 · ' + esc(LW.t) + '</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
       h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (mkh && mkh.length ? ' mk' : '') + (cur ? ' ccur' : '') + emo + mvc + sec + '" data-c="' + code + '"' + mks + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + ctg + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
@@ -1588,8 +1642,9 @@ function renderMap() {
   mapRestore(anc);
   // 창고를 처음 보여 줄 때(앱 시작 · 창고 변경): 주 출입구(아래)에 맞춰 시작 · 다시 그릴 때는 현재 위치 유지
   if (renderMap.shownWh !== M.wh && !(fo && fh.length)) {
-    var ent = $('m-body').querySelector('.mainent');
-    if (ent && ent.offsetParent) { renderMap.shownWh = M.wh; requestAnimationFrame(function () { toEntrance(ent); }); }
+    var ent = $('m-body').querySelector('.mainent'), first = renderMap.shownWh == null, sv = mapSaved();
+    // 앱 다시 열기(새 버전 · 백그라운드 복귀) = 저장된 위치 (같은 창고) · 그 외 = 주 출입구
+    if (ent && ent.offsetParent) { renderMap.shownWh = M.wh; requestAnimationFrame(function () { if (!(first && sv && String(sv.wh) === String(M.wh) && mapBack())) toEntrance(ent); }); }
   }
   // 검색 결과가 있으면 첫 번째로 걸린 줄로 스크롤 (조건 바뀐 때만 · 작업 중엔 안 함)
   if (fo && fh.length && fkey !== renderMap.scrolled && !SH) {
@@ -3011,11 +3066,11 @@ function assignMaker(s, loc, done, localFn) {
 function pickMaker(i) { assignMaker(SH.items[i], SH.items[i].loc); }
 
 /* --- 이동: 작업창 접고 지도에서 도착 줄 누름 --- */
-function startMove(i) { var s = SH.items[i]; MV = { from: s.loc, item: s, qty: 1 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
+function startMove(i) { var s = SH.items[i]; MV = { from: s.loc, item: s, qty: 1 }; closeSheet(); renderMap(); mapReveal(s.loc); }   // 보던 위치 유지 (맨 위 이동 없음)
 function mvQty(d) { if (d > 0 && MV.qty >= MV.item.qty) { toast('최대 ' + MV.item.qty + '롤', true); return; } MV.qty = Math.max(1, Math.min(MV.item.qty, MV.qty + d)); renderMap(); }
 function cancelMove() { var c = MV.from; MV = null; M.wh = whOf(c).id; renderMap(); openRow(c); }
 /* 줄 전체 이동: 이 줄의 모든 품목을 도착 줄로 한 번에 (서버 moveRow · 하나라도 실패 시 전부 취소) */
-function startMoveAll() { if (!SH || !SH.items.length) return; MV = { from: SH.code, all: SH.items.slice(), qty: 0 }; closeSheet(); renderMap(); window.scrollTo(0, 0); }
+function startMoveAll() { if (!SH || !SH.items.length) return; var fc = SH.code; MV = { from: fc, all: SH.items.slice(), qty: 0 }; closeSheet(); renderMap(); mapReveal(fc); }
 /* 도착 줄에 품목 전부 들어가나: 하나씩 넣어 보며 확인 (앞 품목이 차지한 칸 반영) → 못 들어가는 품목 · 다 들어가면 null */
 function allFitBad(code, all) {
   var orig = S.stock, bad = null, tmp = orig.slice();
