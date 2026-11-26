@@ -234,6 +234,10 @@
   .ebadge.on, .zh .ebadge.on { background:var(--ok); border-color:var(--ok); color:#fff; }
   .seg button.on .ebadge { border-color:var(--ok); color:var(--ok); } .seg button.on .ebadge.on { color:#fff; }
   .cell.emp { border:2px solid var(--ok); background:#E9F6EE; } .cell.edim { opacity:.35; }   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
+  /* 표시 기준: 해당 줄 = 첫 기준 색 굵은 테두리 + 기준별 표시 · 머리 띠 범례 */
+  .cell.mk { border-width:3px; border-style:solid; }
+  .mkt { display:flex; flex-wrap:wrap; gap:3px; margin:2px 0 3px; } .mkt i, .mkl { font-style:normal; color:#fff; font-size:11.5px; font-weight:800; padding:1px 6px; border-radius:6px; white-space:nowrap; }
+  .mkl { display:inline-block; margin:1px 4px 1px 0; }
   .ctag { display:inline-block; margin-left:4px; padding:0 6px; border-radius:6px; background:#FCE9D6; color:#8A3E00; font-size:12px; font-weight:800; }
   .btn.cokb { background:#1D5FBF; color:#fff; }
   .prog { display:flex; align-items:center; gap:8px; margin-top:8px; color:#fff; font-size:13px; font-weight:700; }
@@ -766,6 +770,7 @@ function setStock(stock, at) {
   if (stock && !Array.isArray(stock) && stock.today) S.today = stock.today;   // 오늘 입고 진행 (저장 · 되돌리기 결과)
   if (stock && !Array.isArray(stock) && stock.stock) stock = stock.stock;   // 저장 결과 { stock, nos }
   S.stock = stock; S.loadedAt = Date.now(); S.at = at || hhmm();
+  if (typeof MK !== 'undefined') MK.act = null;   // 표시 기준 작업 집계 재조회 (재고 변경 = 입출고 · 이동 발생)
   if (typeof cacheS === 'function' && reload.shown) cacheS();   // 다음에 앱 열 때 바로 보일 데이터
 }
 /* 서버 재고 다시 받기: 앱 복귀 때 5분 지났으면 (시트 직접 수정 반영) · 당겨서 새로 고침 = 바로
@@ -1419,11 +1424,13 @@ function renderMap() {
   var w = S.whs.filter(function (x) { return x.id == M.wh; })[0];
   var anc = renderMap.shownWh === M.wh ? mapAnchor() : null;   // 다시 그려도 보던 칸 그대로 (머리 높이 · 칸 높이가 바뀌어도)
   if (EMP && (EMP != M.wh || MV || ST || PKM)) EMP = null;   // 다른 창고 · 다른 작업 시작 → 빈 줄 강조 끝
+  renderMap.n = (renderMap.n || 0) + 1; mkLoad();
+  var MKA = mkActive() && !EMP, mkN = 0;   // 표시 기준 (빈 줄 강조 중엔 빈 줄 강조 우선)
   /* 실사 표시: 지금 실사 중 · 직전 완료 · 다음 차례 줄 */
   var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
   var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
-    searchBar() + empLine(w) + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
+    searchBar() + empLine(w) + (MKA ? mkLine(w) : '') + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1442,7 +1449,11 @@ function renderMap() {
     }
     var n = S.stock.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
     return [x.id, esc(x.name) + empBadge(x.id, whEmpty(x)) + ' <small>' + n + '롤</small>', 'wh:' + x.id];
-  }), M.wh, function (v) { M.wh = v; renderMap(); }, true);
+  }), M.wh, function (v) {
+    // 선택된 창고 재누름 = 표시 기준 선택 창 (빈 줄 동그라미 누름 · 이동 · 편집 · 피킹 위치 선택 중 제외)
+    if (String(v) === String(M.wh) && !MV && !ST && !PKM && !(Date.now() - (empTap.t || 0) < 400)) return mkOpen();
+    M.wh = v; renderMap();
+  }, true);
   if (!w) { $('m-body').innerHTML = '<div class="card muted">설정 탭에서 창고 등록 필요</div>'; return; }
   // 같은 원지가 몇 곳에 있는지 (서명 → 위치 수) — 셀 규격 "분산" 배지용. 전 창고 기준, 한 번만 계산
   var DISTCNT = {};
@@ -1457,9 +1468,9 @@ function renderMap() {
       var stCur = ri.cfg.st || (off ? '미사용' : '');   // 운용 상태 이름
       if (ST) { var eff = stState(code); off = eff !== ''; stCur = eff; }   // 운용 정지 모드: 반영된 상태로 표시
       var hit = PKM ? !!PKM.locs[code] : fOn() ? items.some(fMatch) : false;
-      // 규격 목록: 롤 수 많은 순, 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
+      // 규격 목록: 적재순서 설정 순 (줄 화면 rowItems 와 같은 순서 · 미설정 = 롤 수 많은 순), 제지사 · 규격마다 한 줄 ([약칭] 규격 · 롤 수)
       var byS = {};
-      items.forEach(function (s) {
+      rowItems(code).forEach(function (s) {
         var mh = hit && !PKM && fMatch(s);   // 이 규격이 검색에 걸렸나 (셀이 hit일 때만 표시)
         makersOf(s).forEach(function (m) {
           var gr = m.maker ? '' : (s.grade || '');   // 제지사 없음 → 지종 약칭 표시 (표기 규칙 itemMk)
@@ -1467,7 +1478,7 @@ function renderMap() {
           e.q += m.qty; if (mh) e.hit = true;
         });
       });
-      var sk = Object.keys(byS).sort(function (a, b) { return byS[b].q - byS[a].q; });
+      var sk = Object.keys(byS);   // 삽입 순서 = 적재순서
       var anyHit = sk.some(function (k) { return byS[k].hit; });   // 걸린 규격이 있으면 나머지는 흐리게
       var mkv = mkVariants(sk.map(function (k) { return byS[k].mk; }));   // 폭 좁을 때 이름 줄이기 (규격은 그대로)
       var specs = sk.map(function (k) {
@@ -1491,15 +1502,22 @@ function renderMap() {
         else sec = ' selock';
         hit = false;
       }
-      var tdy = !MV && !ST && TD[code] > 0;   // 오늘 입고한 줄: 초록 테두리 + ✓
-      var cx = !MV && !ST && !off ? cntDone(code) : null, cdu = !MV && !ST && !off && !cx && cntDue(code);   // 실사: 일치 파랑 ✓ · 차이 주황 ✓ · 실사 필요 점선
-      var cc = cx ? (cx.r === '일치' ? ' cok' : ' cdf') : cdu ? ' cdue' : '';
+      /* 상시 테두리 정리 (2026-11-26): 오늘 입고 · 실사 결과 · 실사 필요 = 표시 기준으로 이동 (기본 표시 없음)
+         예외: 실사 범위 진행 중 = 실사 결과(일치 파랑 · 차이 주황) 유지 (진행 확인용) */
+      var tdy = false;
+      var cpl = !!cntInfo().plan, cx = cpl && !MV && !ST && !off ? cntDone(code) : null;
+      var cc = cx ? (cx.r === '일치' ? ' cok' : ' cdf') : '';
+      var mkh = MKA ? mkHits(code, ri) : null, mks = '', mkt = '';
+      if (mkh) {
+        if (mkh.length) { mkN++; mks = ' style="border-color:' + mkh[0].c + '"'; mkt = '<div class="mkt">' + mkh.map(function (x) { return '<i style="background:' + x.c + '">' + esc(x.t) + '</i>'; }).join('') + '</div>'; cc = ''; }
+        else cc = ' edim';
+      }
       var emo = EMP ? (!off && !ri.cfg.st && n === 0 ? ' emp' : ' edim') : '';   // 빈 줄 강조 모드
       var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : code === CLAST && cx ? '<span class="ctg">직전</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
-      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (cur ? ' ccur' : '') + emo + mvc + sec + '" data-c="' + code + '"' + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
+      h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (mkh && mkh.length ? ' mk' : '') + (cur ? ' ccur' : '') + emo + mvc + sec + '" data-c="' + code + '"' + mks + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + ctg + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
         (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
-        (off ? '' : specs) + fit +
+        mkt + (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + barColor(ri.used, ri.slots) + '"></i></div>') + '</button>';
     }
     return h;
@@ -1556,6 +1574,7 @@ function renderMap() {
   });
   html += '<div class="mainent" data-lp="whs:' + w.id + ':zone">▲ 주 출입구</div>';   // 지도 = 주 출입구(상차 공간)에서 들어가며 본 평면도 · 주 출입구 항상 아래
   $('m-body').innerHTML = html;
+  if (MKA && $('mk-n')) $('mk-n').textContent = mkN;
   fitCells($('m-body'));
   mapRestore(anc);
   // 창고를 처음 보여 줄 때(앱 시작 · 창고 변경): 주 출입구(아래)에 맞춰 시작 · 다시 그릴 때는 현재 위치 유지
@@ -1625,6 +1644,7 @@ function empBadge(whId, n) {
 }
 /* 동그라미 누름: 그 창고로 가서 빈 줄 강조 · 다시 누르면 끝 (창고 버튼 안이면 버튼 누름이 창고 전환 · 다시 그림) */
 function empTap(whId, ev) {
+  empTap.t = Date.now();   // 창고 버튼 안 동그라미: 버튼 재누름(표시 기준)으로 보지 않음
   var on = EMP != whId;
   EMP = on ? whId : null;
   if (!(ev && ev.target.closest && ev.target.closest('#m-whseg button'))) { if (ev) ev.stopPropagation(); M.wh = (S.whs.filter(function (w) { return w.id == whId; })[0] || {}).id || M.wh; renderMap(); }
@@ -1632,6 +1652,106 @@ function empTap(whId, ev) {
   if (on) requestAnimationFrame(function () { requestAnimationFrame(function () { var el = $('m-body').querySelector('.cell.emp'); if (el) mapReveal(el.getAttribute('data-c')); }); });
 }
 function empEnd() { EMP = null; renderMap(); }
+/* ===== 표시 기준 (WMS 지도 겹쳐 보기: Infor Visual Inventory · 히트맵 관행) =====
+   선택된 창고 버튼 재누름 = 선택 창 (복수 선택 · 기간 오늘 / 최근 7일) · 해당 줄만 색 테두리 + 표시 · 나머지 흐리게
+   기본 = 표시 없음 · 머리 띠 [종료] · 표시 조합 이름 저장 (이 기기 보관) */
+var MK = { on: [], days: 1, act: null, busy: false };
+try { var mk0 = JSON.parse(localStorage.getItem('mk') || 'null'); if (mk0) { MK.on = mk0.on || []; MK.days = mk0.days === 7 ? 7 : 1; } } catch (e) {}
+function mkSave() { try { localStorage.setItem('mk', JSON.stringify({ on: MK.on, days: MK.days })); } catch (e) {} }
+function mkPresets() { try { return JSON.parse(localStorage.getItem('mkPresets') || '[]') || []; } catch (e) { return []; } }
+function mkPresetsSet(a) { try { localStorage.setItem('mkPresets', JSON.stringify(a)); } catch (e) {} }
+function mkFrom() { return MK.days === 7 ? daysAgo(6) : todayStr(); }
+/* 기준: [키, 이름, 색, 설명, 판정(code, ri) → 표시 글자 | '' , 기간 적용] */
+var MK_DEF = [
+  ['in', '입고', '#1E8E4E', '입고 · 잔량 반납 줄', function (c) { var q = MK.act && MK.act.inl[c]; return q ? '입고 ' + q : ''; }, 1],
+  ['out', '출고', '#D64545', '출고 줄', function (c) { var q = MK.act && MK.act.out[c]; return q ? '출고 ' + q : ''; }, 1],
+  ['mv', '이동', '#1D5FBF', '이동 출발 · 도착 줄', function (c) { var a = MK.act; if (!a) return ''; var f = a.mvFrom[c], t = a.mvTo[c]; return (f ? '출발 ' + f : '') + (f && t ? ' · ' : '') + (t ? '도착 ' + t : ''); }, 1],
+  ['cnt', '실사 완료', '#6A3FB5', '실사 일치 · 차이 줄', function (c) { var x = cntOf(c); return x && x.d >= mkFrom() ? '실사 ' + x.r : ''; }, 1],
+  ['due', '실사 필요', '#8A6D00', '실사 주기 경과 · 미실사 줄', function (c, ri) { return !ri.cfg.off && cntDue(c) ? '실사 필요' : ''; }, 0],
+  ['over', '적재 한도 초과', '#9A1C1C', '필요 칸 > 줄 칸수 (실사 확인 필요)', function (c, ri) { return ri.slots && ri.used > ri.slots ? '초과 ' + ri.used + '/' + ri.slots + '칸' : ''; }, 0],
+  ['aging', '장기 재고', '#7A4A00', function () { return '입고 후 ' + agingDays() + '일 이상'; }, function (c, ri) {
+    var m = 0; ri.items.forEach(function (s) { (s.lots && s.lots.length ? s.lots : [{ date: s.date }]).forEach(function (l) { m = Math.max(m, ageOf(l.date)); }); });
+    return m >= agingDays() ? '장기 ' + m + '일' : ''; }, 0],
+  ['low', '적재율 50% 미만', '#5A6470', '재고 보유 · 공간 확보 후보', function (c, ri) { return ri.rolls && ri.slots && ri.used / ri.slots < 0.5 && !ri.cfg.off ? '적재 ' + Math.round(ri.used / ri.slots * 100) + '%' : ''; }, 0],
+  ['empty', '빈 줄', '#0F7C7C', '운용 중 · 재고 0', function (c, ri) { return !ri.cfg.off && !ri.cfg.st && !ri.rolls ? '빈 줄' : ''; }, 0],
+  ['job', '진행 작업', '#B0306A', '공간 확보 · 병합 미완료 출발 · 도착 줄', function (c) {
+    if (!MJ || !MJ.moves) return ''; var f = 0, t = 0;
+    MJ.moves.forEach(function (m) { if (m.done) return; if (m.from === c) f += m.qty; if (m.to === c) t += m.qty; });
+    return (f ? '출발 ' + f : '') + (f && t ? ' · ' : '') + (t ? '도착 ' + t : ''); }, 0],
+  ['pick', '피킹 대상', '#C77700', '피킹 중 배정 줄', function (c) { var m = mkPickLocs(); return m && m[c] ? '피킹 ' + m[c] : ''; }, 0]
+];
+function mkDef(k) { return MK_DEF.filter(function (d) { return d[0] === k; })[0]; }
+function mkDesc(d) { return typeof d[3] === 'function' ? d[3]() : d[3]; }
+function mkActive() { return !MV && !ST && !PKM && MK.on.length > 0; }
+/* 피킹 배정 줄 (피킹 단계일 때만 · 한 번 그릴 때 1회 계산) */
+function mkPickLocs() {
+  if (mkPickLocs.at === renderMap.n) return mkPickLocs.v;
+  var m = null;
+  if (typeof PL !== 'undefined' && PL.stage === 'pick' && PL.items && PL.items.length) {
+    m = {}; var A = allocPlan();
+    Object.keys(A).forEach(function (id) { A[id].locs.forEach(function (l) { m[l.loc] = (m[l.loc] || 0) + l.qty; }); });
+  }
+  mkPickLocs.at = renderMap.n; mkPickLocs.v = m; return m;
+}
+/* 기간 기준(입고 · 출고 · 이동) 선택 시 서버 집계 조회 → 다시 그림 */
+function mkNeedAct() { return MK.on.some(function (k) { var d = mkDef(k); return d && d[0] !== 'cnt' && d[5]; }); }
+function mkLoad() {
+  if (!mkActive() || !mkNeedAct() || MK.busy || (MK.act && MK.act.days === MK.days)) return;
+  MK.busy = true; call.quiet = true; setTimeout(function () { MK.busy = false; }, 15000);
+  call('mapActivity', MK.days).then(function (a) { MK.busy = false; MK.act = a; if (TAB === 'map') renderMap(); }, function () { MK.busy = false; });
+}
+/* 줄 1칸 판정: [{ k, t, c }] (선택 순서 = 기준 표 순서) */
+function mkHits(code, ri) {
+  var out = [];
+  MK_DEF.forEach(function (d) { if (MK.on.indexOf(d[0]) < 0) return; var t = d[4](code, ri); if (t) out.push({ k: d[0], t: t, c: d[2] }); });
+  return out;
+}
+/* 선택 창: 누를 때마다 반영 후 다시 열림 (뒤 지도 즉시 갱신) · ✕ / 완료 = 닫힘 */
+function mkOpen() {
+  var P = mkPresets(), on = function (k) { return MK.on.indexOf(k) >= 0; };
+  var ch = [{ h: '기간 (입고 · 출고 · 이동 · 실사 완료)' },
+    { v: 'd1', t: '오늘', tag: MK.days === 1 ? '선택' : '' }, { v: 'd7', t: '최근 7일', tag: MK.days === 7 ? '선택' : '' },
+    { h: '표시 기준 (복수 선택)' }].concat(MK_DEF.map(function (d) { return { v: 'k:' + d[0], t: d[1], sub: mkDesc(d), tag: on(d[0]) ? '선택' : '' }; }));
+  if (P.length) ch = ch.concat([{ h: '저장된 표시 조합' }], P.map(function (p, i) {
+    return { v: 'p:' + i, t: p.n, sub: p.on.map(function (k) { var d = mkDef(k); return d ? d[1] : k; }).join(' · ') + ' · ' + (p.days === 7 ? '최근 7일' : '오늘'), edit: true };
+  }));
+  ch = ch.concat([{ h: '조합 · 해제' }, { v: 'save', t: '현재 조합 이름 저장', sub: MK.on.length ? MK.on.length + '개 기준' : '표시 기준 선택 필요', off: !MK.on.length },
+    { v: 'none', t: '표시 없음', sub: '전체 해제' }, { v: 'done', t: '완료' }]);
+  ask({ title: '표시 기준 · ' + whName(M.wh), input: false, list: true, chips: ch, onEdit: function (v) { mkPresetEdit(Number(String(v).slice(2))); } }, function (v) {
+    if (!v || v === 'done') return;
+    if (v === 'd1' || v === 'd7') { MK.days = v === 'd7' ? 7 : 1; }
+    else if (v.indexOf('k:') === 0) { var k = v.slice(2), i = MK.on.indexOf(k); if (i >= 0) MK.on.splice(i, 1); else MK.on.push(k); }
+    else if (v.indexOf('p:') === 0) { var p = P[Number(v.slice(2))]; if (p) { MK.on = p.on.slice(); MK.days = p.days === 7 ? 7 : 1; } }
+    else if (v === 'none') { MK.on = []; }
+    else if (v === 'save') return mkPresetNew();
+    mkSave(); renderMap(); if (v.indexOf('p:') === 0 || v === 'none') return; mkOpen();
+  });
+}
+function mkPresetNew() {
+  ask({ title: '표시 조합 이름 저장', value: MK.on.map(function (k) { return mkDef(k)[1]; }).join(' · '), placeholder: '예: 오늘 작업 점검' }, function (n) {
+    n = String(n || '').trim(); if (!n) return mkOpen();
+    var P = mkPresets().filter(function (p) { return p.n !== n; });   // 동일 이름 = 덮어쓰기
+    P.push({ n: n, on: MK.on.slice(), days: MK.days }); mkPresetsSet(P); toast('표시 조합 저장 · ' + n); mkOpen();
+  });
+}
+function mkPresetEdit(i) {
+  var P = mkPresets(), p = P[i]; if (!p) return;
+  ask({ title: '표시 조합 · ' + p.n, input: false, list: true, chips: [{ v: 'ren', t: '이름 변경' }, { v: 'upd', t: '현재 조합으로 변경', off: !MK.on.length }, { v: 'del', t: '삭제' }] }, function (v) {
+    if (v === 'del') { P.splice(i, 1); mkPresetsSet(P); toast('표시 조합 삭제 · ' + p.n); return mkOpen(); }
+    if (v === 'upd') { p.on = MK.on.slice(); p.days = MK.days; mkPresetsSet(P); toast('표시 조합 변경 · ' + p.n); return mkOpen(); }
+    if (v === 'ren') return ask({ title: '이름 변경', value: p.n }, function (n) { n = String(n || '').trim(); if (n) { p.n = n; mkPresetsSet(P); } mkOpen(); });
+    mkOpen();
+  });
+}
+function mkEnd() { MK.on = []; mkSave(); renderMap(); }
+/* 머리 띠: 선택 기준(색) · 기간 · 해당 줄 수 · 누름 = 선택 창 · [종료] */
+function mkLine(w, cnt) {
+  if (!mkActive() || !w) return '';
+  var lg = MK.on.map(function (k) { var d = mkDef(k); return d ? '<i class="mkl" style="background:' + d[2] + '">' + esc(d[1]) + '</i>' : ''; }).join('');
+  var per = MK.on.some(function (k) { var d = mkDef(k); return d && d[5]; }) ? ' · ' + (MK.days === 7 ? '최근 7일' : '오늘') : '';
+  return '<div class="ehint row"><span style="flex:1; min-width:0" role="button" onclick="mkOpen()">' + lg + '<span style="white-space:nowrap">' + per + ' · <b id="mk-n">' + (cnt == null ? '' : cnt) + '</b>줄</span></span>' +
+    '<button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="mkEnd()">종료</button></div>';
+}
 /* 강조 중 머리 띠: 빈 줄 수 · [종료] (모드는 항상 끝낼 수 있게) */
 function empLine(w) {
   if (!EMP || !w) return '';
