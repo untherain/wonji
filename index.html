@@ -507,6 +507,12 @@
   .pkhint { font-size:12px; color:var(--sub); margin-top:8px; }
   .lbl span { font-size:12px; font-weight:500; color:var(--sub); }
   .srch { display:flex; align-items:center; gap:8px; width:100%; background:#fff; border:0; border-radius:10px; height:42px; padding:0 12px; margin-top:8px; color:#8A9098; font:inherit; font-size:15px; text-align:left; }
+  /* 표시 기준 칩: 검색칸 오른쪽 (별도 머리 띠 없음 · 한 줄 절약) · 누름 = 선택 창 · ✕ = 종료 */
+  .srow { display:flex; gap:6px; align-items:center; } .srow .srch { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mkchip { flex:none; display:flex; align-items:center; height:42px; margin-top:8px; border-radius:10px; background:#fff; overflow:hidden; max-width:52%; }
+  .mkchip b { display:flex; align-items:center; gap:4px; padding:0 4px 0 8px; font-size:13px; color:var(--ink); white-space:nowrap; overflow:hidden; cursor:pointer; }
+  .mkchip b i { flex:none; width:10px; height:10px; border-radius:50%; } .mkchip b span { overflow:hidden; text-overflow:ellipsis; }
+  .mkchip button { flex:none; border:0; background:none; height:42px; padding:0 10px; font-size:16px; font-weight:900; color:var(--ink); }
   .srch b { color:var(--ink); } .srch .cnt { margin-left:auto; color:var(--ok); font-weight:900; white-space:nowrap; }
   .srch .clr { border:0; background:#E6E8EB; border-radius:8px; width:30px; height:30px; font-size:14px; flex:none; }
   .band { background:var(--y); color:var(--ink); border-radius:10px; padding:8px 10px; margin-top:8px; }
@@ -1431,7 +1437,7 @@ function renderMap() {
   var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
   var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
-    searchBar() + empLine(w) + (MKA ? mkLine(w) : '') + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
+    '<div class="srow">' + searchBar() + (MKA ? mkChip() : '') + '</div>' + empLine(w) + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -1771,13 +1777,13 @@ function mkPresetEdit(i) {
   });
 }
 function mkEnd() { MK.on = []; mkSave(); renderMap(); }
-/* 머리 띠: 선택 기준(색) · 기간 · 해당 줄 수 · 누름 = 선택 창 · [종료] */
-function mkLine(w, cnt) {
-  if (!mkActive() || !w) return '';
-  var lg = MK.on.map(function (k) { var d = mkDef(k); return d ? '<i class="mkl" style="background:' + d[2] + '">' + esc(d[1]) + '</i>' : ''; }).join('');
-  var per = MK.on.some(function (k) { var d = mkDef(k); return d && d[5]; }) ? ' · ' + (MK.days === 7 ? '최근 7일' : '오늘') : '';
-  return '<div class="ehint row"><span style="flex:1; min-width:0" role="button" onclick="mkOpen()">' + lg + '<span style="white-space:nowrap">' + per + ' · <b id="mk-n">' + (cnt == null ? '' : cnt) + '</b>줄</span></span>' +
-    '<button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="mkEnd()">종료</button></div>';
+/* 표시 기준 칩 (검색칸 오른쪽 · 2026-11-26 머리 띠 → 칩): 기준 색 점 · 첫 기준 이름(+n) · 7일 · 해당 줄 수 · 누름 = 선택 창 · ✕ = 종료 */
+function mkChip() {
+  var ds = MK.on.map(mkDef).filter(Boolean); if (!ds.length) return '';
+  var per = MK.days === 7 && ds.some(function (d) { return d[5]; }) ? ' 7일' : '';
+  return '<span class="mkchip"><b role="button" aria-label="표시 기준" onclick="mkOpen()">' + ds.map(function (d) { return '<i style="background:' + d[2] + '"></i>'; }).join('') +
+    '<span><em id="mk-n" style="font-style:normal"></em>줄 · ' + esc(ds[0][1]) + (ds.length > 1 ? ' +' + (ds.length - 1) : '') + per + '</span></b>' +
+    '<button aria-label="표시 기준 종료" onclick="mkEnd()">✕</button></span>';
 }
 /* 강조 중 머리 띠: 빈 줄 수 · [종료] (모드는 항상 끝낼 수 있게) */
 function empLine(w) {
