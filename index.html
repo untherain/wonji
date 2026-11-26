@@ -512,6 +512,8 @@
   .mkchip { flex:none; display:flex; align-items:center; height:42px; margin-top:8px; border-radius:10px; background:#fff; overflow:hidden; max-width:52%; }
   .mkchip b { display:flex; align-items:center; gap:4px; padding:0 4px 0 8px; font-size:13px; color:var(--ink); white-space:nowrap; overflow:hidden; cursor:pointer; }
   .mkchip b i { flex:none; width:10px; height:10px; border-radius:50%; } .mkchip b span { overflow:hidden; text-overflow:ellipsis; }
+  .orgchip { flex:none; height:42px; margin-top:8px; border:0; border-radius:10px; background:#fff; padding:0 10px; font:inherit; font-size:13px; font-weight:900; color:#0B6E99; white-space:nowrap; }   /* 정리 칩: 분산 품목 수 · 진행 중 = 진행 색 */
+  .orgchip.on { background:#B0306A; color:#fff; }
   .mkchip button { flex:none; border:0; background:none; height:42px; padding:0 10px; font-size:16px; font-weight:900; color:var(--ink); }
   .srch b { color:var(--ink); } .srch .cnt { margin-left:auto; color:var(--ok); font-weight:900; white-space:nowrap; }
   .srch .clr { border:0; background:#E6E8EB; border-radius:8px; width:30px; height:30px; font-size:14px; flex:none; }
@@ -1437,7 +1439,7 @@ function renderMap() {
   var CUR = SH && (SH.mode === 'cnt' || SH.mode === 'add') && SH.cnt ? SH.code : '', CLAST = cntLastCode();
   var CNEXT = cntInfo().plan ? cntNextCode(CUR || CLAST) : null;
   $('hdrExtra').innerHTML = '<div class="seg" id="m-whseg"></div>' + (MV ? moveBand() : PKM ? pkBand() :
-    '<div class="srow">' + searchBar() + (MKA ? mkChip() : '') + '</div>' + empLine(w) + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
+    '<div class="srow">' + searchBar() + orgChip(w) + (MKA ? mkChip() : '') + '</div>' + empLine(w) + progLine() + cntLine() + (ST ? '<div class="ehint row"><span style="flex:1">편집 중 · 빈 줄 선택 시 <b>사용 ↔ 미사용</b> 전환 · <b>✓ 완료</b> 시 저장</span><button class="btn2" style="height:32px; flex:none; width:auto; padding:0 12px" onclick="stCancel()">취소</button></div>' : ''));
   var TD = (S.today && S.today.locs) || {};
   /* 검색 중: 창고 버튼에 그 창고의 검색 결과(곳 · 롤) 표시 · 결과 없는 창고는 흐리게 → 눌러 보지 않아도 어디 있는지 보임
      지금 창고에 결과가 없고 다른 창고에만 있으면 그 창고로 자동 이동 (검색 조건이 바뀐 때만) */
@@ -2508,6 +2510,7 @@ function renderSheet() {
   if (SH.mode === 'cfg') { rowEditor(SH.code); return; }
   if (SH.mode === 'wh') { sheetWh(); return; }
   if (SH.mode === 'merge') { sheetMerge(); return; }
+  if (SH.mode === 'org') { sheetOrg(); return; }
   d.innerHTML = SH.mode === 'in' ? sheetIn() : SH.mode === 'add' ? sheetAdd() : SH.mode === 'filter' ? sheetFilter() :
     SH.mode === 'cnt' ? sheetCount() : SH.mode === 'plan' ? sheetPlan() : SH.mode === 'pkd' ? sheetPkd() : SH.mode === 'tbl' ? sheetTbl() : SH.mode === 'doc' ? sheetDoc() : sheetRow();
   if (SH.mode === 'plan') plAfter();
@@ -5070,44 +5073,61 @@ function orgTrend(id) {
   if (h.length < 2) return '';
   return '<div class="muted" style="font-size:12px; margin:2px 0">분산 품목 추이: ' + h.map(function (x) { return x.day.slice(5) + ' <b>' + x.dist + '</b>'; }).join(' · ') + '</div>';
 }
+/* 재고 탭 정리 칩 (검색칸 줄 · 2026-11-26): 분산 품목 수 · 진행 중 = 정리 n/m · 분산 없음 + 작업 없음 = 숨김 · 누름 = 정리 창 */
+function orgChip(w) {
+  if (!w || MV || ST || PKM) return '';
+  var job = MJ && MJ.kind === 'space' && String(MJ.wh) === String(w.id) && mjLeft();
+  if (job) return '<button class="orgchip on" onclick="orgOpen(' + w.id + ')">정리 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + '</button>';
+  if (orgChip.at !== renderMap.n || orgChip.wh !== w.id) { orgChip.at = renderMap.n; orgChip.wh = w.id; orgChip.n = spaceModel(w).stats().dist; }
+  return orgChip.n ? '<button class="orgchip" onclick="orgOpen(' + w.id + ')">정리 · 분산 ' + orgChip.n + '</button>' : '';
+}
+function orgOpen(id) { shOpen({ code: null, mode: 'org', wh: id }); }
+function sheetOrg() {
+  var w = S.whs.filter(function (x) { return String(x.id) === String(SH.wh); })[0]; if (!w) { SH = null; return closeSheet(); }
+  ORG.locs = [];
+  $('detail').innerHTML = shHead('정리 · ' + esc(w.name), '창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선', false) + '<div style="margin-top:8px">' + orgWh(w) + '</div>';
+}
+/* 정리 창고 카드 1개 (보고서 · 재고 탭 정리 창 공통) · snap = 지표 수집 배열(선택) */
+function orgWh(w, snap) {
+  var D = spacePlan(w, 'dist'), T = spacePlan(w, 'tidy'), h = ''; if (!D.lines) return '';
+  var s0 = D.s0, empty0 = D.lines - D.before;
+  if (snap) snap.push({ wh: w.id, dist: s0.dist, avg: s0.avg, sku: s0.sku, empty: empty0 });
+  var dCut = s0.dist - D.s1.dist, tCut = T.before - T.after;
+  // 분산 품목 목록 (위치 칩 = 지도의 그 줄 · 통합 불가 표시)
+  var sl = spaceModel(w).skuLines(), lf = {}; D.left.forEach(function (x) { lf[x.sig] = 1; });
+  var dl = Object.keys(sl).filter(function (g) { return sl[g].length > 1; }).sort(function (a, b) { return (lf[a] ? 1 : 0) - (lf[b] ? 1 : 0) || sl[b].length - sl[a].length; });
+  var list = dl.map(function (g) {
+    return '<div style="padding:5px 0; border-top:1px dashed #E6E8EB"><b style="font-size:13.5px">' + esc(distTitle(g)) + '</b>' +
+      (lf[g] ? ' <span style="font-size:11.5px; font-weight:800; color:#9A1C1C">통합 불가 (자리 부족)</span>' : '') + '<div>' +
+      sl[g].map(function (c) { ORG.locs.push(c); return '<button class="lchip lc" onclick="goLoc(ORG.locs[' + (ORG.locs.length - 1) + '])">' + esc(keyOf(c)) + '</button>'; }).join('') + '</div></div>';
+  }).join('');
+  function sec(title, tag, desc, body, btn) {
+    return '<div style="border-top:1px solid #E6E8EB; padding:8px 0 2px; margin-top:6px"><div class="row" style="gap:8px; align-items:center"><div style="flex:1; min-width:0">' +
+      '<b style="font-size:14.5px">' + title + (tag ? ' <span class="tt" style="background:#1E5A33">' + tag + '</span>' : '') + '</b>' +
+      '<div class="muted" style="font-size:11.5px">' + esc(desc) + '</div>' + body + '</div>' + btn + '</div></div>';
+  }
+  var ok = function (t) { return '<div style="font-size:13px; font-weight:800; color:var(--ok)">' + t + '</div>'; };
+  var red = function (t) { return '<div style="font-size:12px; font-weight:800; color:#9A1C1C">' + t + '</div>'; };
+  var dBody = (dCut || D.moves.length ? ok('분산 ' + s0.dist + '종 → ' + D.s1.dist + '종 · 이동 ' + D.moves.length + '건 · ' + D.rolls + '롤' + (D.before > D.after ? ' · 빈 줄 +' + (D.before - D.after) : '')) +
+      (D.swaps ? '<div style="font-size:12px; font-weight:800; color:#1D5FBF">교환 이동 ' + D.swaps + '쌍 포함 (임시 적치 필요)</div>' : '') + (D.fifo ? red('선입선출 역전 ' + D.fifo + '건') : '')
+    : s0.dist ? red('분산 해소 불가 — 자리 부족') : ok('분산 품목 없음'));
+  var tBody = tCut ? ok('빈 줄 ' + empty0 + '줄 → ' + (T.lines - T.after) + '줄 (+' + tCut + ') · 이동 ' + T.moves.length + '건 · ' + T.rolls + '롤') + (T.fifo ? red('선입선출 역전 ' + T.fifo + '건') : '')
+    : red('빈 줄 확보 불가 — 빈 칸 부족');
+  h += '<div class="card" style="margin:0 0 8px; padding:10px 12px">' +
+    '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1">' + esc(w.name) + '</b>' +
+    '<span class="muted" style="font-size:13px; white-space:nowrap">운용 ' + D.lines + '줄 · 사용 ' + D.before + '줄 · 빈 줄 ' + empty0 + '줄</span></div>' +
+    '<div style="font-size:13px; margin:2px 0">분산 품목 <b>' + s0.dist + '</b>종 / ' + s0.sku + '종 · 품목당 평균 <b>' + s0.avg.toFixed(2) + '</b>줄</div>' + orgTrend(w.id) +
+    (D.over.length ? '<div style="font-size:12px; font-weight:800; color:#7A3E00; margin:2px 0 4px">적재 한도 초과 ' + D.over.length + '줄 (실사 확인 필요): ' +
+      D.over.map(function (o) { return esc(keyOf(o.loc)) + ' ' + o.used + '/' + o.slots + '칸'; }).join(' · ') + '</div>' : '') +
+    sec('① 분산 해소', '권장', SPACE_MODES[0][2], dBody, orgBtn(w, 'dist', D.moves.length)) +
+    (dl.length ? '<details style="margin:2px 0 4px"><summary class="muted" style="font-size:12.5px; cursor:pointer">분산 품목 ' + dl.length + '종' + (D.left.length ? ' (통합 불가 ' + D.left.length + '종)' : '') + ' · 위치 보기</summary>' + list + '</details>' : '') +
+    sec('② 빈 줄 확보', '', SPACE_MODES[1][2] + ' · 필요 시', tBody, orgBtn(w, 'tidy', tCut)) + '</div>';
+  return h;
+}
 function orgCard() {
   var h = '<div class="card"><div class="row"><b>정리</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선</div>', snap = [];
   ORG.locs = [];
-  S.whs.forEach(function (w) {
-    var D = spacePlan(w, 'dist'), T = spacePlan(w, 'tidy'); if (!D.lines) return;
-    var s0 = D.s0, empty0 = D.lines - D.before;
-    snap.push({ wh: w.id, dist: s0.dist, avg: s0.avg, sku: s0.sku, empty: empty0 });
-    var dCut = s0.dist - D.s1.dist, tCut = T.before - T.after;
-    // 분산 품목 목록 (위치 칩 = 지도의 그 줄 · 통합 불가 표시)
-    var sl = spaceModel(w).skuLines(), lf = {}; D.left.forEach(function (x) { lf[x.sig] = 1; });
-    var dl = Object.keys(sl).filter(function (g) { return sl[g].length > 1; }).sort(function (a, b) { return (lf[a] ? 1 : 0) - (lf[b] ? 1 : 0) || sl[b].length - sl[a].length; });
-    var list = dl.map(function (g) {
-      return '<div style="padding:5px 0; border-top:1px dashed #E6E8EB"><b style="font-size:13.5px">' + esc(distTitle(g)) + '</b>' +
-        (lf[g] ? ' <span style="font-size:11.5px; font-weight:800; color:#9A1C1C">통합 불가 (자리 부족)</span>' : '') + '<div>' +
-        sl[g].map(function (c) { ORG.locs.push(c); return '<button class="lchip lc" onclick="goLoc(ORG.locs[' + (ORG.locs.length - 1) + '])">' + esc(keyOf(c)) + '</button>'; }).join('') + '</div></div>';
-    }).join('');
-    function sec(title, tag, desc, body, btn) {
-      return '<div style="border-top:1px solid #E6E8EB; padding:8px 0 2px; margin-top:6px"><div class="row" style="gap:8px; align-items:center"><div style="flex:1; min-width:0">' +
-        '<b style="font-size:14.5px">' + title + (tag ? ' <span class="tt" style="background:#1E5A33">' + tag + '</span>' : '') + '</b>' +
-        '<div class="muted" style="font-size:11.5px">' + esc(desc) + '</div>' + body + '</div>' + btn + '</div></div>';
-    }
-    var ok = function (t) { return '<div style="font-size:13px; font-weight:800; color:var(--ok)">' + t + '</div>'; };
-    var red = function (t) { return '<div style="font-size:12px; font-weight:800; color:#9A1C1C">' + t + '</div>'; };
-    var dBody = (dCut || D.moves.length ? ok('분산 ' + s0.dist + '종 → ' + D.s1.dist + '종 · 이동 ' + D.moves.length + '건 · ' + D.rolls + '롤' + (D.before > D.after ? ' · 빈 줄 +' + (D.before - D.after) : '')) +
-        (D.swaps ? '<div style="font-size:12px; font-weight:800; color:#1D5FBF">교환 이동 ' + D.swaps + '쌍 포함 (임시 적치 필요)</div>' : '') + (D.fifo ? red('선입선출 역전 ' + D.fifo + '건') : '')
-      : s0.dist ? red('분산 해소 불가 — 자리 부족') : ok('분산 품목 없음'));
-    var tBody = tCut ? ok('빈 줄 ' + empty0 + '줄 → ' + (T.lines - T.after) + '줄 (+' + tCut + ') · 이동 ' + T.moves.length + '건 · ' + T.rolls + '롤') + (T.fifo ? red('선입선출 역전 ' + T.fifo + '건') : '')
-      : red('빈 줄 확보 불가 — 빈 칸 부족');
-    h += '<div class="card" style="margin:0 0 8px; padding:10px 12px">' +
-      '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1">' + esc(w.name) + '</b>' +
-      '<span class="muted" style="font-size:13px; white-space:nowrap">운용 ' + D.lines + '줄 · 사용 ' + D.before + '줄 · 빈 줄 ' + empty0 + '줄</span></div>' +
-      '<div style="font-size:13px; margin:2px 0">분산 품목 <b>' + s0.dist + '</b>종 / ' + s0.sku + '종 · 품목당 평균 <b>' + s0.avg.toFixed(2) + '</b>줄</div>' + orgTrend(w.id) +
-      (D.over.length ? '<div style="font-size:12px; font-weight:800; color:#7A3E00; margin:2px 0 4px">적재 한도 초과 ' + D.over.length + '줄 (실사 확인 필요): ' +
-        D.over.map(function (o) { return esc(keyOf(o.loc)) + ' ' + o.used + '/' + o.slots + '칸'; }).join(' · ') + '</div>' : '') +
-      sec('① 분산 해소', '권장', SPACE_MODES[0][2], dBody, orgBtn(w, 'dist', D.moves.length)) +
-      (dl.length ? '<details style="margin:2px 0 4px"><summary class="muted" style="font-size:12.5px; cursor:pointer">분산 품목 ' + dl.length + '종' + (D.left.length ? ' (통합 불가 ' + D.left.length + '종)' : '') + ' · 위치 보기</summary>' + list + '</details>' : '') +
-      sec('② 빈 줄 확보', '', SPACE_MODES[1][2] + ' · 필요 시', tBody, orgBtn(w, 'tidy', tCut)) + '</div>';
-  });
+  S.whs.forEach(function (w) { h += orgWh(w, snap); });
   // 지표 일별 저장 · 추이 받기 (하루 · 값 변경 시 1회)
   var key = todayStr() + JSON.stringify(snap);
   if (ORG.sent !== key) {
