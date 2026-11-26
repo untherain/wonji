@@ -2099,6 +2099,7 @@ function sheetMerge() {
           (m.sig ? '<div style="font-size:14px; font-weight:800">' + esc(distTitle(m.sig)) + '</div>' : '') +
           (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
           (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '') +
+          (m.fifo && !m.done ? '<div style="font-size:12px; font-weight:900; color:#9A1C1C">선입선출 역전 · 도착 줄 기존 재고 ' + esc(m.fifo.slice(5)) + ' 입고 (안쪽 적재)</div>' : '') +
           (m.done ? '<div style="font-size:12px; font-weight:900; color:#1E5A33">✓ 이동 완료</div>' : '');
         var side = m.done
           ? '<button class="btn2" style="height:40px; padding:0 10px; color:#9A1C1C; border-color:#9A1C1C" onclick="mjUndo(' + i + ')">이동 취소</button>'
@@ -2169,9 +2170,16 @@ function mergeHere(i) {
 /* C. 공간 확보 (창고 단위 · WMS 로케이션 통합): 적게 든 줄부터 비워 같은 창고 다른 줄의 빈 칸으로 → 빈 줄 최대
    칸 계산 = 규격(평량·지폭·지종·잔량)별 롤수 ÷ 단수 올림 (rowInfo · freeFor 와 같은 기준)
    도착 우선: 동일 규격 줄(칸 합침) → 추가 칸 최소 → 동일 구역 · 가까운 줄 · 많이 찬 줄
-   중간 경유는 최종 도착으로 정리 (같은 롤 재이동 없음 · 도착 줄은 비우지 않음 → 이동 순서 무관) */
+   중간 경유는 최종 도착으로 정리 (같은 롤 재이동 없음 · 도착 줄은 비우지 않음 → 이동 순서 무관)
+   방식 (2026-11-26 · WMS 통합 도착 위치 규칙 = 동일 품목 → 동일 소유주 → 선입선출):
+     tidy 정돈 우선(기본) = 도착 줄 = 동일 규격 또는 동일 제지사 줄만 · 선입선출 역전 없는 줄 우선
+     max 빈 줄 최대 = 칸 여유 기준 (제지사 무관)
+   선입선출 역전: 줄 추가 = 통로 쪽(기존 원지 앞) 적재 → 도착 줄 기존 재고가 더 오래되면 안쪽에 막힘 → 이동 건 경고(fifo) */
 function spaceKey(s) { return [s.gsm, s.width, s.grade || '', s.rem ? 'Y' : ''].join('|'); }
-function spacePlan(w) {
+function oldDay(s) { var l = s.lots && s.lots.length ? s.lots : [{ date: s.date }]; return l.map(function (x) { return x.date || ''; }).filter(String).sort()[0] || ''; }
+var SPACE_MODES = [['tidy', '정돈 우선', '동일 규격 · 동일 제지사 줄만 · 선입선출 역전 최소'], ['max', '빈 줄 최대', '칸 여유 기준 · 제지사 혼재 허용']];
+function spacePlan(w, mode) {
+  var tidy = mode !== 'max';
   var L = {}, R = [], over = [];
   eachRow(w, function (z, key, code) {
     var c = cfgOf(w, key); if (c.st || c.off) return;   // 통로 · 미사용 · 비사용 제외
@@ -2198,8 +2206,16 @@ function spacePlan(w) {
         var before = usedOf(cur, x), after = usedOf(cur.concat(g), x);
         if (after > L[x].slots) return;
         var sc = -(after - before) * 10 + after * 0.5 - Math.abs(L[x].no - L[src].no) * 0.1;
-        if (cur.some(function (r) { return r.k === g[0].k; })) sc += 50;
+        var same = cur.some(function (r) { return r.k === g[0].k; });
+        if (same) sc += 50;
         if (L[x].zone === L[src].zone) sc += 2;
+        if (tidy) {
+          var gm = {}; g.forEach(function (r) { makersOf(r.s).forEach(function (m) { if (m.maker) gm[m.maker] = 1; }); });
+          var mk = cur.some(function (r) { return makersOf(r.s).some(function (m) { return gm[m.maker]; }); });
+          if (!same && !mk) return;   // 정돈 우선: 동일 규격 · 동일 제지사 줄만
+          var gNew = g.map(function (r) { return oldDay(r.s); }).sort().pop() || '';
+          if (cur.some(function (r) { var d = oldDay(r.s); return d && gNew && d < gNew; })) sc -= 6;   // 선입선출 역전 줄 후순위
+        }
         if (sc > bs) { bs = sc; best = x; }
       });
       if (!best) { done.forEach(function (r) { r.at = src; }); return false; }
@@ -2221,22 +2237,28 @@ function spacePlan(w) {
     m.qty += r.s.qty; m.d = lotKey(r.s);
     var t = S.stock.filter(function (x) { return x.loc === r.at && sigOf(x) === sig; })[0];
     if (t) { m.td = lotKey(t); m.mix = m.td !== m.d; }
+    // 선입선출 역전: 도착 줄 기존 재고(이동 전) 중 이 원지보다 오래된 입고일 (가장 오래된 날)
+    var od = oldDay(r.s);
+    S.stock.forEach(function (x) { if (x.loc !== r.at) return; var d = oldDay(x); if (d && od && d < od && (!m.fifo || d < m.fifo)) m.fifo = d; });
   });
   var moves = Object.keys(mv).map(function (k) { return mv[k]; }).sort(function (a, b) { return a.from.localeCompare(b.from) || a.to.localeCompare(b.to); });
   return { moves: moves, lines: codes.length, before: occ0.length, after: occ0.length - Object.keys(gone).length,
-    emptied: Object.keys(gone).sort(), over: over, rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0) };
+    emptied: Object.keys(gone).sort(), over: over, rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0),
+    fifo: moves.filter(function (m) { return m.fifo; }).length };
 }
-function mjTitle(j) { return j.kind === 'space' ? '공간 확보 · ' + whName(j.wh) : '병합 · ' + distTitle(j.sig); }
-function startSpace(id) {
+function spaceModeName(k) { var m = SPACE_MODES.filter(function (x) { return x[0] === k; })[0]; return m ? m[1] : SPACE_MODES[0][1]; }
+function mjTitle(j) { return j.kind === 'space' ? '공간 확보 · ' + whName(j.wh) + (j.mode ? ' · ' + spaceModeName(j.mode) : '') : '병합 · ' + distTitle(j.sig); }
+function startSpace(id, mode) {
+  mode = mode === 'max' ? 'max' : 'tidy';
   var go = function () {
     var w = S.whs.filter(function (x) { return String(x.id) === String(id); })[0]; if (!w) return;
-    var P = spacePlan(w);
+    var P = spacePlan(w, mode);
     if (!P.moves.length) { toast('공간 확보 불가 · 이동 대상 없음', true); return; }
-    MJ = { ts: Date.now(), kind: 'space', wh: w.id, sig: '', before: P.before, after: P.after, skip: [],
-      rule: '빈 줄 ' + (P.lines - P.before) + '줄 → ' + (P.lines - P.after) + '줄 · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤', moves: P.moves };
+    MJ = { ts: Date.now(), kind: 'space', mode: mode, wh: w.id, sig: '', before: P.before, after: P.after, skip: [],
+      rule: '빈 줄 ' + (P.lines - P.before) + '줄 → ' + (P.lines - P.after) + '줄 · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤' + (P.fifo ? ' · 선입선출 역전 ' + P.fifo + '건' : ''), moves: P.moves };
     mjSave(); openMerge();
   };
-  if (MJ && MJ.kind === 'space' && String(MJ.wh) === String(id) && mjLeft()) return openMerge();
+  if (MJ && MJ.kind === 'space' && String(MJ.wh) === String(id) && (MJ.mode || 'max') === mode && mjLeft()) return openMerge();
   if (MJ && mjLeft()) { mjBusy(go); return; }
   go();
 }
@@ -2248,8 +2270,22 @@ function mjDone(i) {
   var q = Math.min(m.qty, src.reduce(function (a, x) { return a + x.qty; }, 0));
   fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: MJ.kind === 'space' ? '공간 확보' : '병합' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; m.t = Date.now(); m.by = worker(); mjSave();
+    stackAfterMove(m.from, m.to, sig);
     renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
+}
+/* 이동 후 적재순서 자동 반영 (현장 기준: 줄 추가 = 통로 쪽 · 기존 원지 앞)
+   도착 줄 = 해당 원지를 맨 앞(위)으로 · 출발 줄 = 전량 이동 시 순서에서 제거 */
+function stackAfterMove(from, to, sig) {
+  S.stack = S.stack || {};
+  var base = S.stack[to] ? S.stack[to].slice() : rowItems(to).map(sigOf);
+  var nt = [sig].concat(base.filter(function (x) { return x !== sig; }));
+  S.stack[to] = nt; call.quiet = true; call('saveStack', to, nt).then(function (mp) { if (mp) S.stack = mp; }, function () {});
+  var fs = S.stack[from];
+  if (fs && fs.indexOf(sig) >= 0 && !S.stock.some(function (x) { return x.loc === from && sigOf(x) === sig; })) {
+    var nf = fs.filter(function (x) { return x !== sig; });
+    S.stack[from] = nf; setTimeout(function () { call.quiet = true; call('saveStack', from, nf).then(function (mp) { if (mp) S.stack = mp; }, function () {}); }, 300);
+  }
 }
 function mjUndo(i) {
   var m = MJ && MJ.moves[i]; if (!m || !m.done) return;
@@ -4906,22 +4942,32 @@ function distCard() {
 }
 /* 공간 확보 (기록 > 보고서): 창고별 빈 줄 현재 → 확보 후 · 확보 줄 · 적재 한도 초과 줄 · [공간 확보] 바로 작업 목록 (병합 작업 부품) */
 function spaceCard() {
-  var h = '<div class="card"><div class="row"><b>공간 확보</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 적게 든 줄부터 비움 · 동일 규격 칸 합침 우선</div>';
+  var h = '<div class="card"><div class="row"><b>공간 확보</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 적게 든 줄부터 비움 · 동일 규격 칸 합침 우선 · 줄 추가 = 통로 쪽 적재</div>';
   S.whs.forEach(function (w) {
-    var P = spacePlan(w); if (!P.lines) return;
-    var job = MJ && MJ.kind === 'space' && String(MJ.wh) === String(w.id), cut = P.before - P.after;
-    var e0 = P.lines - P.before, e1 = P.lines - P.after;
-    var eff = cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">빈 줄 ' + e0 + '줄 → ' + e1 + '줄 (+' + cut + ') · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤</span>'
-      : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">공간 확보 불가 — 빈 칸 부족</span>';
-    var btn = job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">공간 확보 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
-      : cut ? '<button class="btn" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startSpace(' + w.id + ')">공간 확보 ▸</button>' : '';
-    h += '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (cut || job ? '' : '; opacity:.55') + '">' +
+    var PS = SPACE_MODES.map(function (md) { return { md: md, P: spacePlan(w, md[0]) }; }), P0 = PS[0].P;
+    if (!P0.lines) return;
+    var job = MJ && MJ.kind === 'space' && String(MJ.wh) === String(w.id), any = PS.some(function (x) { return x.P.before > x.P.after; });
+    // 방식별 한 묶음: 이름 · 효과 · 확보 줄 · [시작] (진행 중 작업 = 해당 방식 행에 진행 버튼)
+    var rows = PS.map(function (x) {
+      var P = x.P, cut = P.before - P.after, e0 = P.lines - P.before, e1 = P.lines - P.after;
+      var mine = job && (MJ.mode || 'max') === x.md[0];
+      var btn = mine ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">진행 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
+        : cut ? '<button class="btn' + (x.md[0] === 'tidy' ? '' : '2') + '" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startSpace(' + w.id + ',\'' + x.md[0] + '\')">시작 ▸</button>' : '';
+      return '<div style="border-top:1px solid #E6E8EB; padding:8px 0 2px; margin-top:6px">' +
+        '<div class="row" style="gap:8px; align-items:center"><div style="flex:1; min-width:0">' +
+        '<b style="font-size:14.5px">' + esc(x.md[1]) + (x.md[0] === 'tidy' ? ' <span class="tt" style="background:#1E5A33">권장</span>' : '') + '</b>' +
+        '<div class="muted" style="font-size:11.5px">' + esc(x.md[2]) + '</div>' +
+        (cut ? '<div style="font-size:13px; font-weight:800; color:var(--ok)">빈 줄 ' + e0 + '줄 → ' + e1 + '줄 (+' + cut + ') · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤</div>' +
+          (P.fifo ? '<div style="font-size:12px; font-weight:800; color:#9A1C1C">선입선출 역전 ' + P.fifo + '건</div>' : '')
+          : '<div style="font-size:13px; font-weight:800; color:#9A1C1C">공간 확보 불가 — 빈 칸 부족</div>') +
+        '</div>' + btn + '</div>' +
+        (cut ? '<div class="muted" style="font-size:12.5px; margin:3px 0 0">확보 줄: ' + P.emptied.map(keyOf).map(esc).join(' · ') + '</div>' : '') + '</div>';
+    }).join('');
+    h += '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (any || job ? '' : '; opacity:.55') + '">' +
       '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1">' + esc(w.name) + '</b>' +
-      '<span class="muted" style="font-size:13px; white-space:nowrap">운용 ' + P.lines + '줄 · 사용 ' + P.before + '줄</span></div>' +
-      (cut ? '<div class="muted" style="font-size:13px; margin:4px 0">확보 줄: ' + P.emptied.map(keyOf).map(esc).join(' · ') + '</div>' : '') +
-      (P.over.length ? '<div style="font-size:12px; font-weight:800; color:#7A3E00; margin:2px 0 4px">적재 한도 초과 ' + P.over.length + '줄 (실사 확인 필요): ' +
-        P.over.map(function (o) { return esc(keyOf(o.loc)) + ' ' + o.used + '/' + o.slots + '칸'; }).join(' · ') + '</div>' : '') +
-      '<div class="row" style="gap:8px">' + eff + btn + '</div></div>';
+      '<span class="muted" style="font-size:13px; white-space:nowrap">운용 ' + P0.lines + '줄 · 사용 ' + P0.before + '줄</span></div>' +
+      (P0.over.length ? '<div style="font-size:12px; font-weight:800; color:#7A3E00; margin:2px 0 4px">적재 한도 초과 ' + P0.over.length + '줄 (실사 확인 필요): ' +
+        P0.over.map(function (o) { return esc(keyOf(o.loc)) + ' ' + o.used + '/' + o.slots + '칸'; }).join(' · ') + '</div>' : '') + rows + '</div>';
   });
   return h + '</div>';
 }
