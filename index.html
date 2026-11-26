@@ -1897,8 +1897,8 @@ function openMerge() { shOpen({ code: null, mode: 'merge' }); }
 function mjBusy(startNew) {
   var left = mjLeft();
   ask({ title: '미완료 병합 작업 존재', input: false, list: true,
-    msg: distTitle(MJ.sig) + (MJ.here ? ' · 도착 ' + keyOf(MJ.here) : '') + ' · 잔여 ' + left + '건',
-    chips: [{ v: 'go', t: '기존 작업 계속', sub: distTitle(MJ.sig) + ' 이동 화면' },
+    msg: mjTitle(MJ) + (MJ.here ? ' · 도착 ' + keyOf(MJ.here) : '') + ' · 잔여 ' + left + '건',
+    chips: [{ v: 'go', t: '기존 작업 계속', sub: mjTitle(MJ) + ' 이동 화면' },
             { v: 'new', t: '신규 작업 시작', sub: '잔여 ' + left + '건 삭제 · 완료분 재고 유지' }] },
     function (v) {
       if (v === 'go') openMerge();
@@ -1956,7 +1956,7 @@ function sheetMerge() {
       whRow = '<div class="cgf" style="margin:10px 0 0"><span class="muted" style="align-self:center; margin-right:2px">대상 창고</span>' +
         ids.map(function (id) { return '<button class="chip' + ((j.whs || []).indexOf(String(id)) >= 0 ? ' on' : '') + '" onclick="mjWh(' + id + ')">' + esc(whName(id)) + ' ' + wq[id] + '롤</button>'; }).join('') + '</div>';
   }
-  var h = shHead('병합 · ' + esc(distTitle(j.sig)), '보관 ' + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
+  var h = shHead(esc(mjTitle(j)), (j.kind === 'space' ? '사용 ' : '보관 ') + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
   if (!tot) {
     h += '<div class="card" style="margin-top:10px"><b>이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
   } else {
@@ -1964,6 +1964,7 @@ function sheetMerge() {
       foot: n === tot ? '<b style="color:#1E5A33">전체 이동 완료</b>' : '',
       rows: j.moves.map(function (m, i) {
         var body = '<div class="row"><b style="font-size:16px; white-space:nowrap">' + esc(keyOf(m.from)) + ' → ' + esc(keyOf(m.to)) + '</b><b style="white-space:nowrap; flex:none">' + m.qty + '롤</b></div>' +
+          (m.sig ? '<div style="font-size:14px; font-weight:800">' + esc(distTitle(m.sig)) + '</div>' : '') +
           (m.d ? '<div class="muted">입고 ' + esc(mjDate(m.d)) + (m.mix && m.td ? ' · 도착 줄 ' + esc(mjDate(m.td)) : '') + '</div>' : '') +
           (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '') +
           (m.done ? '<div style="font-size:12px; font-weight:900; color:#1E5A33">✓ 이동 완료</div>' : '');
@@ -2033,13 +2034,87 @@ function mergeHere(i) {
   }
   go();
 }
+/* C. 공간 확보 (창고 단위 · WMS 로케이션 통합): 적게 든 줄부터 비워 같은 창고 다른 줄의 빈 칸으로 → 빈 줄 최대
+   칸 계산 = 규격(평량·지폭·지종·잔량)별 롤수 ÷ 단수 올림 (rowInfo · freeFor 와 같은 기준)
+   도착 우선: 동일 규격 줄(칸 합침) → 추가 칸 최소 → 동일 구역 · 가까운 줄 · 많이 찬 줄
+   중간 경유는 최종 도착으로 정리 (같은 롤 재이동 없음 · 도착 줄은 비우지 않음 → 이동 순서 무관) */
+function spaceKey(s) { return [s.gsm, s.width, s.grade || '', s.rem ? 'Y' : ''].join('|'); }
+function spacePlan(w) {
+  var L = {}, R = [], over = [];
+  eachRow(w, function (z, key, code) {
+    var c = cfgOf(w, key); if (c.st || c.off) return;   // 통로 · 미사용 · 비사용 제외
+    L[code] = { code: code, key: key, zone: z.code, no: Number(key.split('-')[1]), slots: slotsOf(w, key) };
+  });
+  S.stock.forEach(function (s) { if (L[s.loc] && s.qty > 0) R.push({ s: s, at: s.loc, k: spaceKey(s) }); });
+  function inL(code) { return R.filter(function (r) { return r.at === code; }); }
+  function usedOf(list, code) {
+    var q = {}; list.forEach(function (r) { var x = q[r.k] || (q[r.k] = { width: r.s.width, qty: 0 }); x.qty += r.s.qty; });
+    return Object.keys(q).reduce(function (a, k) { return a + Math.ceil(q[k].qty / levels(w, q[k].width, L[code].key)); }, 0);
+  }
+  function rollsOf(list) { return list.reduce(function (a, r) { return a + r.s.qty; }, 0); }
+  var codes = Object.keys(L), gone = {};
+  var occ0 = codes.filter(function (c) { return inL(c).length; });
+  occ0.forEach(function (c) { var u = usedOf(inL(c), c); if (u > L[c].slots) over.push({ loc: c, used: u, slots: L[c].slots }); });
+  function tryEmpty(src) {
+    var grp = {}; inL(src).forEach(function (r) { (grp[r.k] = grp[r.k] || []).push(r); });
+    var G = Object.keys(grp).map(function (k) { return grp[k]; }).sort(function (a, b) { return rollsOf(b) - rollsOf(a); }), done = [];
+    for (var gi = 0; gi < G.length; gi++) {
+      var g = G[gi], best = null, bs = -1e9;
+      codes.forEach(function (x) {
+        if (x === src || gone[x]) return;
+        var cur = inL(x); if (!cur.length) return;   // 빈 줄은 채우지 않음
+        var before = usedOf(cur, x), after = usedOf(cur.concat(g), x);
+        if (after > L[x].slots) return;
+        var sc = -(after - before) * 10 + after * 0.5 - Math.abs(L[x].no - L[src].no) * 0.1;
+        if (cur.some(function (r) { return r.k === g[0].k; })) sc += 50;
+        if (L[x].zone === L[src].zone) sc += 2;
+        if (sc > bs) { bs = sc; best = x; }
+      });
+      if (!best) { done.forEach(function (r) { r.at = src; }); return false; }
+      g.forEach(function (r) { r.at = best; done.push(r); });
+    }
+    gone[src] = 1; return true;
+  }
+  for (var ch = true; ch;) {
+    ch = false;
+    var ord = codes.filter(function (c) { return !gone[c] && inL(c).length; })
+      .sort(function (a, b) { return usedOf(inL(a), a) - usedOf(inL(b), b) || rollsOf(inL(a)) - rollsOf(inL(b)); });
+    for (var i = 0; i < ord.length; i++) if (tryEmpty(ord[i])) { ch = true; break; }
+  }
+  var mv = {};   // 출발 · 도착 · 원지 같으면 1건 (입고일 여러 묶음 = 서버가 선입선출 차감)
+  R.forEach(function (r) {
+    if (r.at === r.s.loc) return;
+    var sig = sigOf(r.s), id = r.s.loc + '>' + r.at + '>' + sig;
+    var m = mv[id] || (mv[id] = { from: r.s.loc, to: r.at, sig: sig, qty: 0, d: '', td: '', done: 0, nos: [] });
+    m.qty += r.s.qty; m.d = lotKey(r.s);
+    var t = S.stock.filter(function (x) { return x.loc === r.at && sigOf(x) === sig; })[0];
+    if (t) { m.td = lotKey(t); m.mix = m.td !== m.d; }
+  });
+  var moves = Object.keys(mv).map(function (k) { return mv[k]; }).sort(function (a, b) { return a.from.localeCompare(b.from) || a.to.localeCompare(b.to); });
+  return { moves: moves, lines: codes.length, before: occ0.length, after: occ0.length - Object.keys(gone).length,
+    emptied: Object.keys(gone).sort(), over: over, rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0) };
+}
+function mjTitle(j) { return j.kind === 'space' ? '공간 확보 · ' + whName(j.wh) : '병합 · ' + distTitle(j.sig); }
+function startSpace(id) {
+  var go = function () {
+    var w = S.whs.filter(function (x) { return String(x.id) === String(id); })[0]; if (!w) return;
+    var P = spacePlan(w);
+    if (!P.moves.length) { toast('공간 확보 불가 · 이동 대상 없음', true); return; }
+    MJ = { ts: Date.now(), kind: 'space', wh: w.id, sig: '', before: P.before, after: P.after, skip: [],
+      rule: '빈 줄 ' + (P.lines - P.before) + '줄 → ' + (P.lines - P.after) + '줄 · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤', moves: P.moves };
+    mjSave(); openMerge();
+  };
+  if (MJ && MJ.kind === 'space' && String(MJ.wh) === String(id) && mjLeft()) return openMerge();
+  if (MJ && mjLeft()) { mjBusy(go); return; }
+  go();
+}
 function mjDone(i) {
   if (!requireWorker()) return;
   var m = MJ && MJ.moves[i]; if (!m || m.done) return;
-  var cur = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === MJ.sig; })[0];
+  var sig = m.sig || MJ.sig, src = S.stock.filter(function (x) { return x.loc === m.from && sigOf(x) === sig; }), cur = src[0];
   if (!cur) { toast(keyOf(m.from) + ' 재고 없음 · 새로고침 확인', true); return; }
-  var q = Math.min(m.qty, cur.qty);
-  fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: '병합' })).then(function (r) {
+  var q = Math.min(m.qty, src.reduce(function (a, x) { return a + x.qty; }, 0));
+  fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: MJ.kind === 'space' ? '공간 확보' : '병합' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; m.t = Date.now(); m.by = worker(); mjSave();
     renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
   });
@@ -4657,11 +4732,12 @@ function drawRep() {
   var secs = {
     '입출고': function () { return card('일자별 입출고', 'io', esc(RP.from + ' ~ ' + RP.to) + ' · 단위: 롤', true); },
     '분산': function () { return distCard(); },
+    '공간': function () { return spaceCard(); },
     '장기': function () { return card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상</span>', false); },
     '실사': function () { return card('실사 조정 내역', 'adj', '', false); },
     '재고': function () { return card('현재 재고', 'stock', '', true); }
   };
-  var order = ['입출고', '분산', '장기', '실사', '재고'];
+  var order = ['입출고', '분산', '공간', '장기', '실사', '재고'];
   if (order.indexOf(RP.sec) < 0) RP.sec = '입출고';
   $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">기준 ' + esc(r.at) + '</div>' +
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
@@ -4694,6 +4770,27 @@ function distCard() {
       '<span class="muted" style="font-size:13px; white-space:nowrap">' + e.n + '줄 · ' + e.qty + '롤</span></div>' +
       '<div style="margin:4px 0">' + chips + '</div><div class="row" style="gap:8px">' + eff + btn + '</div></div>';
   }).join('') : '<div class="muted" style="padding:6px 0">분산 원지 없음</div>';
+  return h + '</div>';
+}
+/* 공간 확보 (기록 > 보고서): 창고별 빈 줄 현재 → 확보 후 · 확보 줄 · 적재 한도 초과 줄 · [공간 확보] 바로 작업 목록 (병합 작업 부품) */
+function spaceCard() {
+  var h = '<div class="card"><div class="row"><b>공간 확보</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 적게 든 줄부터 비움 · 동일 규격 칸 합침 우선</div>';
+  S.whs.forEach(function (w) {
+    var P = spacePlan(w); if (!P.lines) return;
+    var job = MJ && MJ.kind === 'space' && String(MJ.wh) === String(w.id), cut = P.before - P.after;
+    var e0 = P.lines - P.before, e1 = P.lines - P.after;
+    var eff = cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">빈 줄 ' + e0 + '줄 → ' + e1 + '줄 (+' + cut + ') · 이동 ' + P.moves.length + '건 · ' + P.rolls + '롤</span>'
+      : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">공간 확보 불가 — 빈 칸 부족</span>';
+    var btn = job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">공간 확보 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
+      : cut ? '<button class="btn" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startSpace(' + w.id + ')">공간 확보 ▸</button>' : '';
+    h += '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (cut || job ? '' : '; opacity:.55') + '">' +
+      '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1">' + esc(w.name) + '</b>' +
+      '<span class="muted" style="font-size:13px; white-space:nowrap">운용 ' + P.lines + '줄 · 사용 ' + P.before + '줄</span></div>' +
+      (cut ? '<div class="muted" style="font-size:13px; margin:4px 0">확보 줄: ' + P.emptied.map(keyOf).map(esc).join(' · ') + '</div>' : '') +
+      (P.over.length ? '<div style="font-size:12px; font-weight:800; color:#7A3E00; margin:2px 0 4px">적재 한도 초과 ' + P.over.length + '줄 (실사 확인 필요): ' +
+        P.over.map(function (o) { return esc(keyOf(o.loc)) + ' ' + o.used + '/' + o.slots + '칸'; }).join(' · ') + '</div>' : '') +
+      '<div class="row" style="gap:8px">' + eff + btn + '</div></div>';
+  });
   return h + '</div>';
 }
 function distLoc(i, j) { var e = DISTA[i], l = e && e.locs[j]; if (l) goLoc(l.loc, l.items); }
@@ -5052,7 +5149,7 @@ function pkUsedOthers(A, id) {
   PL.items.forEach(function (it) { if (it.id === id || !A[it.id]) return; A[it.id].locs.forEach(function (l) { (m[l.k] = m[l.k] || []).push({ it: it, qty: l.qty }); }); });
   return m;
 }
-function pkMoving() { var m = {}; if (MJ && MJ.moves) MJ.moves.forEach(function (x) { if (!x.done) m[x.from] = (m[x.from] || 0) + x.qty; }); return m; }
+function pkMoving() { var m = {}; if (MJ && MJ.moves) MJ.moves.forEach(function (x) { var k = x.from + '>' + (x.sig || MJ.sig); if (!x.done) m[k] = (m[k] || 0) + x.qty; }); return m; }
 
 function renderPlan() {
   var el = $('f-plan');
@@ -5487,7 +5584,7 @@ function pkCandList(it, A) {
     if (c.tier === 9) fl.push('<b style="color:#9A6700">' + (s.rem ? '잔량' : '타 제지사') + ' · 대체</b>');
     if (c.tier === 3) fl.push('<b style="color:#9A6700">제지사 확인</b>');
     c.others.forEach(function (o) { fl.push('<span style="color:#5A6470">' + esc(o.it.line) + ' #' + o.it.planNo + ' 배정 ' + o.qty + '롤</span>'); });
-    if (mv[s.loc]) fl.push('<b style="color:#9A1C1C">병합 이동 예정</b>');
+    if (mv[s.loc + '>' + sigOf(s)]) fl.push('<b style="color:#9A1C1C">병합 이동 예정</b>');
     if (ex[c.k]) fl.push('<span class="muted">제외</span>');
     var on = c.mine > 0;
     return '<div class="card row pkc' + (on ? ' on' : '') + (c.free <= 0 && !on ? ' full' : '') + '">' +
