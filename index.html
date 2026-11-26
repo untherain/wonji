@@ -1665,7 +1665,10 @@ function mkFrom() { return MK.days === 7 ? daysAgo(6) : todayStr(); }
 var MK_DEF = [
   ['in', '입고', '#1E8E4E', '입고 · 잔량 반납 줄', function (c) { var q = MK.act && MK.act.inl[c]; return q ? '입고 ' + q : ''; }, 1],
   ['out', '출고', '#D64545', '출고 줄', function (c) { var q = MK.act && MK.act.out[c]; return q ? '출고 ' + q : ''; }, 1],
-  ['mv', '이동', '#1D5FBF', '이동 출발 · 도착 줄', function (c) { var a = MK.act; if (!a) return ''; var f = a.mvFrom[c], t = a.mvTo[c]; return (f ? '출발 ' + f : '') + (f && t ? ' · ' : '') + (t ? '도착 ' + t : ''); }, 1],
+  ['mv', '이동', '#1D5FBF', '이동 출발(→ 도착 줄) · 도착(← 출발 줄)', function (c) {
+    var a = MK.act; if (!a || !a.mvPair) return ''; var o = [];
+    Object.keys(a.mvPair).forEach(function (k) { var p = k.split('>'); if (p[0] === c) o.push('→ ' + mkLoc(p[1], c) + ' · ' + a.mvPair[k] + '롤'); else if (p[1] === c) o.push('← ' + mkLoc(p[0], c) + ' · ' + a.mvPair[k] + '롤'); });
+    return o; }, 1],
   ['cnt', '실사 완료', '#6A3FB5', '실사 일치 · 차이 줄', function (c) { var x = cntOf(c); return x && x.d >= mkFrom() ? '실사 ' + x.r : ''; }, 1],
   ['due', '실사 필요', '#8A6D00', '실사 주기 경과 · 미실사 줄', function (c, ri) { return !ri.cfg.off && cntDue(c) ? '실사 필요' : ''; }, 0],
   ['over', '적재 한도 초과', '#9A1C1C', '필요 칸 > 줄 칸수 (실사 확인 필요)', function (c, ri) { return ri.slots && ri.used > ri.slots ? '초과 ' + ri.used + '/' + ri.slots + '칸' : ''; }, 0],
@@ -1674,10 +1677,14 @@ var MK_DEF = [
     return m >= agingDays() ? '장기 ' + m + '일' : ''; }, 0],
   ['low', '적재율 50% 미만', '#5A6470', '재고 보유 · 공간 확보 후보', function (c, ri) { return ri.rolls && ri.slots && ri.used / ri.slots < 0.5 && !ri.cfg.off ? '적재 ' + Math.round(ri.used / ri.slots * 100) + '%' : ''; }, 0],
   ['empty', '빈 줄', '#0F7C7C', '운용 중 · 재고 0', function (c, ri) { return !ri.cfg.off && !ri.cfg.st && !ri.rolls ? '빈 줄' : ''; }, 0],
-  ['job', '진행 작업', '#B0306A', '공간 확보 · 병합 미완료 출발 · 도착 줄', function (c) {
-    if (!MJ || !MJ.moves) return ''; var f = 0, t = 0;
-    MJ.moves.forEach(function (m) { if (m.done) return; if (m.from === c) f += m.qty; if (m.to === c) t += m.qty; });
-    return (f ? '출발 ' + f : '') + (f && t ? ' · ' : '') + (t ? '도착 ' + t : ''); }, 0],
+  ['job', '진행 작업', '#B0306A', '공간 확보 · 병합 미완료 · #작업 순번 → 도착 줄 / ← 출발 줄', function (c) {
+    if (!MJ || !MJ.moves) return ''; var o = [];
+    MJ.moves.forEach(function (m, i) {
+      if (m.done) return;
+      if (m.from === c) o.push('#' + (i + 1) + ' → ' + mkLoc(m.to, c) + ' · ' + m.qty + '롤');
+      if (m.to === c) o.push('#' + (i + 1) + ' ← ' + mkLoc(m.from, c) + ' · ' + m.qty + '롤');
+    });
+    return o; }, 0],
   ['pick', '피킹 대상', '#C77700', '피킹 중 배정 줄', function (c) { var m = mkPickLocs(); return m && m[c] ? '피킹 ' + m[c] : ''; }, 0]
 ];
 function mkDef(k) { return MK_DEF.filter(function (d) { return d[0] === k; })[0]; }
@@ -1703,9 +1710,14 @@ function mkLoad() {
 /* 줄 1칸 판정: [{ k, t, c }] (선택 순서 = 기준 표 순서) */
 function mkHits(code, ri) {
   var out = [];
-  MK_DEF.forEach(function (d) { if (MK.on.indexOf(d[0]) < 0) return; var t = d[4](code, ri); if (t) out.push({ k: d[0], t: t, c: d[2] }); });
+  MK_DEF.forEach(function (d) {   // 판정 결과 = 글자 1개 또는 여러 개(이동 짝마다)
+    if (MK.on.indexOf(d[0]) < 0) return;
+    [].concat(d[4](code, ri) || []).forEach(function (t) { if (t) out.push({ k: d[0], t: t, c: d[2] }); });
+  });
   return out;
 }
+/* 상대 줄 표시: 같은 창고 = 줄 이름 · 다른 창고 = 창고 이름 + 줄 이름 */
+function mkLoc(code, here) { return (String(code).split('-')[0] !== String(here).split('-')[0] ? whName(String(code).split('-')[0]) + ' ' : '') + keyOf(code); }
 /* 선택 창: 누를 때마다 반영 후 다시 열림 (뒤 지도 즉시 갱신) · ✕ / 완료 = 닫힘 */
 function mkOpen() {
   var P = mkPresets(), on = function (k) { return MK.on.indexOf(k) >= 0; };
