@@ -5329,6 +5329,9 @@ function repTables() {
   var di = [['규격', '지종', '제지사', '줄 수', '롤 수', '위치']];   // 분산 원지 (현재 재고 기준)
   distAll().forEach(function (e) { var p = e.sig.split('|'); di.push([p[0] + '×' + p[1] + (p[4] === 'Y' ? ' 잔량' : ''), p[2], p[3], Object.keys(e.locs).length, e.qty, Object.keys(e.locs).map(keyOf).join(' ')]); });
   T.dist = di;
+  var og = [['창고', '분산 품목', '품목 수', '품목당 평균 줄', '빈 줄', '운용 줄', '혼재 대기', '진행 중']];
+  orgStats().forEach(function (x) { og.push([x.w.name, x.dist, x.sku, x.avg, x.empty, x.lines, x.wait == null ? '' : x.wait, x.job]); });
+  T.org = og;
   return T;
 }
 function htmlTable(rows, sumLast) {
@@ -5356,13 +5359,18 @@ function drawRep() {
   if (order.indexOf(RP.sec) < 0) RP.sec = '입출고';
   $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">정리 · 장기 · 재고 = 실시간 재고 (' + esc(S.at || r.at) + ') · 입출고 · 실사 조회 ' + esc(r.at) + '</div>' +
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
-  seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); orgSegInit(); });
-  orgSegInit();
+  seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
 }
 /* 분산 원지 목록 (기록 > 보고서): 위치 칩(누르면 지도의 그 줄 · ← 로 복귀) · 병합하면 N줄 → M줄 · [병합] 바로 작업 목록
    병합 효과(줄 감소) 큰 순 · 병합 불가는 아래 흐리게 */
-function distCard() {
-  var A = DISTA = distAll().map(function (e) {
+/* 분산 원지 카드 (공통): o 없음 = 보고서(전체 · 목록만) · o = { wh, act } = 재고 탭 정리 창 ④ 창고 간 통합 (이 창고 포함 · 여러 창고 · [병합]) */
+function distCard(o) {
+  o = o || {};
+  var A = DISTA = distAll().filter(function (e) {
+    if (!o.wh) return true;
+    var ws = {}; Object.keys(e.locs).forEach(function (l) { var w = whOf(l); if (w) ws[w.id] = 1; });
+    return ws[o.wh] && Object.keys(ws).length > 1;
+  }).map(function (e) {
     var c = mergeCalc(e.sig, null, false), by = {};
     c.recs.forEach(function (s) { var x = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, items: [] }); x.qty += s.qty; x.items.push(s); });
     var locs = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.loc.localeCompare(b.loc); });
@@ -5370,7 +5378,7 @@ function distCard() {
     return { sig: e.sig, qty: e.qty, n: Object.keys(e.locs).length, locs: locs, multi: Object.keys(whs).length > 1, P: c.P, cut: c.P.moves.length ? c.P.before - c.P.after : 0 };
   }).sort(function (a, b) { return (b.cut > 0) - (a.cut > 0) || b.cut - a.cut || b.n - a.n; });
   var h = '<div class="card"><div class="row"><b>분산 원지 ' + A.length + '건</b>' +
-    (A.length ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>' +
+    (A.length && !o.act ? '<button class="btn2" style="height:36px" onclick="repCsv(\'dist\')">엑셀 받기</button>' : '') + '</div>' +
     (A.length ? '<div class="muted" style="font-size:12px; margin:2px 0 6px">줄 감소 많은 순</div>' : '');
   h += A.length ? A.map(function (e, i) {
     var job = MJ && MJ.sig === e.sig, frag = e.qty <= e.n * 2, enc = encodeURIComponent(e.sig);
@@ -5379,8 +5387,9 @@ function distCard() {
     }).join('');
     var eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">병합 시 ' + e.P.before + '줄 → ' + e.P.after + '줄 (−' + e.cut + ')</span>'
       : '<span style="flex:1; font-size:13px; font-weight:800; color:#9A1C1C">병합 불가 — 빈 자리 부족</span>';
-    var btn = job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
+    var btn = !o.act ? '' : job ? '<button class="btn" style="height:38px; width:auto; padding:0 12px; flex:none; font-size:15px" onclick="openMerge()">병합 ' + (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length + ' ▸</button>'
       : e.cut || e.multi ? '<button class="btn" style="height:38px; width:auto; padding:0 14px; flex:none; font-size:15px" onclick="startMerge(\'' + enc + '\')">병합 ▸</button>' : '';
+    if (!o.act) eff = e.cut ? '<span style="flex:1; font-size:13px; font-weight:800; color:var(--ok)">통합 시 ' + e.P.before + '줄 → ' + e.P.after + '줄</span>' : eff;
     return '<div class="card" style="margin:0 0 8px; padding:10px 12px' + (e.cut || job || e.multi ? '' : '; opacity:.55') + '">' +
       '<div class="row" style="align-items:baseline; gap:8px"><b style="font-size:16px; flex:1; min-width:0">' + esc(distTitle(e.sig)) + (frag ? ' <span class="frag">조각 많음</span>' : '') + '</b>' +
       '<span class="muted" style="font-size:13px; white-space:nowrap">' + e.n + '줄 · ' + e.qty + '롤</span></div>' +
@@ -5413,7 +5422,10 @@ function orgOpen(id) { shOpen({ code: null, mode: 'org', wh: id }); }
 function sheetOrg() {
   var w = S.whs.filter(function (x) { return String(x.id) === String(SH.wh); })[0]; if (!w) { SH = null; return closeSheet(); }
   ORG.locs = [];
-  $('detail').innerHTML = shHead('정리 · ' + esc(w.name), '창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선', false) + '<div style="margin-top:8px">' + orgWh(w) + '</div>';
+  var xn = distAll().filter(function (e) { var ws = {}; Object.keys(e.locs).forEach(function (l) { var x = whOf(l); if (x) ws[x.id] = 1; }); return ws[w.id] && Object.keys(ws).length > 1; }).length;
+  $('detail').innerHTML = shHead('정리 · ' + esc(w.name), '창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선', false) + '<div style="margin-top:8px">' + orgWh(w) + '</div>' +
+    '<details style="margin-top:4px"' + (SH.x4 ? ' open' : '') + ' ontoggle="SH.x4=this.open"><summary style="font-weight:800; cursor:pointer; padding:6px 0">④ 창고 간 통합 · ' + xn + '건 <span class="muted" style="font-weight:500; font-size:12px">(다른 창고에도 있는 같은 원지)</span></summary>' +
+    (SH.x4 ? distCard({ wh: w.id, act: true }) : '') + '</details>';
 }
 /* 정리 창고 카드 1개 (보고서 · 재고 탭 정리 창 공통) · snap = 지표 수집 배열(선택) */
 function orgWh(w, snap) {
@@ -5468,38 +5480,47 @@ function mixBody(w, X) {
   if (X.big.length) h += '<div style="font-size:12px; font-weight:800; color:#7A3E00">혼재 줄 기준 초과 ' + X.big.length + '종 (전용 줄로 분리 권장): ' + X.big.slice(0, 4).map(function (g) { return esc(distTitle(g)); }).join(' · ') + (X.big.length > 4 ? ' 외' : '') + '</div>';
   return h;
 }
-/* 보고서 › 정리 (2026-11-28 · WMS = 창고 단위 작업): 창고 선택 버튼(기본 = 재고 탭에서 보던 창고) → 그 창고만 계산 · 지표 저장은 전 창고(가벼운 집계) */
-function orgWhSel() {
-  if (!S.whs.some(function (w) { return String(w.id) === String(ORG.wh); })) ORG.wh = M.wh || (S.whs[0] && S.whs[0].id);
-  return S.whs.filter(function (w) { return String(w.id) === String(ORG.wh); })[0];
+/* 보고서 › 정리 = 지표만 (2026-11-28 · 표준: 작업 실행 = 작업 화면 · 보고서 = 비교 · 추이)
+   창고별 분산 품목 · 품목당 평균 줄 · 빈 줄 · 혼재 대기 · 진행 중 작업 · 7일 추이 · 엑셀 · [정리 작업 ▸] = 재고 탭 그 창고 정리 창 (← 보고서 복귀)
+   작업(①②③ 시작 · ④ 창고 간 통합)은 재고 탭 [정리] 창에서만 */
+function orgStats() {
+  return S.whs.map(function (w) {
+    var M0 = spaceModel(w), st = M0.stats(); if (!M0.codes.length) return null;
+    var X = M0.mixCodes.length ? mixPlan(w) : null, job = MJ && MJ.kind === 'space' && String(MJ.wh) === String(w.id) && mjLeft();
+    return { w: w, dist: st.dist, sku: st.sku, avg: st.avg, lines: M0.codes.length, empty: M0.codes.length - st.used, wait: X ? X.left.length : null,
+      job: job ? (MJ.moves.length - mjLeft()) + '/' + MJ.moves.length : '' };
+  }).filter(Boolean);
 }
-function orgPaint() { if (RP.sec === '정리' && $('rp-sec')) { $('rp-sec').innerHTML = orgCard(); orgSegInit(); } }
-function orgSegInit() {
-  var el = $('org-seg'); if (!el) return;
-  seg(el, S.whs.map(function (w) { return [w.id, esc(w.name)]; }), ORG.wh, function (v) { ORG.wh = v; orgPaint(); });
+function orgPaint() { if (RP.sec === '정리' && $('rp-sec')) $('rp-sec').innerHTML = orgCard(); }
+function orgGo(id) {   // 보고서 → 재고 탭 정리 창 · [←] = 보고서
+  var st = [shSnap()];
+  show('map'); M.wh = id; renderMap(); SH = null;
+  orgOpen(id); SHST = st; renderSheet();
 }
 function orgCard() {
-  var h = '<div class="card"><div class="row"><b>정리</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선</div>' +
-    '<div class="seg" id="org-seg" style="margin:0 0 8px; background:#E6E8EB"></div>', snap = [];
-  ORG.locs = [];
-  var sw = orgWhSel(); if (sw) h += orgWh(sw);
-  S.whs.forEach(function (w) {   // 일별 지표 (전 창고): 분산 품목 · 품목 수 · 평균 줄 · 빈 줄
-    var M0 = spaceModel(w), st = M0.stats(); if (!M0.codes.length) return;
-    snap.push({ wh: w.id, dist: st.dist, avg: st.avg, sku: st.sku, empty: M0.codes.length - st.used });
-  });
+  var nw = function (t) { return '<span style="white-space:nowrap">' + t + '</span>'; };
+  var L = orgStats(), snap = L.map(function (x) { return { wh: x.w.id, dist: x.dist, avg: x.avg, sku: x.sku, empty: x.empty }; });
+  var h = '<div class="card"><div class="row"><b>정리 지표</b><button class="btn2" style="height:36px" onclick="repCsv(\'org\')">엑셀 받기</button></div>' +
+    '<div class="muted" style="font-size:12px; margin:2px 0 6px">창고별 위치 정돈 상태 · 작업 = 재고 탭 [정리]</div>';
+  h += L.map(function (x) {
+    return '<div style="border-top:1px solid #E6E8EB; padding:8px 0"><div class="row" style="gap:8px; align-items:center"><div style="flex:1; min-width:0">' +
+      '<b style="font-size:15.5px">' + esc(x.w.name) + '</b>' + (x.job ? ' <span class="tt" style="background:#B02E6B">진행 ' + x.job + '</span>' : '') +
+      '<div style="font-size:13px">' + [nw('분산 <b>' + x.dist + '</b>종 / ' + x.sku + '종'), nw('평균 <b>' + x.avg.toFixed(2) + '</b>줄'), nw('빈 줄 <b>' + x.empty + '</b>/' + x.lines)].concat(x.wait != null ? [nw('혼재 대기 <b>' + x.wait + '</b>종')] : []).join(' · ') + '</div>' + orgTrend(x.w.id) + '</div>' +
+      '<button class="btn2" style="height:38px; width:auto; padding:0 12px; flex:none" onclick="orgGo(' + x.w.id + ')">정리 작업 ▸</button></div></div>';
+  }).join('');
   // 지표 일별 저장 · 추이 받기 (하루 · 값 변경 시 1회)
   var key = todayStr() + JSON.stringify(snap);
   if (ORG.sent !== key) {
     ORG.sent = key; call.quiet = true;
     call('orgSnap', snap).then(function (hist) { ORG.hist = hist || []; orgPaint(); }, function () {});
   }
-  // 창고 간 포함 전체 분산 원지 (기존 원지 병합 · 엑셀 받기)
-  h += '<details style="margin-top:6px"><summary style="font-weight:800; cursor:pointer; padding:6px 0">전체 분산 원지 (창고 간 포함) · 원지별 병합</summary>' + distCard() + '</details>';
+  // 창고 간 포함 전체 분산 원지: 목록 · 엑셀만 (병합 실행 = 재고 탭 정리 창 ④)
+  h += '<details style="margin-top:6px"><summary style="font-weight:800; cursor:pointer; padding:6px 0">전체 분산 원지 (창고 간 포함)</summary>' + distCard() + '</details>';
   return h + '</div>';
 }
 function distLoc(i, j) { var e = DISTA[i], l = e && e.locs[j]; if (l) goLoc(l.loc, l.items); }
 function repCsv(key) {
-  var names = { io: '입출고_' + RP.from + '_' + RP.to, stock: '재고현황_' + todayStr(), aging: '장기재고_' + todayStr(), adj: '실사조정_' + RP.from + '_' + RP.to, dist: '분산원지_' + todayStr() };
+  var names = { io: '입출고_' + RP.from + '_' + RP.to, stock: '재고현황_' + todayStr(), aging: '장기재고_' + todayStr(), adj: '실사조정_' + RP.from + '_' + RP.to, dist: '분산원지_' + todayStr(), org: '정리지표_' + todayStr() };
   var rows = repTables()[key];
   var csv = '﻿' + rows.map(function (r) { return r.map(function (v) { v = plain(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\r\n');
   try {
