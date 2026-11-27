@@ -3734,13 +3734,14 @@ function cntLine() {
     if (!due) return '';   // 수시 실사(범위 · 주기 없음) = 띠 없음 · 지도 줄 [직전] 꼬리표로 충분 (2026-11-28 · WMS 순환 실사 = 계획 기반 지시형)
   }
   var lx = '';   // 직전 줄은 지도 칸 꼬리표 [직전]으로 표시 (한 줄 고정 · 잘림 방지)
-  var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
+  var fin = p && tot && n >= tot;   // 범위 다 끝냄 = 완료 상태 (다음 줄 없음 → 버튼 숨김 대신 완료 표시 + [종료] 강조 · 2026-11-28)
+  var head = fin ? '<b style="color:#7FE3A4">실사 범위 완료 ✓</b> <small>' + esc(cntPlanName(p)) + ' · ' + n + '/' + tot + '줄</small>' : p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
     : '<b>실사 오늘 ' + n + '줄</b>' + (due ? ' <small>실사 필요 ' + due + '줄</small>' : '');
   var sig = todayStr() + '_' + n + '_' + tot + '_' + due;
   if (!p && progHid('cnt', sig)) return '';   // 범위 지정(공유 작업)은 [종료]로만 끝
   var more = !p || n < tot ? '<button onclick="cntGo(cntNextCode())">다음 줄</button>' : '';
   return '<div class="prog cprog"><span role="button" onclick="cntPlanMenu()">' + head + lx + '</span><span class="pbtns">' + more +
-    (p ? '<button class="pd" onclick="cntPlanEnd()">종료</button>' : progDoneBtn('cnt', sig)) + '</span></div>';
+    (p ? '<button class="pd"' + (fin ? ' style="background:var(--y); color:var(--ink)"' : '') + ' onclick="cntPlanEnd()">종료</button>' : progDoneBtn('cnt', sig)) + '</span></div>';
 }
 /* 실사 범위 지정 · 변경 · 해제 (작업자 전원 공유) */
 function cntPlanMenu() {
