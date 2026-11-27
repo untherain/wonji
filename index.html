@@ -839,6 +839,7 @@ function rerender() {
   else if (TAB === 'in') inHint();
   else if (TAB === 'plan') planRedraw();
   else if (TAB === 'log' && LG.mode === '이력' && !E && $('g-hlist')) loadHist(true);   // 기록 목록도 실시간 (2026-11-24 · 수정 중엔 그대로)
+  else if (TAB === 'log' && LG.mode === '보고서' && RP.data && $('rp-sec')) repLive();   // 보고서도 실시간 (2026-11-27 · 정리 · 재고 · 장기 = 폰 재고 · 입출고 · 실사 = 서버 다시 조회)
   if (SH && SH.mode !== 'cfg' && SH.mode !== 'wh') renderSheet();   // 열린 작업창 (모든 탭 · 피킹 품목 창 포함) · 설정 편집 중엔 그대로
 }
 /* 계획 · 피킹 다시 그리기 — 계획 칸에 글자 입력 중이면 입력 끝난 뒤(포커스 빠질 때) 그림
@@ -2167,6 +2168,10 @@ function sheetMerge() {
         ids.map(function (id) { return '<button class="chip' + ((j.whs || []).indexOf(String(id)) >= 0 ? ' on' : '') + '" onclick="mjWh(' + id + ')">' + esc(whName(id)) + ' ' + wq[id] + '롤</button>'; }).join('') + '</div>';
   }
   var h = shHead(esc(mjTitle(j)), (j.kind === 'space' ? '사용 ' : '보관 ') + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
+  // 실시간 재고 대조 (2026-11-27): 남은 이동의 출발 줄 현재 수량 ≠ 계획 → 표시 · 다시 계산 (다른 폰 입출고 · 이동 반영)
+  var live = mjLive(j), diffN = j.moves.filter(function (m, i) { return !m.done && live[i] !== m.qty; }).length;
+  if (diffN) h += '<div class="card row" style="margin:10px 0 0; padding:8px 12px; background:#FFF8E1; gap:8px"><span style="flex:1; font-size:13px; font-weight:800; color:#7A3E00">재고 변경 · 계획과 다른 이동 ' + diffN + '건</span>' +
+    (mjCanReplan(j) ? '<button class="btn" style="height:36px; width:auto; padding:0 12px; flex:none" onclick="mjReplan()">다시 계산</button>' : '') + '</div>';
   if (!tot) {
     h += '<div class="card" style="margin-top:10px"><b>이동 대상 없음</b><div class="muted">' + esc(keyOf(j.here)) + ' 잔여 자리 ' + (j.free || 0) + '롤 · 전량 이동 가능 위치 없음</div></div>';
   } else {
@@ -2179,9 +2184,13 @@ function sheetMerge() {
           (m.mix ? '<div style="font-size:12px; font-weight:900; color:#7A3E00">입고일 상이</div>' : '') +
           (m.swap && !m.done ? '<div style="font-size:12px; font-weight:900; color:#1D5FBF">교환 ' + m.swap + ' · 두 줄 맞교환 (임시 적치 필요)</div>' : '') +
           (m.fifo && !m.done ? '<div style="font-size:12px; font-weight:900; color:#9A1C1C">선입선출 역전 · 도착 줄 기존 재고 ' + esc(m.fifo.slice(5)) + ' 입고 (안쪽 적재)</div>' : '') +
-          (m.done ? '<div style="font-size:12px; font-weight:900; color:#1E5A33">✓ 이동 완료</div>' : '');
-        var side = m.done
+          (!m.done && live[i] !== m.qty ? '<div style="font-size:12px; font-weight:900; color:#9A1C1C">' + (live[i] ? '출발 줄 현재 ' + live[i] + '롤 (계획 ' + m.qty + '롤)' : '출발 줄 재고 없음 · 이미 이동 · 출고 확인') + '</div>' : '') +
+          (m.skip ? '<div style="font-size:12px; font-weight:900; color:#5A6470">건너뜀 (출발 줄 재고 없음)</div>' : m.done ? '<div style="font-size:12px; font-weight:900; color:#1E5A33">✓ 이동 완료</div>' : '');
+        var side = m.skip
+          ? '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjUndo(' + i + ')">건너뜀 취소</button>'
+          : m.done
           ? '<button class="btn2" style="height:40px; padding:0 10px; color:#9A1C1C; border-color:#9A1C1C" onclick="mjUndo(' + i + ')">이동 취소</button>'
+          : !live[i] ? '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjSkip(' + i + ')">건너뜀</button>'
           : '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjDone(' + i + ')">이동 완료</button>';
         return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : '#fff', body: body, side: side });
       }).join('') });
@@ -2456,8 +2465,43 @@ function stackAfterMove(from, to, sig) {
     S.stack[from] = nf; setTimeout(function () { call.quiet = true; call('saveStack', from, nf).then(function (mp) { if (mp) S.stack = mp; }, function () {}); }, 300);
   }
 }
+/* 실시간 재고 대조: 남은 이동마다 출발 줄에서 옮길 수 있는 그 원지 수량 (지금 재고 + 앞 순서 이동 도착분 · 같은 출발끼리 순서대로 나눔)
+   계획 수량보다 적음 = 다른 폰 출고 · 이동 → 표시 · 0 = 건너뜀 · 완료 이동 = 계획 그대로 */
+function mjLive(j) {
+  var pool = {};
+  function get(loc, sig) {
+    var k = loc + '>' + sig;
+    if (!(k in pool)) pool[k] = S.stock.filter(function (x) { return x.loc === loc && sigOf(x) === sig; }).reduce(function (a, x) { return a + x.qty; }, 0);
+    return k;
+  }
+  return j.moves.map(function (m) {
+    if (m.done) return m.qty;
+    var sig = m.sig || j.sig, k = get(m.from, sig), t = get(m.to, sig);
+    var q = Math.min(m.qty, pool[k]); pool[k] -= q; pool[t] += q;   // 연쇄 이동(가→나→다): 앞 이동 도착분 = 다음 이동 출발분
+    return q;
+  });
+}
+function mjCanReplan(j) { return j.kind === 'space' || !!j.here; }
+/* 다시 계산: 완료 이동은 그대로 · 남은 이동만 지금 재고로 새로 계산 (정리 = 창고 계획 · 여기로 병합 = 도착 줄 계획) */
+function mjReplan() {
+  var j = MJ; if (!j || !mjCanReplan(j)) return;
+  var done = j.moves.filter(function (m) { return m.done; }), P;
+  if (j.kind === 'space') {
+    var w = S.whs.filter(function (x) { return String(x.id) === String(j.wh); })[0]; if (!w) return;
+    P = spacePlan(w, j.mode === 'tidy' ? 'tidy' : j.mode || 'max');
+  } else P = hereJob(j.here, j.sig, j.whs || []);
+  j.moves = done.concat(P.moves); j.after = P.after; if (P.skip) j.skip = P.skip;
+  mjSave(); renderSheet();
+  toast(P.moves.length ? '남은 이동 ' + P.moves.length + '건 다시 계산 · 실시간 재고 기준' : '남은 이동 없음 · 정리 완료 상태');
+}
+/* 건너뜀: 출발 줄 재고 없음 (다른 폰 이동 · 출고) → 전산 이동 없이 완료 처리 · [건너뜀 취소] 로 되돌림 */
+function mjSkip(i) {
+  var m = MJ && MJ.moves[i]; if (!m || m.done) return;
+  m.done = 1; m.skip = 1; m.nos = []; m.t = Date.now(); m.by = worker(); mjSave(); renderSheet();
+}
 function mjUndo(i) {
   var m = MJ && MJ.moves[i]; if (!m || !m.done) return;
+  if (m.skip) { m.done = 0; m.skip = 0; m.t = Date.now(); mjSave(); renderSheet(); return; }
   if (!m.nos.length) { toast('취소 대상 기록 없음 · 기록 탭에서 취소', true); return; }
   ask({ title: '이동 취소', msg: keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + m.qty + '롤\n재고 원복 (출발 위치 복귀)', input: false, ok: '이동 취소', danger: true }, function (y) {
     if (!y || !requireWorker()) return;
@@ -5033,11 +5077,40 @@ function renderRep() {
     '<button class="btn2" style="white-space:nowrap" onclick="loadRep()">조회</button></div><div id="rp-body"></div>';
   if (RP.data) drawRep(); else loadRep();
 }
-function loadRep() {
-  RP.from = $('rp-from').value; RP.to = $('rp-to').value;
-  if (RP.from && RP.to && RP.from > RP.to) { toast('시작일이 종료일 이후', true); return; }
-  $('rp-body').innerHTML = '<div class="muted" style="padding:12px">불러오는 중...</div>';
-  call('getReport', { from: RP.from, to: RP.to }).then(function (r) { RP.data = r; if ($('rp-body')) drawRep(); });
+function loadRep(quiet) {   // quiet = 실시간 갱신 (화면 비우지 않고 · 알림 없이 · 조회한 기간 그대로)
+  if (!quiet) {
+    RP.from = $('rp-from').value; RP.to = $('rp-to').value;
+    if (RP.from && RP.to && RP.from > RP.to) { toast('시작일이 종료일 이후', true); return; }
+    $('rp-body').innerHTML = '<div class="muted" style="padding:12px">불러오는 중...</div>';
+  } else { call.quiet = true; lastBtn = null; }
+  var my = (loadRep.seq = (loadRep.seq || 0) + 1);
+  call('getReport', { from: RP.from, to: RP.to }).then(function (r) { if (my !== loadRep.seq) return; RP.data = r; if ($('rp-body') && TAB === 'log' && LG.mode === '보고서') drawRep(); }, function () {});
+}
+/* 재고 변경 → 보고서 바로 다시 그림 (정리 · 재고 · 장기 = 폰 재고) + 입출고 · 실사 = 서버 조용히 다시 조회 */
+function repLive() { drawRep(); loadRep(true); }
+/* 현재 재고 · 장기 재고 = 폰 재고(S.stock · 지도와 같은 값 · 전송 대기 저장 포함) — 서버 getReport 와 같은 집계 */
+function repStock() {
+  var agg = {};
+  S.stock.forEach(function (s) {
+    if (!(s.qty > 0)) return;
+    var k = s.wh + '|' + s.gsm + '|' + s.width + '|' + (s.grade || '');
+    var a = agg[k] || (agg[k] = { wh: whName(s.wh), wid: s.wh, gsm: s.gsm, width: s.width, grade: s.grade || '', qty: 0, rem: 0, locs: [] });
+    if (s.rem) a.rem += s.qty; else a.qty += s.qty;
+    if (a.locs.indexOf(s.loc) < 0) a.locs.push(s.loc);
+  });
+  return Object.keys(agg).map(function (k) { return agg[k]; })
+    .sort(function (a, b) { return String(a.wid).localeCompare(String(b.wid)) || Number(a.gsm) - Number(b.gsm) || Number(a.width) - Number(b.width); });
+}
+function repAging() {
+  var lim = agingDays(), out = [];
+  S.stock.forEach(function (s) {
+    if (!(s.qty > 0)) return;
+    (s.lots && s.lots.length ? s.lots : [{ date: s.date, qty: s.qty }]).forEach(function (l) {
+      var age = ageOf(l.date);
+      if (age >= lim) out.push({ loc: s.loc, gsm: s.gsm, width: s.width, grade: s.grade || '', maker: s.maker || '', rem: s.rem, date: l.date, age: age, qty: l.qty });
+    });
+  });
+  return out.sort(function (a, b) { return b.age - a.age; });
 }
 function repTables() {
   var r = RP.data, T = {};
@@ -5051,11 +5124,11 @@ function repTables() {
   if (r.io.length) io.push(sum);
   T.io = io;
   var st = [['창고', '규격', '지종', '롤 수', '잔량', '위치']], tq = 0, tr = 0;
-  r.stock.forEach(function (x) { tq += x.qty; tr += x.rem; st.push([x.wh, x.gsm + '×' + x.width, x.grade, x.qty, x.rem, x.locs.map(keyOf).join(' ')]); });
-  if (r.stock.length) st.push(['합계', '', '', tq, tr, '']);
+  repStock().forEach(function (x) { tq += x.qty; tr += x.rem; st.push([x.wh, x.gsm + '×' + x.width, x.grade, x.qty, x.rem, x.locs.map(keyOf).join(' ')]); });
+  if (st.length > 1) st.push(['합계', '', '', tq, tr, '']);
   T.stock = st;
   var ag = [['위치', '규격', '지종', '제지사', '입고일', '경과일', '롤 수']];
-  r.aging.forEach(function (x) { ag.push([locLabel(x.loc), x.gsm + '×' + x.width + (x.rem ? ' 잔량' : ''), x.grade, x.maker, x.date, x.age, x.qty]); });
+  repAging().forEach(function (x) { ag.push([locLabel(x.loc), x.gsm + '×' + x.width + (x.rem ? ' 잔량' : ''), x.grade, x.maker, x.date, x.age, x.qty]); });
   T.aging = ag;
   var aj = [['일시', '위치', '규격', '조정', '사유', '작업자']];
   (r.adj || []).forEach(function (x) { aj.push([x.time, locLabel(x.loc), x.gsm + '×' + x.width + (x.rem ? ' 잔량' : ''), x.qty, x.reason, x.worker]); });
@@ -5082,13 +5155,13 @@ function drawRep() {
   var secs = {
     '입출고': function () { return card('일자별 입출고', 'io', esc(RP.from + ' ~ ' + RP.to) + ' · 단위: 롤', true); },
     '정리': function () { return orgCard(); },
-    '장기': function () { return card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + r.agingDays + '일</b> 이상</span>', false); },
+    '장기': function () { return card('장기 재고', 'aging', '<span data-lp="aging">입고 후 <b>' + agingDays() + '일</b> 이상</span>', false); },
     '실사': function () { return card('실사 조정 내역', 'adj', '', false); },
     '재고': function () { return card('현재 재고', 'stock', '', true); }
   };
   var order = ['입출고', '정리', '장기', '실사', '재고'];
   if (order.indexOf(RP.sec) < 0) RP.sec = '입출고';
-  $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">기준 ' + esc(r.at) + '</div>' +
+  $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">정리 · 장기 · 재고 = 실시간 재고 (' + esc(S.at || r.at) + ') · 입출고 · 실사 조회 ' + esc(r.at) + '</div>' +
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
   seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
 }
