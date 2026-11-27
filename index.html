@@ -545,7 +545,12 @@
   #toast { align-items:center; gap:10px; }
   body.shopen #toast { bottom:auto; top:12px; z-index:25; }
   #toast .undo { margin-left:auto; flex:none; height:40px; }
-  #toast .undo + .undo { margin-left:0; }   /* 버튼 2개 (실행 취소 + 이 줄 다시 · 다음 품목) */
+  #toast .undo + .undo { margin-left:0; }
+  /* 검색 입력 중 (2026-11-28): 칩 · 전체 결과 접고 키보드 위에 바로 결과 */
+  #detail.ftyping .fbody { display:none; }
+  #fq-live:empty { display:none; }
+  #fq-live { margin-top:6px; }
+  .fqi { display:flex; align-items:center; gap:10px; width:100%; background:#fff; border:0; border-bottom:1px solid #E6E8EB; padding:7px 2px; font:inherit; font-size:14.5px; font-weight:700; color:var(--ink); }   /* 버튼 2개 (실행 취소 + 이 줄 다시 · 다음 품목) */
   #md-chips { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
   #md-chips.list { grid-template-columns:1fr; max-height:55vh; overflow-y:auto; }
   #md-chips.pk { gap:4px; }
@@ -2029,6 +2034,18 @@ function nextRow(code) {
   return null;
 }
 /* 옆 줄 (2026-11-28): 줄 창 ‹ › · 좌우 밀기 = 같은 구역 앞 · 뒤 줄 (미사용 · 통로 건너뜀) — 닫고 다시 고르지 않음 */
+/* 키보드가 올라오면 작업창을 키보드 위 보이는 영역에 맞춤 (2026-11-28 · 아이폰 · 안드로이드 공통 visualViewport)
+   창 아래 = 키보드 위 · 최대 높이 = 보이는 높이 → 가려진 칩 · 결과도 스크롤로 볼 수 있음 · 키보드 내리면 원래대로 */
+(function () {
+  var vv = window.visualViewport; if (!vv) return;
+  function fit() {
+    var d = $('detail'); if (!d) return;
+    var kb = window.innerHeight - vv.height - vv.offsetTop;
+    if (kb > 80 && SH) { d.style.bottom = kb + 'px'; d.style.maxHeight = Math.max(200, vv.height - 24) + 'px'; }
+    else { d.style.bottom = ''; d.style.maxHeight = ''; }
+  }
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+})();
 function prevRow(code) {
   var w = whOf(code), p = String(code).split('-'); if (!w) return null;
   for (var i = Number(p[2]) - 1; i >= 1; i--) { var c = w.id + '-' + p[1] + '-' + pad(i); if (!rowInfo(c).cfg.off) return c; }
@@ -2759,7 +2776,8 @@ function shHead(title, sub, back, sum, box) {
 function renderSheet() {
   PKT = null;
   if (!SH) return closeSheet();
-  var d = $('detail');
+  var d = $('detail'), ae = document.activeElement;
+  if (!(SH.mode === 'filter' && ae && ae.id === 'f-sum')) d.classList.remove('ftyping');   // 검색 입력 중 화면 해제 (다른 창 · 입력 끝)
   d.style.display = 'block'; $('dim').style.display = 'block'; document.body.classList.add('shopen');
   if (SH.mode === 'cfg') { rowEditor(SH.code); return; }
   if (SH.mode === 'wh') { sheetWh(); return; }
@@ -3713,7 +3731,7 @@ function cntLine() {
   else {
     Object.keys(c.locs || {}).concat(isTest() ? Object.keys(c.tlocs || {}) : []).forEach(function (code) { if (whOf(code)) pick(code); });
     if (c.cycle) S.whs.forEach(function (w) { eachRow(w, function (z, key, code) { if (!cfgOf(w, key).off && cntDue(code)) due++; }); });
-    if (!n && !due) return '';
+    if (!due) return '';   // 수시 실사(범위 · 주기 없음) = 띠 없음 · 지도 줄 [직전] 꼬리표로 충분 (2026-11-28 · WMS 순환 실사 = 계획 기반 지시형)
   }
   var lx = '';   // 직전 줄은 지도 칸 꼬리표 [직전]으로 표시 (한 줄 고정 · 잘림 방지)
   var head = p ? '<b>실사 ' + n + '/' + tot + '줄</b> <small>' + esc(cntPlanName(p)) + ' · ' + p.from.slice(5).replace('-', '/') + '~</small>'
@@ -3935,18 +3953,14 @@ function shClose(force) {
   else if (r.reopen) r.reopen();
 }
 /* 지도 검색창: 검색과 같은 조건(F) · 같은 선택기 — SH.sp 가 F 자체라 고르면 바로 F 에 반영 */
-/* 검색 창 열기 = 입력칸 기본 포커스 (2026-11-26 · 검색 목적 창 표준) · 처음 열 때만 (칩 선택 중 키보드 재표시 없음)
-   누름 처리 안에서 바로 포커스 → 아이폰도 키보드 표시 · 기존 조건이 있으면 커서 = 끝 */
-function openFilter(noFocus) {
-  shOpen({ code: null, mode: 'filter', sp: F, phmsg: '' });
-  var el = $('f-sum'); if (!el || noFocus) return;
-  try { el.focus({ preventScroll: true }); var n = el.value.length; el.setSelectionRange(n, n); } catch (e) { try { el.focus(); } catch (x) {} }
-}
+/* 검색 창 열기 (2026-11-28 변경): 키보드 띄우지 않음 — 이 창은 칩으로 고르는 필터 창이 기본 (키보드가 칩을 가림)
+   입력칸을 누르면 키보드 + 입력 중 화면(칩 접고 키보드 위에 바로 결과 · 최근 검색 · 자주 찾는 규격) */
+function openFilter() { shOpen({ code: null, mode: 'filter', sp: F, phmsg: '' }); }
 function sheetFilter() {
   var h = fHits();
-  return shHead('검색', '', false, '', sumHtml('f-sum', '🔍 예시: 230-1210 무림 · 잔량 · 1-01', { type: 'fType', clear: 'clearFilter', blur: 'setTimeout(fBlur,150)', text: fText(h), miss: false })) +
-    photoBar('filterPhoto', phNote('')) + pickerBody(F, true, 'renderSheet()', true) + '<div id="fq-list">' + fLocList(h.list) + '</div>' +
-    '<div class="grid2" style="margin-top:12px"><button class="btn2" onclick="clearFilter()">초기화</button><button class="btn" style="height:46px" onclick="closeSheet()">지도 보기</button></div>';
+  return shHead('검색', '', false, '', sumHtml('f-sum', '🔍 예시: 230-1210 무림 · 잔량 · 1-01', { type: 'fType', clear: 'clearFilter', blur: 'setTimeout(fBlur,150)', focus: 'fFocus()', text: fText(h), miss: false }) + '<div id="fq-live"></div>') +
+    '<div class="fbody">' + photoBar('filterPhoto', phNote('')) + pickerBody(F, true, 'renderSheet()', true) + '<div id="fq-list">' + fLocList(h.list) + '</div>' +
+    '<div class="grid2" style="margin-top:12px"><button class="btn2" onclick="clearFilter()">초기화</button><button class="btn" style="height:46px" onclick="closeSheet()">지도 보기</button></div></div>';
 }
 /* 검색 입력칸: 규격 · 제지사는 조건으로, 나머지 낱말은 문구 검색 · 입력 중엔 결과 · 지도만 갱신 */
 function fText(h) {
@@ -3968,9 +3982,38 @@ function fType(v) {
     return true;
   }).join(' ');
   F.q = rest.replace(/[·"]/g, ' ').replace(/\s+/g, ' ').trim();
-  renderMap(); shLive();
+  renderMap(); shLive(); fLive();
 }
-function fBlur() { var el = $('f-sum'); if (SH && SH.mode === 'filter' && (!el || document.activeElement !== el)) renderSheet(); }
+/* 입력 중 화면 (2026-11-28 · 검색 표준 = 키보드 바로 위에 추천 · 결과): 칩 영역 접음 → 입력칸 아래 바로 결과 5줄 · 비어 있으면 최근 검색 · 자주 찾는 규격
+   결과 누름 = 그 줄로 (mousedown 기본 동작 막아 입력칸 포커스 유지 → 누름 처리 먼저) · 키보드 내림 = 칩 · 전체 결과 다시 표시 */
+function fFocus() { var d = $('detail'); if (d) d.classList.add('ftyping'); fLive(); }
+function fRecent() { try { return JSON.parse(lsGet('fRecent') || '[]'); } catch (e) { return []; } }
+function fLive() {
+  var box = $('fq-live'), d = $('detail'); if (!box || !d || !d.classList.contains('ftyping')) return;
+  var tap = function (js, inner, cls) { return '<button class="' + (cls || 'fqi') + '" onmousedown="event.preventDefault()" onclick="' + js + '">' + inner + '</button>'; };
+  if (fOn()) {
+    var h = fHits(), by = {};
+    h.list.forEach(function (s) { var g = by[s.loc] || (by[s.loc] = { loc: s.loc, wh: s.wh, qty: 0, date: s.date, items: [] }); g.qty += s.qty; g.items.push(s); if (s.date < g.date) g.date = s.date; });
+    var L = FLOCS = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.date.localeCompare(b.date) || a.loc.localeCompare(b.loc); });
+    box.innerHTML = !L.length ? '<div class="muted" style="padding:8px 2px">해당 재고 없음</div>' :
+      L.slice(0, 5).map(function (g, i) {
+        return tap('fGo(' + i + ')', '<span class="tag' + (i ? '' : ' hot') + '"><small>' + esc(whName(g.wh)) + '</small><b>' + esc(keyOf(g.loc)) + '</b></span><span style="flex:1; min-width:0; text-align:left">' +
+          g.items.map(function (s) { return itemHtml(s) + ' · ' + s.qty + '롤'; }).join(' / ') + '</span>');
+      }).join('') + '<div class="muted" style="font-size:12px; padding:4px 2px">' + L.length + '줄 · ' + h.qty + '롤' + (L.length > 5 ? ' · 키보드 내리면 전체' : '') + '</div>';
+    return;
+  }
+  var rc = fRecent(), fs = freqSpecs(), chip = function (v) { return tap('fPick(this.dataset.v)', esc(v), 'chip').replace('<button ', '<button data-v="' + esc(v) + '" '); };
+  box.innerHTML = (rc.length ? '<div class="muted" style="font-size:12px; margin:6px 0 2px">최근 검색</div><div class="cgf">' + rc.map(chip).join('') + '</div>' : '') +
+    (fs.length ? '<div class="muted" style="font-size:12px; margin:6px 0 2px">자주 찾는 규격</div><div class="cgf">' + fs.map(function (x) { return chip([x.maker, x.gsm + '-' + x.width].filter(Boolean).join(' ')); }).join('') + '</div>' : '');
+}
+function fPick(v) { var el = $('f-sum'); if (el) el.value = v; fType(v); }
+function fBlur() {
+  var el = $('f-sum'); if (!SH || SH.mode !== 'filter' || (el && document.activeElement === el)) return;
+  var v = el ? el.value.trim() : '';   // 최근 검색 (이 폰 · 5개)
+  if (v && fOn()) { var r = fRecent().filter(function (x) { return x !== v; }); r.unshift(v); lsSet('fRecent', JSON.stringify(r.slice(0, 5))); }
+  var d = $('detail'); if (d) d.classList.remove('ftyping');
+  renderSheet();
+}
 function clearFilter(ev) {
   if (ev) ev.stopPropagation();
   F.gsm = F.width = null; F.maker = F.grade = F.q = '';
@@ -4013,7 +4056,7 @@ function parseHand(t) {
 function sumHtml(id, ph, o) {
   var ent = o.enter ? o.enter + ';this.select()' : 'this.blur()', t = o.text || '';
   return '<div class="insumw"><input class="srchin insum' + (t && o.miss ? ' miss' : '') + '" id="' + id + '" value="' + esc(t) + '" aria-label="입력 · 요약" placeholder="' + esc(ph) + '" autocomplete="off" enterkeyhint="' + (o.enter ? 'enter' : 'done') + '"' +
-    ' oninput="' + o.type + '(this.value)" onfocus="this.select()" onblur="' + o.blur + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();' + ent + '}">' +
+    ' oninput="' + o.type + '(this.value)" onfocus="this.select();' + (o.focus || '') + '" onblur="' + o.blur + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();' + ent + '}">' +
     '<button class="insx" id="' + id + 'x" onclick="' + o.clear + '()" aria-label="입력 초기화" style="display:' + (t ? 'block' : 'none') + '">×</button></div>';
 }
 /* 머리글(탭)용: 처음 한 번 만들고, 입력 중이 아닐 때만 요약으로 갱신 */
