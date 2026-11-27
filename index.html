@@ -215,7 +215,7 @@
   .cell.brcell span { background:#fff; padding:0 6px; }
   .aisle { background:repeating-linear-gradient(180deg,var(--y) 0 14px,transparent 14px 26px); width:4px; justify-self:center; border-radius:2px; }
   .cell { min-height:46px; border-radius:8px; border:1px solid var(--line); background:#fff; padding:4px 8px; margin-bottom:5px; width:100%; text-align:left; font:inherit; color:var(--ink); display:block; }
-  .cell.off { background:#E6E8EB; color:#6B7178; }
+  .cell.off { background:#E6E8EB; color:#555B63; }
   .cell.hit { background:var(--y); border:2px solid var(--ink); }
   .cell.tdy { border:2px solid var(--ok); } .cell .tck { color:var(--ok); }
   /* 실사 상태: 일치 파랑 · 차이 주황(재실사 대상) · 실사 필요 점선 */
@@ -232,8 +232,8 @@
   .ebadge { display:inline-block; min-width:18px; height:18px; padding:0 4px; border:1.5px solid #3FB96A; border-radius:9px; color:#3FB96A; background:transparent; font-size:11px; line-height:15px; font-weight:900; text-align:center; vertical-align:2px; cursor:pointer; }
   .zh .ebadge { border-color:var(--ok); color:var(--ok); }
   .ebadge.on, .zh .ebadge.on { background:var(--ok); border-color:var(--ok); color:#fff; }
-  .seg button.on .ebadge { border-color:var(--ok); color:var(--ok); } .seg button.on .ebadge.on { color:#fff; }
-  .cell.emp { border:2px solid var(--ok); background:#E9F6EE; } .cell.edim { opacity:.35; }   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
+  .seg button.on .ebadge { border-color:#0F4424; color:#0F4424; } .seg button.on .ebadge.on { color:#fff; }
+  .cell.emp { border:2px solid var(--ok); background:#E9F6EE; } .cell.edim, .cell.selock { background:#F7F8F6; border-color:#E1E3E6; } .cell.edim *, .cell.selock * { color:#6B7178 !important; } .cell.edim.off *, .cell.selock.off * { color:#5B6168 !important; } .cell.edim.off, .cell.selock.off { background:#ECEEF0; } .cell.edim .sl span.distb, .cell.selock .sl span.distb { background:none; } .cell.off .sl span:last-child, .cell.cant .sl span:last-child, .cell.cant .sl { color:#5B6168; } .cell.edim .bar i, .cell.selock .bar i { background:#9AA0A6 !important; }   /* 흐림 = 투명도 대신 회색 글자 · 옅은 바탕 (숫자 가독 · 명암비 4.5 이상) */   /* 빈 줄 수 = 입고 가능 자리 */ .prog.cprog span[role=button] { cursor:pointer; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 한 줄 고정: 저장할 때마다 높이가 바뀌어 지도가 밀리지 않게 */
   /* 표시 기준: 해당 줄 = 첫 기준 색 굵은 테두리 + 기준별 표시 · 머리 띠 범례 */
   .cell.mk { border-width:3px; border-style:solid; }
   .mkt { display:flex; flex-wrap:wrap; gap:3px; margin:2px 0 3px; } .mkt i, .mkl { font-style:normal; color:#fff; font-size:11.5px; font-weight:800; padding:1px 6px; border-radius:6px; white-space:nowrap; }
@@ -261,8 +261,8 @@
   /* 검색: 걸린 규격만 또렷하게 (셀은 노랑, 그 안에서 맞는 규격 강조 · 나머지 흐리게) */
   .cell .sl.shit { background:var(--ink); color:#fff; font-weight:900; border-radius:5px; padding:1px 5px; margin:0 -3px; }
   .cell .sl.shit span:last-child { color:#FFE08A; font-weight:900; }
-  .cell .sl.dim { opacity:.4; }
-  .cell .sl span.distb, .distb { color:#7A3E00; background:#FFD59A; font-weight:900; border-radius:4px; padding:0 3px; }   /* 분산 = 롤 수에 주황 배경 (표시만 · 누르면 줄 화면) */
+  .cell .sl.dim, .cell .sl.dim span, .cell .sl.dim .mkc, .cell .sl.dim .mkc.mkg { color:#5E4A00; font-weight:600; }   /* 검색 외 규격 = 노랑 바탕 위 갈색 (투명도 금지: 숫자 안 보임) */
+  .cell .sl span.distb, .distb { color:#7A3E00; background:#FFD59A; font-weight:900; border-radius:4px; padding:0 3px; } .cell .sl.shit span.distb { color:#7A3E00; }   /* 검색 일치 줄 안에서도 분산 글자색 유지 */   /* 분산 = 롤 수에 주황 배경 (표시만 · 누르면 줄 화면) */
   .frag { font-size:10px; font-weight:900; background:#FBE9E7; color:#9A1C1C; border-radius:4px; padding:0 4px; margin-left:4px; white-space:nowrap; }
   .hintbox { background:#FFF3E0; border:1px solid #E8A33D; color:#7A4A00; border-radius:8px; padding:8px 10px; font-size:13px; margin-bottom:8px; }
   .hlnk { background:none; border:none; color:#163A7D; font:inherit; font-weight:900; text-decoration:underline; cursor:pointer; padding:0; }
@@ -328,7 +328,7 @@
   .rt th { font-size:12px; color:var(--sub); }
   .rt tr.sum td { font-weight:900; border-top:2px solid var(--ink); } .t-실사 { background:#E3F2E7; color:#1E5A33; } .t-취소 { background:#F6DADA; color:#9A1C1C; }
   .tt { font-size:10px; font-weight:900; background:#E8590C; color:#fff; border-radius:4px; padding:0 4px; margin-left:4px; }
-  .void { opacity:.55; } .void b { text-decoration: line-through; }
+  .void { background:#F3F4F1; } .void b { text-decoration: line-through; } .void, .void b, .void .muted { color:#5B6168 !important; } .void .pill, .void .tt { background:#D5D8DC !important; color:#3E444B !important; }   /* 취소 · 완료 = 회색 (투명도 금지) */
   #toast { position:fixed; left:max(14px, calc((100% - 640px) / 2 + 14px)); right:max(14px, calc((100% - 640px) / 2 + 14px)); bottom:80px; background:var(--ink); color:#fff; padding:14px; border-radius:12px; font-weight:700; display:none; z-index:9; white-space:pre-line; }
   .zhead { display:grid; grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr); gap:6px; font-weight:900; font-size:14px; margin:12px 0 6px; }
   .zhead .zh, .bhead .zh { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -506,7 +506,7 @@
   .chip.more { border-style:dashed; background:var(--bg); font-size:14px; }
   .pkhint { font-size:12px; color:var(--sub); margin-top:8px; }
   .lbl span { font-size:12px; font-weight:500; color:var(--sub); }
-  .srch { display:flex; align-items:center; gap:8px; width:100%; background:#fff; border:0; border-radius:10px; height:42px; padding:0 12px; margin-top:8px; color:#8A9098; font:inherit; font-size:15px; text-align:left; }
+  .srch { display:flex; align-items:center; gap:8px; width:100%; background:#fff; border:0; border-radius:10px; height:42px; padding:0 12px; margin-top:8px; color:#6B7178; font:inherit; font-size:15px; text-align:left; }
   /* 표시 기준 칩: 검색칸 오른쪽 (별도 머리 띠 없음 · 한 줄 절약) · 누름 = 선택 창 · ✕ = 종료 */
   .srow { display:flex; gap:6px; align-items:center; } .srow .srch { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .mkchip { flex:none; display:flex; align-items:center; height:42px; margin-top:8px; border-radius:10px; background:#fff; overflow:hidden; max-width:52%; }
@@ -519,10 +519,10 @@
   .srch .clr { border:0; background:#E6E8EB; border-radius:8px; width:30px; height:30px; font-size:14px; flex:none; }
   .band { background:var(--y); color:var(--ink); border-radius:10px; padding:8px 10px; margin-top:8px; }
   .band .stepper button { width:42px; height:42px; font-size:22px; } .band .stepper span { font-size:22px; min-width:36px; }
-  .cell.can { border:2px solid var(--ok); } .cell.cant { background:#E6E8EB; color:#9AA0A6; } .cell.from { background:var(--y); border:2px solid var(--ink); }
+  .cell.can { border:2px solid var(--ok); } .cell.cant { background:#E6E8EB; color:#5B6168; } .cell.from { background:var(--y); border:2px solid var(--ink); }
   .cell .fit { font-size:12px; font-weight:900; color:var(--ok); } .cell.cant .fit { color:#9A1C1C; }
   /* 줄 사용·미사용 편집 */
-  .cell.selock { opacity:.35; }
+  
   .cell.setog { border:2px dashed var(--ink); }   /* 사용=흰 바탕, 미사용=.cell.off 회색 바탕 (둘 다 점선) */
   .zedit { flex:none; height:26px; min-width:30px; padding:0 8px; border-radius:6px; border:1px solid #B9BEC5; background:#fff; color:#6B7178; font:inherit; font-size:13px; font-weight:700; }
   .zedit.on { border-color:var(--ink); background:var(--ink); color:#fff; }
@@ -1504,11 +1504,11 @@ function renderMap() {
   seg($('m-whseg'), S.whs.map(function (x) {
     if (PKM) {   // 피킹 위치 선택: 창고마다 후보 줄 수
       var pn = Object.keys(PKM.locs).filter(function (c) { return c.split('-')[0] == x.id; }).length;
-      return [x.id, '<span style="' + (pn ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (pn ? '<b class="fhit">후보 ' + pn + '줄</b>' : '없음') + '</small></span>', 'wh:' + x.id];
+      return [x.id, '<span style="' + (pn ? '' : 'opacity:.6') + '">' + esc(x.name) + ' <small>' + (pn ? '<b class="fhit">후보 ' + pn + '줄</b>' : '없음') + '</small></span>', 'wh:' + x.id];
     }
     if (fo) {
       var q = fh.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
-      return [x.id, '<span style="' + (q ? '' : 'opacity:.4') + '">' + esc(x.name) + ' <small>' + (q ? '<b class="fhit">' + q + '롤</b>' : '없음') + '</small></span>', 'wh:' + x.id];
+      return [x.id, '<span style="' + (q ? '' : 'opacity:.6') + '">' + esc(x.name) + ' <small>' + (q ? '<b class="fhit">' + q + '롤</b>' : '없음') + '</small></span>', 'wh:' + x.id];
     }
     var n = S.stock.filter(function (s) { return s.wh == x.id; }).reduce(function (a, s) { return a + s.qty; }, 0);
     return [x.id, esc(x.name) + empBadge(x.id, whEmpty(x)) + ' <small>' + n + '롤</small>', 'wh:' + x.id];
@@ -1579,7 +1579,7 @@ function renderMap() {
       var cur = !MV && !ST && code === CUR, ctg = MV || ST ? '' : cur ? '<span class="ctg cur">실사 중</span>' : LW && code === LW.code ? '<span class="ctg">직전 · ' + esc(LW.t) + '</span>' : code === CNEXT ? '<span class="ctg nx">다음</span>' : '';
       h += '<button class="cell' + (off ? ' off' : '') + (hit ? ' hit' : '') + (tdy && !hit && !cx ? ' tdy' : '') + (hit ? '' : cc) + (mkh && mkh.length ? ' mk' : '') + (cur ? ' ccur' : '') + emo + mvc + sec + '" data-c="' + code + '"' + mks + (MV || ST ? '' : ' data-lp="row:' + code + '"') + ' onclick="cellTap(\'' + code + '\')">' +
         '<div class="t"><span>' + disp + (tdy ? ' <span class="tck">✓</span>' : '') + (cx ? ' <span class="cck">✓</span>' : '') + ctg + '</span><span>' + (off || !n ? '' : n + '롤 · ' + ri.used + '/' + ri.slots + '칸') + '</span></div>' +
-        (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#A0A6AD">비어 있음</span>')) + '</div>' : '') +
+        (tag || off || !specs ? '<div class="s">' + tag + (off ? ((stCur || '사용 중지') + (n ? ' · 재고 ' + n + '롤' : '')) : (specs ? '' : '<span style="color:#6B7178">비어 있음</span>')) + '</div>' : '') +
         mkt + (off ? '' : specs) + fit +
         (off ? '' : '<div class="bar"><i style="width:' + Math.max(0, pct) + '%; background:' + barColor(ri.used, ri.slots) + '"></i></div>') + '</button>';
     }
@@ -1727,8 +1727,8 @@ function mkPresetsSet(a) { try { localStorage.setItem('mkPresets', JSON.stringif
 function mkFrom() { return MK.days === 7 ? daysAgo(6) : todayStr(); }
 /* 기준: [키, 이름, 색, 설명, 판정(code, ri) → 표시 글자 | '' , 기간 적용] */
 var MK_DEF = [
-  ['in', '입고', '#1E8E4E', '입고 · 잔량 반납 줄', function (c) { var q = MK.act && MK.act.inl[c]; return q ? '입고 ' + q : ''; }, 1],
-  ['out', '출고', '#D64545', '출고 줄', function (c) { var q = MK.act && MK.act.out[c]; return q ? '출고 ' + q : ''; }, 1],
+  ['in', '입고', '#17773F', '입고 · 잔량 반납 줄', function (c) { var q = MK.act && MK.act.inl[c]; return q ? '입고 ' + q : ''; }, 1],
+  ['out', '출고', '#C23434', '출고 줄', function (c) { var q = MK.act && MK.act.out[c]; return q ? '출고 ' + q : ''; }, 1],
   ['mv', '이동', '#1D5FBF', '이동 출발(→ 도착 줄) · 도착(← 출발 줄)', function (c) {
     var a = MK.act; if (!a || !a.mvPair) return ''; var o = [];
     Object.keys(a.mvPair).forEach(function (k) { var p = k.split('>'); if (p[0] === c) o.push('→ ' + mkLoc(p[1], c) + ' · ' + a.mvPair[k] + '롤'); else if (p[1] === c) o.push('← ' + mkLoc(p[0], c) + ' · ' + a.mvPair[k] + '롤'); });
