@@ -644,15 +644,16 @@
     <div class="stab" data-k="admin">
     <h2>작업자 관리 <span class="muted" style="font-weight:500">(관리자)</span></h2>
     <div class="card" id="set-workers"></div>
+    <h2>로그인 기기</h2>
+    <div class="card" id="set-ses"><div class="muted" style="font-size:13px">사용 중인 로그인 목록 · 안 쓰는 기기 · 잃어버린 폰 종료</div><button class="btn2" style="width:100%; margin-top:8px" onclick="sesLoad()">목록 보기</button></div>
     <h2>표 편집기</h2>
     <div class="card"><div class="muted" style="font-size:13px; line-height:1.6">시트를 표로 보기 · 칸 수정 · 행 추가 · 행 삭제 (수정 내역 = 편집기록 시트) · 이력은 읽기 전용</div>
       <button class="btn" style="width:100%; height:46px; margin-top:8px" onclick="openTable()">표 편집기 열기</button></div>
-    <h2>관리자 PIN</h2>
-    <div class="card"><div id="set-pin" style="font-size:14px"></div>
-      <button class="btn2" style="margin-top:8px" onclick="changePin()">PIN 설정 · 변경</button></div>
+    <h2>권한</h2>
+    <div class="card" style="font-size:13px; line-height:1.7"><b>보기</b> = 재고 · 지도 · 기록 · 보고서 조회<br><b>작업자</b> = 입고 · 출고 · 이동 · 실사 · 정리 · 당일 기록 수정<br><b>관리자</b> = 전부 (창고 · 줄 설정 · 기준정보 · 작업자 · 표 편집 · 지난 날짜 기록)<br><span class="muted">로그인 때 한 번 확인 · 수정할 때 PIN 없음 · 권한은 위 작업자 관리에서 지정</span></div>
     <h2>기초재고 일괄 등록</h2>
     <div class="card" id="op-box">
-      <div class="muted" style="line-height:1.6">① [표 열기] → <b>기초재고</b> 표에 행 추가 (위치 · 평량 · 폭 · 롤수 필수)<br>② [검사] → 표 <b>결과</b> 열에 OK / 오류 표시 → 오류는 표에서 수정<br>③ 오류 0건이면 [등록] (관리자 PIN) · 등록한 행은 "등록 완료"로 표시되어 중복 등록 안 됨</div>
+      <div class="muted" style="line-height:1.6">① [표 열기] → <b>기초재고</b> 표에 행 추가 (위치 · 평량 · 폭 · 롤수 필수)<br>② [검사] → 표 <b>결과</b> 열에 OK / 오류 표시 → 오류는 표에서 수정<br>③ 오류 0건이면 [등록] (관리자) · 등록한 행은 "등록 완료"로 표시되어 중복 등록 안 됨</div>
       <label class="muted" style="display:block; margin-top:8px">기준일 (입고일 빈 칸에 적용)<input type="date" id="op-base"></label>
       <div class="grid3" style="margin-top:8px">
         <button class="btn2" onclick="openTable('기초재고')">표 열기</button>
@@ -667,7 +668,7 @@
       <label class="radio"><input type="checkbox" id="set-test" onchange="toggleTest(this.checked)"> <span><b>테스트 모드</b> — 이 기기에서 입력한 건에 [테스트] 표시</span></label>
       <button class="btn2" style="width:100%; margin-top:4px" onclick="cancelTestsUI()">테스트 건 일괄 취소</button>
       <button class="btn2" style="width:100%; margin-top:8px; color:#9A1C1C; border-color:#9A1C1C" onclick="resetDataUI()">재고 · 이력 초기화</button>
-      <div class="muted" style="margin-top:8px; font-size:13px">초기화: 관리자 PIN 필요 · 실행 전 백업 사본(복구_ 시트) 자동 생성 · 창고 구조 · 줄 설정 · 기준정보는 유지</div>
+      <div class="muted" style="margin-top:8px; font-size:13px">초기화: 관리자만 · 실행 전 백업 사본(복구_ 시트) 자동 생성 · 창고 구조 · 줄 설정 · 기준정보는 유지</div>
     </div>
     <button class="btn2" style="width:100%" onclick="openUrl(S.sheetUrl)">구글 시트 열기 (보기용 사본 · 매시간 갱신)</button>
     <div style="height:10px"></div>
@@ -840,6 +841,7 @@ function refreshStock(force) {
     if (r.memos) S.memos = r.memos;   // 재고 비고 (검색용)
     if (r.mixSlots) S.mixSlots = r.mixSlots;   // 소량 혼재 기준 (다른 폰 변경)
     if (r.mixFreq) S.mixFreq = r.mixFreq;   // 출고 빈도 기준 · 집계
+    if (r.myRole !== undefined && S.myRole !== r.myRole) { S.myRole = r.myRole; if (TAB === 'set') renderSet(); }   // 내 권한 (관리자가 바꾸면 반영)
     if (r.stack && !(SH && SH.ord)) S.stack = r.stack;   // 적재 순서 (내가 순서 바꾸는 중이면 그대로)
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force === true) toast('재고 새로 고침 완료');
@@ -1285,6 +1287,11 @@ function keepKey(t) {
 /* 승인된 작업자가 없으면 처음 도입용 이름 직접 입력 */
 function freeMode() { return !((S.workers || {}).approved || []).length; }
 function worker() { return freeMode() ? (lsGet('worker') || S.me || '') : (S.me || ''); }
+/* 권한 (2026-11-28 · 로그인 때 한 번 · 서버가 요청마다 확인 · 화면은 안내용): 보기 · 작업자 · 관리자 (처음 도입 모드 = 관리자) */
+function myRole() { return freeMode() ? '관리자' : S.me ? (S.myRole || '작업자') : ''; }
+function isAdmin() { return myRole() === '관리자'; }
+function canWork() { var r = myRole(); return r === '작업자' || r === '관리자'; }
+function needAdmin() { if (isAdmin()) return true; toast(S.me ? '관리자 권한 필요 — ' + S.me + ' (' + myRole() + ')' : '관리자 로그인 필요', true); if (!S.me) quickLogin(); return false; }
 function openUrl(u) { window.open(u, '_blank'); }
 
 /* 공통 부품: 탭 버튼 (items = [값, 표시 글자(HTML)] 또는 문자열). dark = 상단 검은 띠 안 */
@@ -1912,7 +1919,7 @@ function zoneKeyOf(code) { var p = String(code).split('-'); return p[0] + '|' + 
 /* 구역 ✎ 토글: 꺼져 있으면 그 구역 편집 켜기 · 켜져 있으면 변경분 저장하고 끄기 */
 function toggleZone(whId, zc, ev) {
   if (ev) ev.stopPropagation();
-  if (MV) return;
+  if (MV || !needAdmin()) return;   // 줄 사용 상태 편집 = 관리자
   if (!ST) ST = { active: {}, chg: {} };
   var key = whId + '|' + zc;
   if (ST.active[key]) zoneSave(whId, zc, key);        // 편집 끝 → 저장
@@ -2750,6 +2757,7 @@ function layerCanScroll(el, top, dy) {   // dy > 0 = 손가락 아래로 = 위�
   }, { passive: false });
 })();
 function shMode(m) {
+  if (m === 'cfg' && !needAdmin()) return;   // 줄 설정 = 관리자
   SH.mode = m;
   if (m === 'in' || m === 'add') { SH.sp = { gsm: null, width: null, maker: '', grade: '' }; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = ''; }   // 새로 열 때 지종 · 제지사 빈칸 (지난 값 미리 채우지 않음 · 잘못 저장 방지)
   if (m === 'in') { SH.rem = false; SH.from = null; SH.more = false; SH.cont = false; }
@@ -3497,6 +3505,7 @@ function spInput(k) {
            · 'row:위치'(지도 줄 · 가지 통로 칸 · 입고 적재 안내) · 'aging'(장기 재고 기준일) · 'mix'(소량 혼재 기준) → lpAct · lpAct('test') = 테스트 표시 누르기 */
 function lpAct(s) {
   var p = String(s).split(':'), k = p[0], v = p.slice(1).join(':');
+  if (/^(wh|whs|row|aging|mix|mixfreq)$/.test(k) && !needAdmin()) return;   // 설정 변경 = 관리자
   if (k === 'wh') return openWhCfg(v);
   if (k === 'whs') { var q = v.split(':'); return openWhCfg(q[0], q[1]); }   // 창고 설정 특정 항목 (only · zone · rule)
   if (k === 'row') { if (MV) return; openRow(v, 'cfg'); return; }
@@ -3524,6 +3533,7 @@ function lpAct(s) {
 })();
 /* 값 수정 창: 이름 고치기(있는 값이면 합치기) · 숨기기 · 제지사 약칭/다른 이름 */
 function qEdit(kind, v) {
+  if (!needAdmin()) return;   // 기준정보 수정 = 관리자
   var name = kind === '폭' ? '지폭' : kind, num = kind === '평량' || kind === '폭';
   var key = { '평량': 'gsm', '폭': 'width', '지종': 'grade', '제지사': 'maker' }[kind];
   var stock = key ? S.stock.filter(function (s) { return String(s[key]) === String(v); }).reduce(function (a, s) { return a + s.qty; }, 0) : 0;
@@ -6630,7 +6640,7 @@ function confirmLine(line) {
    읽기 전용(이력 · 편집기록 · 실사기록 · 기준변경) = 보기만 · 수정마다 서버 '편집기록' 시트에 기록 · 작업창(SH.mode 'tbl') 공통 부품 사용 */
 var TBL_NOTE = { '재고': '재고 직접 수정 = 이력 미기록 → 수량 정정은 실사 사용 권장', '기초재고': '정리 후 설정 › 관리 › 기초재고 일괄 등록의 [검사] → [등록]', '빠른값': '기준정보 화면 사용 권장', '창고': '창고 설정 화면 사용 권장', '구역': '창고 설정 화면 사용 권장', '줄설정': '창고 설정 화면 사용 권장' };
 function openTable(name) {
-  if (!requireWorker()) return;
+  if (!needAdmin()) return;
   shOpen({ code: null, mode: 'tbl', tn: name || '', list: !name, td: null, tq: '', tadd: null });
   if (name) tblLoad(); else tblList();
 }
@@ -6971,7 +6981,7 @@ function saveWh() {
 }
 /* 지도에서 창고 설정 열기 (창고 버튼 · 구역 머리말 길게 누르기): 설정 탭과 같은 편집기 · 같은 저장 */
 function openWhCfg(id, sec) {
-  if (MV) return;
+  if (MV || !needAdmin()) return;
   W = cloneWhs();
   WI = Math.max(0, W.map(function (w) { return String(w.id); }).indexOf(String(id)));
   shOpen({ code: null, mode: 'wh' });
@@ -7245,11 +7255,7 @@ function specChips(el, kind, cur, onPick, all) {
 }
 
 /* 관리자 PIN */
-function renderPin() {
-  $('set-pin').innerHTML = S.hasPin
-    ? '관리자 PIN 설정됨 — 창고 구조 · 줄 설정 · 기준정보 변경 시 PIN 확인'
-    : '<b style="color:#9A1C1C">관리자 PIN 없음</b> — 현재 누구나 설정 변경 가능. PIN 설정 권장';
-}
+function renderPin() {}   // 2026-11-28 관리자 PIN 폐지 → 로그인 권한 (관리 탭 「권한」 안내)
 function changePin() {
   function askNew(old) {
     ask({ title: '새 PIN', msg: '숫자 4~8자리 · 비우면 PIN 해제', type: 'password', numeric: true }, function (n) {
@@ -7271,6 +7277,7 @@ function changePin() {
 
 /* 작업자 · 테스트 모드 */
 function requireWorker() {
+  if (worker() && !canWork()) { toast('작업 권한 없음 — 보기 전용 (관리자에게 작업자 권한 요청)', true); return false; }
   if (worker()) return true;
   quickLogin();
   return false;
@@ -7290,7 +7297,7 @@ function quickLogin() {
       if (!p) return;
       call('login', { name: n, pin: p, device: (navigator.userAgent || '').slice(0, 120) }).then(function (r) {
         lsSet('token', r.token); lsSet('worker', r.name); keepKey(r.token);
-        S.workers = r.workers; S.me = r.name; navBadge();
+        S.workers = r.workers; S.me = r.name; S.myRole = r.role; navBadge();
         toast(r.name + ' 로그인 완료 — 저장 버튼 재선택');
       });
     });
@@ -7325,7 +7332,7 @@ function renderWorkerBox() {
     h = '<div class="card"><input id="set-worker" placeholder="예: 김기사" value="' + esc(lsGet('worker')) + '" onchange="saveLocal()">' +
       '</div>';
   } else if (S.me) {
-    h = '<div class="card"><div class="row"><span style="flex:1; min-width:0"><b style="font-size:17px">' + esc(S.me) + '</b> <span class="muted">로그인됨</span></span>' +
+    h = '<div class="card"><div class="row"><span style="flex:1; min-width:0"><b style="font-size:17px">' + esc(S.me) + '</b> <span class="tt" style="background:' + (isAdmin() ? '#1E5A33' : canWork() ? '#2E3339' : '#5A6470') + '">' + esc(myRole()) + '</span> <span class="muted">로그인됨</span></span>' +
       '<button class="btn2" style="height:38px" onclick="changeMyPinUI()">PIN 변경</button>' +
       '<button class="btn2" style="height:38px" onclick="logoutUI()">로그아웃</button></div>' +
       '</div>';
@@ -7355,8 +7362,8 @@ function loginUI() {
   if (!/^\d{4,8}$/.test(p)) { toast('PIN: 숫자 4~8자리', true); return; }
   call('login', { name: n, pin: p, device: (navigator.userAgent || '').slice(0, 120) }).then(function (r) {
     lsSet('token', r.token); lsSet('worker', r.name); keepKey(r.token);
-    S.workers = r.workers; S.me = r.name;
-    renderWorkerBox(); renderWorkers(); navBadge();
+    S.workers = r.workers; S.me = r.name; S.myRole = r.role;
+    renderSet(); navBadge();
     toast(r.first ? 'PIN 등록 · 로그인 완료' : r.name + ' 로그인 완료');
   }, function () { if ($('lg-pin')) $('lg-pin').value = ''; });
 }
@@ -7364,7 +7371,7 @@ function logoutUI() {
   ask({ title: '로그아웃', msg: S.me + ' 로그아웃\n재입력 시 이름 · PIN 로그인 필요', input: false, ok: '로그아웃' }, function (y) {
     if (!y) return;
     call('logout', tok()).then(function () {
-      lsSet('token', ''); keepKey(''); S.me = ''; renderWorkerBox(); toast('로그아웃 완료');
+      lsSet('token', ''); keepKey(''); S.me = ''; S.myRole = ''; renderSet(); toast('로그아웃 완료');
     });
   });
 }
@@ -7403,9 +7410,11 @@ function requestName() {
 function renderWorkers() {
   var W2 = S.workers || { approved: [], pending: [], stopped: [] };
   var names = renderWorkers.names = [];
-  function row(n, btns) {
+  function row(n, btns, role) {
     var k = names.push(n) - 1;   // 이름은 번호로 넘김 (따옴표 들어간 이름 대비)
-    return '<div class="wrow"><b>' + esc(n) + '</b>' + btns.map(function (b) {
+    var sel = role ? '<select class="mini" style="flex:none; width:auto; height:36px; padding:0 6px" aria-label="권한" onchange="setRoleUI(renderWorkers.names[' + k + '], this.value, this)">' +
+      ['관리자', '작업자', '보기'].map(function (r) { return '<option' + (r === role ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select>' : '';
+    return '<div class="wrow"><b>' + esc(n) + '</b>' + sel + btns.map(function (b) {
       return '<button class="btn2"' + (b[2] ? ' style="color:#9A1C1C; border-color:#9A1C1C"' : '') + ' onclick="setWorkerUI(renderWorkers.names[' + k + '],\'' + b[1] + '\')">' + b[0] + '</button>';
     }).join('') + '</div>';
   }
@@ -7414,7 +7423,7 @@ function renderWorkers() {
     W2.pending.map(function (n) { return row(n, [['승인', '승인'], ['거절', '삭제', 1]]); }).join('');
   h += '<div style="font-weight:900; margin-top:' + (W2.pending.length ? '10px' : '0') + '">승인됨 ' + W2.approved.length + '명</div>' +
     (W2.approved.length ? W2.approved.map(function (n) {
-      return row((W2.noPin || []).indexOf(n) >= 0 ? n + ' · PIN 미설정' : n, [['PIN 초기화', 'PIN초기화'], ['사용 중지', '중지', 1]]);
+      return row((W2.noPin || []).indexOf(n) >= 0 ? n + ' · PIN 미설정' : n, [['PIN 초기화', 'PIN초기화'], ['사용 중지', '중지', 1]], (W2.roles || {})[n] || '작업자');
     }).join('') : '<div class="muted" style="padding:4px 0">없음</div>');
   if (W2.stopped.length) h += '<div style="font-weight:900; margin-top:10px">사용 중지 ' + W2.stopped.length + '명</div>' +
     W2.stopped.map(function (n) { return row(n, [['재승인', '승인'], ['삭제', '삭제', 1]]); }).join('');
@@ -7432,6 +7441,36 @@ function setWorkerUI(n, st) {
       toast(n + ' ' + ({ '승인': '승인', '중지': '사용 중지', 'PIN초기화': 'PIN 초기화 (다음 로그인 때 새 PIN 등록)', '삭제': '삭제' }[st]) + ' 완료');
     });
   });
+}
+/* 로그인 기기 (관리자): 사용 중 로그인 · 이 기기 표시 · [종료] (그 기기 다음 요청부터 로그인 필요) */
+var SES = [];
+function sesLoad() { call('sessionList', { worker: worker() }).then(sesDraw); }
+function sesDraw(l) {
+  SES = l || [];
+  var h = '<div class="muted" style="font-size:13px; margin-bottom:4px">사용 중 ' + SES.length + '개 · 시각 = 로그인 · 마지막 사용(6시간 단위 기록)</div>' +
+    SES.map(function (x, i) {
+      return '<div class="wrow"><span style="flex:1; min-width:0"><b>' + esc(x.name) + '</b> · ' + esc(x.dev) + (x.me ? ' <span class="tt" style="background:#1E5A33">이 기기</span>' : '') +
+        '<br><span class="muted" style="font-size:12px">로그인 ' + esc(x.at) + ' · 마지막 ' + esc(x.last) + '</span></span>' +
+        (x.me ? '' : '<button class="btn2" style="color:#9A1C1C; border-color:#9A1C1C" onclick="sesEnd([' + i + '])">종료</button>') + '</div>';
+    }).join('') +
+    (SES.filter(function (x) { return !x.me; }).length > 1 ? '<button class="btn2" style="width:100%; margin-top:8px; color:#9A1C1C; border-color:#9A1C1C" onclick="sesEnd(\'others\')">이 기기 외 모두 종료</button>' : '');
+  $('set-ses').innerHTML = h;
+}
+function sesEnd(ix) {
+  var list = ix === 'others' ? SES.filter(function (x) { return !x.me; }) : ix.map(function (i) { return SES[i]; });
+  if (!list.length) return;
+  ask({ title: '로그인 종료', msg: list.length + '개 종료\n' + list.slice(0, 5).map(function (x) { return x.name + ' · ' + x.dev + ' · 로그인 ' + x.at; }).join('\n') + (list.length > 5 ? '\n외 ' + (list.length - 5) + '개' : '') + '\n그 기기는 다음 사용 때 다시 로그인', input: false, ok: '종료', danger: true }, function (y) {
+    if (!y) return;
+    call('sessionEnd', { worker: worker(), rows: list.map(function (x) { return x.row; }) }).then(function (l) { sesDraw(l); toast('로그인 ' + list.length + '개 종료'); });
+  });
+}
+/* 권한 지정 (관리자): 마지막 관리자는 서버가 막음 · 실패하면 선택칸 원래대로 */
+function setRoleUI(n, role, el) {
+  n = n.replace(/ · PIN 미설정$/, '');
+  call('setWorker', { name: n, status: '권한', role: role }).then(function (w) {
+    S.workers = w; if (n === S.me) S.myRole = role;
+    renderSet(); toast(n + ' 권한 = ' + role);
+  }, function () { renderWorkers(); });
 }
 function addWorkerUI() {
   var n = $('wk-new').value.trim(); if (!n) { toast('이름 입력 필요', true); return; }
@@ -7456,7 +7495,7 @@ function cancelTestsUI() {
   });
 }
 function resetDataUI() {
-  if (!S.hasPin) { toast('관리자 PIN 설정 후 사용 가능', true); return; }
+  if (!needAdmin()) return;
   ask({ title: '재고 · 이력 초기화', msg: '재고 · 이력 전체 삭제 (되돌릴 수 없음)\n실행 전 구글 시트 백업 사본 생성\n확인 문구 "초기화" 입력',
         placeholder: '초기화', ok: '초기화', danger: true }, function (c) {
     if (c === null) return;
@@ -7474,10 +7513,12 @@ var SET_TABS = [['me', '내 정보'], ['wh', '창고'], ['base', '기준정보']
 function setTab(k) {
   if (k) lsSet('setTab', k);
   var cur = lsGet('setTab') || 'me';
-  if (!SET_TABS.some(function (t) { return t[0] === cur; })) cur = 'me';
+  var tabs = isAdmin() ? SET_TABS : SET_TABS.filter(function (t) { return t[0] === 'me'; });   // 창고 · 기준정보 · 관리 = 관리자만 (2026-11-28)
+  if (!tabs.some(function (t) { return t[0] === cur; })) cur = 'me';
   var n = ((S.workers || {}).pending || []).length;
   var qn = qCheckCount();
-  seg($('set-seg'), SET_TABS.map(function (t) {
+  $('set-seg').style.display = tabs.length > 1 ? '' : 'none';
+  seg($('set-seg'), tabs.map(function (t) {
     var c = t[0] === 'admin' ? n : t[0] === 'base' ? qn : 0;
     return [t[0], t[1] + (c ? '<span class="ndot">' + c + '</span>' : '')];
   }), cur, setTab);
