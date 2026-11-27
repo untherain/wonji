@@ -545,6 +545,7 @@
   #toast { align-items:center; gap:10px; }
   body.shopen #toast { bottom:auto; top:12px; z-index:25; }
   #toast .undo { margin-left:auto; flex:none; height:40px; }
+  #toast .undo + .undo { margin-left:0; }   /* 버튼 2개 (실행 취소 + 이 줄 다시 · 다음 품목) */
   #md-chips { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
   #md-chips.list { grid-template-columns:1fr; max-height:55vh; overflow-y:auto; }
   #md-chips.pk { gap:4px; }
@@ -627,6 +628,8 @@
     <div id="set-workerBox"></div>
     <h2>피킹 체크</h2>
     <div class="card"><label class="radio"><input type="checkbox" id="set-pkscan" onchange="pkScanSet(this.checked)"> <span><b>위치 QR 확인</b> — 순번 선택 시 배정 위치 QR 스캔 후 체크 (이 폰)</span></label></div>
+    <h2>작업 창</h2>
+    <div class="card"><label class="radio"><input type="checkbox" id="set-keepsh" onchange="keepShSet(this.checked)"> <span><b>완료 후 창 유지</b> — 출고 · 실사 · 줄 설정 완료 후에도 줄 창 유지 (기본 = 자동 닫기 · 이 폰)</span></label></div>
     <h2>사진 글자 인식</h2>
     <div class="card">
       <div><b>PaddleOCR</b> (폰 · 한국어)</div>
@@ -1956,7 +1959,12 @@ function rowEditor(code) {
 function saveRowEditor(code) {
   var cfg = { slots: $('re-slots').value, maxLv: $('re-lv').value, use: $('re-use').value, st: $('re-st').value };
   needPin(function (pin) {
-    call('saveRowConfig', code, cfg, pin).then(function (whs) { S.whs = whs; toast(locLabel(code) + ' 설정 저장됨'); renderMap(); showDetail(code); });
+    call('saveRowConfig', code, cfg, pin).then(function (whs) {
+      S.whs = whs; toast(locLabel(code) + ' 설정 저장됨');
+      if (SH && SH.code === code) SH.mode = '';
+      if (!shDone()) showDetail(code);
+      if (TAB === 'map') renderMap();
+    });
   });
 }
 function searchBar() {
@@ -2012,6 +2020,39 @@ function nextRow(code) {
   }
   return null;
 }
+/* 옆 줄 (2026-11-28): 줄 창 ‹ › · 좌우 밀기 = 같은 구역 앞 · 뒤 줄 (미사용 · 통로 건너뜀) — 닫고 다시 고르지 않음 */
+function prevRow(code) {
+  var w = whOf(code), p = String(code).split('-'); if (!w) return null;
+  for (var i = Number(p[2]) - 1; i >= 1; i--) { var c = w.id + '-' + p[1] + '-' + pad(i); if (!rowInfo(c).cfg.off) return c; }
+  return null;
+}
+function rowNav(code) {
+  var a = prevRow(code), b = nextRow(code), bt = function (c, t, d) {
+    return '<button class="btn2" style="height:32px; width:auto; flex:1; padding:0 8px; font-size:14px' + (c ? '' : '; opacity:.35') + '"' + (c ? ' onclick="rowStep(' + d + ')"' : ' disabled') + '>' + t + '</button>';
+  };
+  return '<div class="row" style="gap:8px; margin-top:6px">' + bt(a, '‹ ' + (a ? esc(keyOf(a)) : '구역 처음'), -1) + bt(b, (b ? esc(keyOf(b)) : '구역 끝') + ' ›', 1) + '</div>';
+}
+function rowStep(d) {
+  if (!SH || !SH.code || SH.mode || SH.ord) return;
+  var n = d > 0 ? nextRow(SH.code) : prevRow(SH.code);
+  if (!n) { toast(d > 0 ? '구역 끝' : '구역 처음'); return; }
+  SH = { code: n, mode: '', it: null, qty: 1 };   // 쌓인 창(SHST)은 그대로 → [←] = 원래 목록
+  if (TAB === 'map') { renderMap(); mapReveal(n); }
+  renderSheet(); $('detail').scrollTop = 0;
+}
+(function () {   // 줄 창 좌우 밀기 (줄 보기 화면만 · 입력칸 · 가로 스크롤 영역 제외)
+  var x0 = null, y0 = 0, ok = false;
+  document.addEventListener('touchstart', function (e) {
+    var d = $('detail'), t = e.target;
+    ok = !!(SH && SH.code && !SH.mode && !SH.ord && d && d.contains(t) && !(t.closest && t.closest('input,textarea,select,[style*="overflow-x"]')));
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (!ok || x0 == null) return; ok = false;
+    var dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 70 && Math.abs(dy) < 45) rowStep(dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
 function goNextRow() {
   var n = nextRow(SH.code); if (!n) return;
   SH.code = n; SH.qty = 1; SH.ocr = null; SH.memo = ''; SH.phmsg = '';
@@ -2174,6 +2215,7 @@ function sheetMerge() {
   }
   var h = shHead(esc(mjTitle(j)), (j.kind === 'space' ? '사용 ' : '보관 ') + j.before + '줄 → ' + j.after + '줄' + (j.rule ? '<br>' + esc(j.rule) : ''), false) + whRow;
   // 실시간 재고 대조 (2026-11-27): 남은 이동의 출발 줄 현재 수량 ≠ 계획 → 표시 · 다시 계산 (다른 폰 입출고 · 이동 반영)
+  var nextI = -1; j.moves.some(function (m, i) { if (!m.done) { nextI = i; return true; } return false; });
   var live = mjLive(j), diffN = j.moves.filter(function (m, i) { return !m.done && live[i] !== m.qty; }).length;
   if (diffN) h += '<div class="card row" style="margin:10px 0 0; padding:8px 12px; background:#FFF8E1; gap:8px"><span style="flex:1; font-size:13px; font-weight:800; color:#7A3E00">재고 변경 · 계획과 다른 이동 ' + diffN + '건</span>' +
     (mjCanReplan(j) ? '<button class="btn" style="height:36px; width:auto; padding:0 12px; flex:none" onclick="mjReplan()">다시 계산</button>' : '') + '</div>';
@@ -2197,7 +2239,9 @@ function sheetMerge() {
           ? '<button class="btn2" style="height:40px; padding:0 10px; color:#9A1C1C; border-color:#9A1C1C" onclick="mjUndo(' + i + ')">이동 취소</button>'
           : !live[i] ? '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjSkip(' + i + ')">건너뜀</button>'
           : '<button class="btn2" style="height:40px; padding:0 10px" onclick="mjDone(' + i + ')">이동 완료</button>';
-        return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : '#fff', body: body, side: side });
+        var nx = i === nextI;   // 다음 작업 (WMS 작업 지시형: 완료 → 다음 작업 제시)
+        if (nx) body = '<span id="mj-nx" style="display:inline-block; font-size:11.5px; font-weight:900; background:var(--ink); color:var(--y); border-radius:4px; padding:1px 6px; margin-bottom:2px">다음</span>' + body;
+        return seqRow({ seq: i + 1, done: m.done, bg: m.done ? '#F2FAF4' : nx ? '#FFF8E1' : '#fff', body: body, side: side });
       }).join('') });
   }
   if (j.skip && j.skip.length) h += '<div class="card" style="padding:8px 12px; margin:8px 0 0"><b>이동 불가 (자리 부족)</b><div class="muted">' +
@@ -2517,7 +2561,13 @@ function mjDone(i) {
   fastCall('moveStock', Object.assign(itemP(cur), { from: m.from, to: m.to, qty: q, memo: MJ.kind === 'space' ? '공간 확보' : '병합' })).then(function (r) {
     setStock(r); m.done = 1; m.qty = q; m.nos = (r && r.nos) || []; m.t = Date.now(); m.by = worker(); mjSave();
     stackAfterMove(m.from, m.to, sig);
-    renderMap(); renderSheet(); refreshLog(); toast(keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료');
+    renderMap(); renderSheet(); refreshLog();
+    var msg = keyOf(m.from) + ' → ' + keyOf(m.to) + ' ' + q + '롤 이동 완료', nx = MJ.moves.filter(function (x) { return !x.done; })[0];
+    if (!nx) toast(msg + ' · 전체 이동 완료');
+    else {
+      var el = $('mj-nx'); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      toastAct(msg + ' · 다음 ' + keyOf(nx.from) + ' → ' + keyOf(nx.to), '위치 보기', function () { goLoc(nx.from); });
+    }
   });
 }
 /* 이동 후 적재순서 자동 반영 (현장 기준: 줄 추가 = 통로 쪽 · 기존 원지 앞)
@@ -3046,7 +3096,7 @@ function sheetRow() {
   var hlI = SH.hl && !SH.ord ? items.map(function (s, i) { return SH.hl.some(function (x) { return sameItem(x, s); }) ? i : -1; }).filter(function (i) { return i >= 0; }) : [];
   var prev = SHST.length ? SHST[SHST.length - 1].sh : null, from = prev && prev.code && prev.code !== code ? prev.code : '';
   var hsub = hlI.length ? '← ' + (from ? esc(whName(whOf(from) ? whOf(from).id : '')) + ' ' + esc(keyOf(from)) + '에서 · ' : '') + esc(fmtItem(items[hlI[0]])) : '';
-  var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', [hsub, notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : ''].filter(String).join('<br>'));
+  var h = shHead(esc(keyOf(code)) + ' · ' + ri.rolls + '롤 · ' + ri.used + '/' + ri.slots + '칸', [hsub, notes.length ? '<b>' + esc(notes.join(' · ')) + '</b>' : ''].filter(String).join('<br>'), false, '', SH.ord ? '' : rowNav(code));
   if (SH.ord) {   // 적재순서 편집 중: 안내 + 완료만
     h += '<div class="stkhint"><b>맨 위</b> = 출고 1순위 · 신규 입고분 맨 위 추가</div>' +
       (items.length ? items.map(function (s, i) { return itemBlock(s, i, ri); }).join('') : '') +
@@ -3119,9 +3169,9 @@ function doOut(j) {
   if (!s || !dest) return;
   fastCall('outbound', Object.assign(itemP(s), { loc: s.loc, qty: q, dest: dest })).then(function (r) {
     setStock(r); lsSet('lastDest', dest); useSpec(s);
-    if (SH && SH.code === code) { SH.mode = ''; SH.it = null; }
-    renderMap(); if (SH) renderSheet();
-    undoToast('출고 ' + keyOf(code) + ' · ' + fmtItem(s, q) + ' → ' + dest, r.nos);
+    if (SH && SH.code === code) { SH.mode = ''; SH.it = null; shDone(); }   // 한 건 작업 끝 → 창 닫힘 (설정: 유지)
+    if (TAB === 'map') renderMap(); if (SH) renderSheet();
+    undoToast('출고 ' + keyOf(code) + ' · ' + fmtItem(s, q) + ' → ' + dest, r.nos, code);
   });
 }
 /* 품목 오기입 수정 메뉴 (제지사·지종 바꾸기 · 이름 전체 바꾸기) — 줄 화면·실사 공통
@@ -3507,8 +3557,9 @@ function sheetIn() {
   SH.qmax = null;
   if (SH.cont) {   // 연속 입고: 저장 뒤에도 규격 유지 → 같은 줄 다른 규격 / 다음 줄
     var nx = nextRow(code);
-    h += '<div class="grid2" style="margin:8px 0 4px"><button class="btn2" onclick="newSpec()">다른 규격</button>' +
-      (nx ? '<button class="btn2 dk" onclick="goNextRow()">다음 줄 ' + esc(keyOf(nx)) + ' →</button>' : '<button class="btn2" disabled style="opacity:.45">구역 끝</button>') + '</div>';
+    h += '<div class="grid2" style="margin:8px 0 4px; grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) minmax(0,.8fr)"><button class="btn2" onclick="newSpec()">다른 규격</button>' +
+      (nx ? '<button class="btn2 dk" onclick="goNextRow()">다음 줄 ' + esc(keyOf(nx)) + ' →</button>' : '<button class="btn2" disabled style="opacity:.45">구역 끝</button>') +
+      '<button class="btn2" style="background:var(--ok); color:#fff; border-color:var(--ok); font-weight:900" onclick="inFinish()">완료</button></div>';
   }
   h += photoBar('shPhoto', phNote('')) + pickerHtml(true);
   var f = '', qmax = null;
@@ -3547,6 +3598,8 @@ function sheetIn() {
 
     '<button class="btn" id="sh-save"' + (!ready || bad || (SH.rem && !SH.from) ? ' style="opacity:.45" disabled' : '') + ' onclick="doIn()">' + label + '</button></div></div>';
 }
+/* 연속 입고 끝 (저장 없음): 창 닫힘 · 설정 「완료 후 창 유지」 = 줄 화면 */
+function inFinish() { if (!SH) return; SH.mode = ''; SH.cont = false; if (!shDone()) renderSheet(); }
 function doIn() {
   if (!requireWorker()) return;
   var sp = SH.sp, code = SH.code;
@@ -3680,7 +3733,8 @@ function cntOk() {
   var code = SH.code, n = SH.clist.length;
   fastCall('countOk', { loc: code, items: n, worker: worker(), test: isTest() }).then(function () {
     cntMark(code, '일치'); cntDraftDrop(code); cacheS();
-    toast(keyOf(code) + ' 일치 확정');
+    if (cntInfo().plan || keepSh()) toast(keyOf(code) + ' 일치 확정');
+    else toastAct(keyOf(code) + ' 일치 확정', '이 줄 다시', function () { rowAgain(code); });
     cntAfter(code);
   });
 }
@@ -3688,8 +3742,8 @@ function cntOk() {
 function cntAfter(code) {
   var nx = cntInfo().plan ? cntNextCode(code) : null;
   if (nx) { cntGo(nx); toast(keyOf(code) + ' 완료 · 다음 줄 ' + keyOf(nx)); return; }
-  if (SH && SH.code === code) { SH.mode = ''; SH.cnt = null; }
-  renderMap(); if (SH) renderSheet();
+  if (SH && SH.code === code) { SH.mode = ''; SH.cnt = null; shDone(); }   // 한 건 실사 끝 → 창 닫힘 (설정: 유지)
+  if (TAB === 'map') renderMap(); if (SH) renderSheet();
   if (cntInfo().plan) toast('실사 범위 전체 완료');
 }
 
@@ -3752,10 +3806,11 @@ function adjSave(code, items, lines, up, down, after) {
   var reasons = ADJ_REASONS.filter(function (r) { return !(r === '출고 누락' && up) && !(r === '입고 누락' && down); });
   ask({ title: '실사 차이 사유', msg: lines.join('\n') + (reasons.indexOf('출고 누락') >= 0 ? '\n출고 누락 → 출고로 기록' : ''), chips: reasons }, function (reason) {
     if (!reason) return;
+    var ag = SH && SH.mode === 'cnt' && SH.code === code && !cntInfo().plan ? code : '';
     var go = function (dest) {
       fastCall('adjustRow', { loc: code, items: items, worker: worker(), test: isTest(), reason: reason, dest: dest || '' }).then(function (r) {
         setStock(r.stock); cntMark(code, '차이');
-        undoToast(r.type + ' ' + keyOf(code) + ' · ' + r.changed + '건', r.nos);
+        undoToast(r.type + ' ' + keyOf(code) + ' · ' + r.changed + '건', r.nos, ag);
         if (after) after(r);
       });
     };
@@ -3802,6 +3857,29 @@ function goLoc(loc, items, reopen) {
   renderMap(); SH = null; openRow(loc);
   SHST = st; SH.hl = (items || []).slice(); renderSheet();
   var el = document.querySelector('#detail .it.hl'); if (el) el.scrollIntoView({ block: 'center' });
+}
+/* ===== 공통 부품: 작업 완료 후 창 정리 (2026-11-28 · 모달 시트 표준 = 작업 끝나면 닫힘)
+   한 건 작업(출고 · 실사 · 줄 설정 · 입고 [완료]) 끝 → 줄 창 닫음 → 쌓인 창 중 가장 가까운 목록 창(검색 · 정리 · 계획 품목 등) 또는 지도로 한 번에
+   설정 「완료 후 창 유지」(이 폰) = 닫지 않음 (false 반환 → 부른 쪽이 줄 화면 유지) ===== */
+function keepSh() { return lsGet('keepSh') === 'Y'; }
+function keepShSet(v) { lsSet('keepSh', v ? 'Y' : ''); toast('완료 후 창 ' + (v ? '유지' : '자동 닫기')); }
+function shDone() {
+  if (keepSh()) return false;
+  var st = SHST.slice(), r = null;
+  while (st.length) { var x = st.pop(); if (x.sh && x.sh.code) continue; r = x; break; }   // 줄 창은 건너뜀 (목록 창 · 다른 팝업까지)
+  closeSheet();
+  if (!r) return true;
+  if (TAB !== r.tab) show(r.tab);
+  window.scrollTo(0, r.y); SHST = st;
+  if (r.sh) { SH = r.sh; renderSheet(); $('detail').scrollTop = r.ds; }
+  else if (r.reopen) r.reopen();
+  return true;
+}
+/* 이 줄 다시: 닫힌 줄 창을 지도에서 다시 엶 (알림 버튼) */
+function rowAgain(code) {
+  var w = whOf(code); if (!w) return;
+  if (TAB !== 'map') show('map');
+  M.wh = w.id; renderMap(); SH = null; SHST = []; openRow(code);
 }
 /* 창 닫기(✕ · ← · 바깥 누름): 쌓인 이전 창이 있으면 그 창(탭 · 스크롤 포함)으로 */
 function shClose(force) {
@@ -3862,19 +3940,25 @@ function clearFilter(ev) {
 }
 
 /* --- 저장 후 되돌리기 (확인창 대신) --- */
-function undoToast(msg, nos) {
-  if (!nos || !nos.length) return toast(msg + ' 저장');
+function undoToast(msg, nos, again) {   // again = 이 줄 다시(위치) — 창 자동 닫힘 뒤 같은 줄 작업 이어서
+  var ag = again && !keepSh() ? function () { rowAgain(again); } : null;
+  if (!nos || !nos.length) return ag ? toastAct(msg + ' 저장', '이 줄 다시', ag) : toast(msg + ' 저장');
   toastAct(msg + ' 저장', '실행 취소', function () {
-    undoCall(nos).then(function (st) { setStock(st); renderMap(); if (SH) renderSheet(); toast('실행 취소 완료'); });
-  });
+    undoCall(nos).then(function (st) { setStock(st); if (TAB === 'map') renderMap(); if (SH) renderSheet(); toast('실행 취소 완료'); });
+  }, ag ? '이 줄 다시' : '', ag);
 }
 /* 공통 부품: 실행 버튼 달린 알림 (6초) — 저장 실행 취소(undoToast) · 피킹 체크 실행 취소 · 위치 QR 다음 스캔 */
-function toastAct(msg, label, fn) {
+function toastAct(msg, label, fn, label2, fn2) {
   toast(msg);
-  var t = $('toast'), b = document.createElement('button');
-  b.className = 'btn2 undo'; b.textContent = label;
-  b.onclick = function () { t.style.display = 'none'; fn(); };
-  t.appendChild(b); t.style.display = 'flex';
+  var t = $('toast');
+  [[label, fn], [label2, fn2]].forEach(function (x) {
+    if (!x[0] || !x[1]) return;
+    var b = document.createElement('button');
+    b.className = 'btn2 undo'; b.textContent = x[0];
+    b.onclick = function () { t.style.display = 'none'; x[1](); };
+    t.appendChild(b);
+  });
+  t.style.display = 'flex';
   clearTimeout(toast.h); toast.h = setTimeout(function () { t.style.display = 'none'; }, 6000);
 }
 
@@ -6359,8 +6443,11 @@ function togglePick(id, scanned) {
   if (PL.picked[id]) return setPick(id, false);
   if (pkScanOn() && !scanned) return pkScan(id);
   setPick(id, true); buzz(true);
-  var pm = planMk(it);
-  toastAct(it.line + ' #' + it.planNo + ' ' + fmtItem({ maker: pm.maker, gsm: it.gsm, width: it.width }) + ' 피킹 체크', '실행 취소', function () { setPick(id, false); });
+  var pm = planMk(it), A = allocPlan(), ix = PL.items.indexOf(it);
+  // 다음 품목 (WMS 작업 지시형): 목록 순서상 다음 미체크 · 미확정 · 배정 있는 품목
+  var nx = PL.items.slice(ix + 1).concat(PL.items.slice(0, ix)).filter(function (x) { return !PL.picked[x.id] && !PL.done[x.id] && A[x.id] && A[x.id].got; })[0];
+  toastAct(it.line + ' #' + it.planNo + ' ' + fmtItem({ maker: pm.maker, gsm: it.gsm, width: it.width }) + ' 피킹 체크', '실행 취소', function () { setPick(id, false); },
+    nx ? '다음 #' + nx.planNo : '', nx ? function () { pkDetail(nx.id); } : null);
 }
 /* 위치 QR 확인: 배정 위치 QR 스캔 (여러 위치 = 모두 스캔 · 스캔한 위치는 이 폰에 기억) */
 var PK_SCN = {};
@@ -7314,6 +7401,7 @@ function renderSet() {
   renderWorkerBox(); renderWorkers();
   padStatus();
   if ($('set-pkscan')) $('set-pkscan').checked = pkScanOn();
+  if ($('set-keepsh')) $('set-keepsh').checked = keepSh();
 }
 /* ===== 기초재고 일괄 등록 ===== */
 function opBase() { return $('op-base').value || todayStr(); }
