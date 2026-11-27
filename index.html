@@ -687,6 +687,8 @@
     <h2>소량 혼재 기준</h2>
     <div class="card row"><span>창고 안 품목 전체 <input id="set-mix" type="number" inputmode="numeric" style="width:60px; display:inline-block; text-align:center; padding:0 4px"> 칸 이하 = 혼재 줄 대상 <small class="muted">(같은 제지사 · 평량 · 줄 용도 = 혼재)</small></span>
       <button class="btn2" onclick="saveMixSlotsN(Number($('set-mix').value))">저장</button></div>
+    <div class="card row"><span>최근 <input id="set-mfd" type="number" inputmode="numeric" style="width:52px; display:inline-block; text-align:center; padding:0 4px"> 일 출고 <input id="set-mfn" type="number" inputmode="numeric" style="width:52px; display:inline-block; text-align:center; padding:0 4px"> 회 이상 = 혼재 제외 <small class="muted">(자주 나가는 품목은 전용 줄 · 0 = 미사용 · 출고 기록엔 제지사가 없어 같은 규격 합산)</small></span>
+      <button class="btn2" onclick="saveMixFreqN(Number($('set-mfd').value), Number($('set-mfn').value))">저장</button></div>
     <h2>실사 주기</h2>
     <div class="card row"><span>최근 실사 후 <input id="set-cycle" type="number" inputmode="numeric" style="width:60px; display:inline-block; text-align:center; padding:0 4px"> 일 경과 시 실사 필요 <small class="muted">(0 = 미사용)</small></span>
       <button class="btn2" onclick="saveCycleDays()">저장</button></div>
@@ -791,6 +793,11 @@ function hhmm() { var d = new Date(); return pad(d.getHours()) + ':' + pad(d.get
 function ageOf(day) { if (!day) return 0; var a = new Date(day + 'T00:00:00'), b = new Date(todayStr() + 'T00:00:00'); return Math.round((b - a) / 86400000); }
 function agingDays() { return Number(S.agingDays) || 30; }
 function mixSlots() { return Number(S.mixSlots) || 2; }   // 소량 혼재 기준 (칸)
+/* 출고 빈도 기준 (사용자 설정 · 미설정 = 미사용): 최근 days일 출고 n회 이상 = 자주 출고 → 소량이어도 혼재 제외 (출고 이력에 제지사 없음 → 같은 규격 합산) */
+function mixFreq() { var f = S.mixFreq || {}; return { days: Number(f.days) || 0, n: Number(f.n) || 0, cnt: f.cnt || {} }; }
+function mixFreqKey(s, wh) { return [wh != null ? wh : s.wh, s.gsm, s.width, s.grade || '', s.rem ? 'Y' : ''].join('|'); }
+function mixBusy(s, wh) { var f = mixFreq(); return !!(f.days && f.n && (f.cnt[mixFreqKey(s, wh)] || 0) >= f.n); }
+function mixFreqText() { var f = mixFreq(); return f.days && f.n ? '최근 ' + f.days + '일 출고 ' + f.n + '회 이상 제외' : '출고 빈도 기준 미설정'; }
 /* 입고일 로트 표시: "입고 11-10 · 8롤 / 11-17 · 4롤", 기준일 넘으면 [장기 N일] */
 function lotText(s) {
   var lots = s.lots && s.lots.length ? s.lots : [{ date: s.date, qty: s.qty }];
@@ -827,6 +834,7 @@ function refreshStock(force) {
     if (r.whs && !ST && !W) S.whs = r.whs;   // 창고 설정 (내가 편집 중이면 그대로)
     if (r.memos) S.memos = r.memos;   // 재고 비고 (검색용)
     if (r.mixSlots) S.mixSlots = r.mixSlots;   // 소량 혼재 기준 (다른 폰 변경)
+    if (r.mixFreq) S.mixFreq = r.mixFreq;   // 출고 빈도 기준 · 집계
     if (r.stack && !(SH && SH.ord)) S.stack = r.stack;   // 적재 순서 (내가 순서 바꾸는 중이면 그대로)
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
     if (force === true) toast('재고 새로 고침 완료');
@@ -2327,7 +2335,12 @@ function spaceModel(w) {
   // 소량 품목 (2026-11-28): 창고 안 그 품목(sigOf) 전체 칸 수 ≤ 소량 혼재 기준 (잔량 제외 · 칸 = 롤수 ÷ 창고 단수 올림)
   M.small = {}; (function () {
     var q = {}; R.forEach(function (r) { if (r.s.rem) return; var x = q[r.g] || (q[r.g] = { width: r.s.width, qty: 0 }); x.qty += r.s.qty; });
-    Object.keys(q).forEach(function (g) { if (Math.ceil(q[g].qty / ruleLv(w, q[g].width)) <= mixSlots()) M.small[g] = 1; });
+    M.busy = [];
+    Object.keys(q).forEach(function (g) {
+      if (Math.ceil(q[g].qty / ruleLv(w, q[g].width)) > mixSlots()) return;
+      if (mixBusy(R.filter(function (r) { return r.g === g; })[0].s, w.id)) { M.busy.push(g); return; }   // 자주 출고 = 전용 줄 유지
+      M.small[g] = 1;
+    });
   })();
   M.inL = function (code) { return R.filter(function (r) { return r.at === code; }); };
   M.usedOf = function (list, code) {
@@ -2491,14 +2504,38 @@ function spaceMoves(R) {
    도착 우선: 같은 품목 있는 줄 → 같은 묶음 줄 → 빈 혼재 줄 · 같은 구역 · 많이 찬 줄 · 칸 한도 안
    자리 부족 = left · 혼재 줄의 소량 아닌 품목 = big (전용 줄로 분리 권장) · 계획 후에도 묶음 섞인 혼재 줄 = mixed */
 function mixKey(s) { return (s.maker || '') + '|' + s.gsm; }
+/* 혼재 줄 주인 묶음 = 그 줄 소량 원지 중 롤 수 가장 많은 제지사 · 평량 (빈 줄 = null) — 정리 · 입고 추천 공통 */
+function mixOwners(M) {
+  var own = {};
+  M.mixCodes.forEach(function (c) {
+    var q = {}; M.inL(c).forEach(function (r) { if (M.small[r.g]) q[mixKey(r.s)] = (q[mixKey(r.s)] || 0) + r.s.qty; });
+    own[c] = Object.keys(q).sort(function (a, b) { return q[b] - q[a] || a.localeCompare(b); })[0] || null;
+  });
+  return own;
+}
+/* 입고 추천용 혼재 줄 (2026-11-28 · WMS 적치 규칙 = 입고 때부터 지정 위치로): 입고 후에도 소량(기준 칸 이하 · 자주 출고 아님)인 원지
+   → 같은 품목 있는 혼재 줄 → 주인 묶음(제지사 · 평량) 같은 혼재 줄 → 빈 혼재 줄 · 칸 여유는 추천 단계(freeFor)에서 확인 · 제지사 미선택 · 잔량 = 없음 */
+function mixInCands(sp, qty, rem) {
+  var out = []; if (!sp.maker || rem) return out;
+  S.whs.forEach(function (w) {
+    var M = spaceModel(w); if (!M.mixCodes.length) return;
+    var x = { gsm: sp.gsm, width: sp.width, grade: sp.grade || '', maker: sp.maker, rem: false }, g = sigOf(x), mk = mixKey(x);
+    var have = M.R.filter(function (r) { return r.g === g; }).reduce(function (a, r) { return a + r.s.qty; }, 0);
+    if (Math.ceil((have + qty) / ruleLv(w, sp.width)) > mixSlots() || mixBusy(x, w.id)) return;
+    var own = mixOwners(M), same = [], mine = [], empty = [];
+    M.mixCodes.forEach(function (c) {
+      if (M.inL(c).some(function (r) { return r.g === g; })) same.push(c);
+      else if (own[c] === mk) mine.push(c);
+      else if (!M.inL(c).length) empty.push(c);
+    });
+    out = out.concat(same, mine, empty);
+  });
+  return out;
+}
 function mixPlan(w) {
   var M = spaceModel(w), L = M.L, R = M.R, inL = M.inL, mixC = M.mixCodes;
   var occ0 = M.codes.filter(function (c) { return inL(c).length; });
-  var own = {};
-  mixC.forEach(function (c) {
-    var q = {}; inL(c).forEach(function (r) { if (M.small[r.g]) q[mixKey(r.s)] = (q[mixKey(r.s)] || 0) + r.s.qty; });
-    own[c] = Object.keys(q).sort(function (a, b) { return q[b] - q[a] || a.localeCompare(b); })[0] || null;
-  });
+  var own = mixOwners(M);
   var gk = {}; R.forEach(function (r) { if (M.small[r.g]) (gk[mixKey(r.s)] = gk[mixKey(r.s)] || {})[r.g] = 1; });
   var one = function (g) { return R.filter(function (r) { return r.g === g; })[0].s; };
   var stray = function (g) { var mk = mixKey(one(g)); return R.some(function (r) { return r.g === g && L[r.at].mix && own[r.at] !== mk; }); };
@@ -2530,7 +2567,7 @@ function mixPlan(w) {
   });
   var moves = spaceMoves(R), after = M.codes.filter(function (c) { return inL(c).length; }).length;
   var moved = {}; moves.forEach(function (m) { moved[m.sig] = 1; });
-  return { moves: moves, lines: M.codes.length, before: occ0.length, after: after, mixLines: mixC.length, small: Object.keys(M.small).length,
+  return { moves: moves, lines: M.codes.length, before: occ0.length, after: after, mixLines: mixC.length, small: Object.keys(M.small).length, busy: M.busy.length,
     n: Object.keys(moved).length, left: left, big: big, mixed: mixed, over: M.over(),
     emptied: occ0.filter(function (c) { return !inL(c).length; }).sort(), rolls: moves.reduce(function (a, m) { return a + m.qty; }, 0),
     fifo: moves.filter(function (m) { return m.fifo; }).length };
@@ -3448,6 +3485,7 @@ function lpAct(s) {
   if (k === 'emp') return ask({ title: whName(v) + ' 빈 줄 ' + whEmpty(S.whs.filter(function (w) { return w.id == v; })[0] || {}), msg: '사용 중이면서 재고 0인 줄 (입고 가능 자리)\n미사용 줄 · 통로 제외\n동그라미 누르면 지도에 빈 줄만 강조', input: false, ok: '빈 줄 보기' }, function (y) { if (y && EMP != v) empTap(v); });
   if (k === 'aging') return agingEdit();
   if (k === 'mix') return mixEdit();
+  if (k === 'mixfreq') return mixFreqEdit();
   if (k === 'pkscan') return pkScanSet();
   if (k === 'test') return ask({ title: '테스트 모드 해제', msg: '이후 입력 건 = 실제 기록', input: false, ok: '해제' }, function (y) { if (y) { toggleTest(false); var c = $('set-test'); if (c) c.checked = false; } });
 }
@@ -5000,6 +5038,8 @@ function sugCands() {
     remRows.forEach(add);
   }
   function normalRow(code) { var c = rowInfo(code).cfg; return !c.off && (!c.use || c.use === '원지'); }
+  // 소량 원지 = 혼재 줄 먼저 (입고 후에도 기준 칸 이하 · 주인 묶음 일치 · 2026-11-28)
+  mixInCands({ gsm: I.gsm, width: I.width, grade: curGrade(), maker: curMaker() }, Number(I.qty) || 1, I.rem).forEach(add);
   // 같은 규격 줄: 동일 제지사 줄 우선 (분산 방지 · WMS 기존 재고 추가 적재) → 그 안에서 오래된 입고 순
   var mk0 = curMaker();
   S.stock.filter(function (s) { return s.gsm == I.gsm && s.width == I.width; })
@@ -5316,7 +5356,8 @@ function drawRep() {
   if (order.indexOf(RP.sec) < 0) RP.sec = '입출고';
   $('rp-body').innerHTML = '<div class="muted" style="margin:8px 2px">정리 · 장기 · 재고 = 실시간 재고 (' + esc(S.at || r.at) + ') · 입출고 · 실사 조회 ' + esc(r.at) + '</div>' +
     '<div class="seg" id="rp-seg" style="margin:8px 0; background:#E6E8EB"></div><div id="rp-sec">' + secs[RP.sec]() + '</div>';
-  seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); });
+  seg($('rp-seg'), order, RP.sec, function (s) { RP.sec = s; $('rp-sec').innerHTML = secs[s](); orgSegInit(); });
+  orgSegInit();
 }
 /* 분산 원지 목록 (기록 > 보고서): 위치 칩(누르면 지도의 그 줄 · ← 로 복귀) · 병합하면 N줄 → M줄 · [병합] 바로 작업 목록
    병합 효과(줄 감소) 큰 순 · 병합 불가는 아래 흐리게 */
@@ -5415,11 +5456,11 @@ function orgWh(w, snap) {
 /* ③ 소량 혼재 내용: 기준(길게 누르기 = 설정) · 결과 · 자리 부족 · 혼재 줄의 기준 초과 품목 */
 function mixBody(w, X) {
   var lp = '<span data-lp="mix" style="text-decoration:underline dotted">' + mixSlots() + '칸 이하</span>';
-  var d = '<div class="muted" style="font-size:11.5px">' + '창고 안 품목 전체 ' + lp + ' → 같은 제지사 · 평량 혼재 줄 1줄</div>';
+  var d = '<div class="muted" style="font-size:11.5px">' + '창고 안 품목 전체 ' + lp + ' → 같은 제지사 · 평량 혼재 줄 1줄 · <span data-lp="mixfreq" style="text-decoration:underline dotted">' + mixFreqText() + '</span></div>';
   var ok = function (t) { return '<div style="font-size:13px; font-weight:800; color:var(--ok)">' + t + '</div>'; };
   var red = function (t) { return '<div style="font-size:12px; font-weight:800; color:#9A1C1C">' + t + '</div>'; };
   if (!X.mixLines) return d + '<div class="muted" style="font-size:12.5px; font-weight:800">소량 품목 ' + X.small + '종 · 혼재 줄 없음 · <span style="text-decoration:underline; cursor:pointer" onclick="openWhCfg(' + w.id + ')">창고 설정</span> › 줄 용도 = 혼재 지정</div>';
-  var h = d + '<div class="muted" style="font-size:12px">혼재 줄 ' + X.mixLines + '줄 · 소량 품목 ' + X.small + '종</div>';
+  var h = d + '<div class="muted" style="font-size:12px">혼재 줄 ' + X.mixLines + '줄 · 소량 품목 ' + X.small + '종' + (X.busy ? ' · 자주 출고 ' + X.busy + '종 제외' : '') + '</div>';
   h += X.moves.length ? ok('소량 ' + X.n + '종 → 혼재 줄 · 이동 ' + X.moves.length + '건 · ' + X.rolls + '롤' + (X.before > X.after ? ' · 빈 줄 +' + (X.before - X.after) : '')) + (X.fifo ? red('선입선출 역전 ' + X.fifo + '건') : '')
     : X.left.length ? '' : ok('소량 품목 모두 혼재 줄 보관');
   if (X.left.length) h += '<div style="font-size:12px; font-weight:800; color:#7A3E00">혼재 줄 자리 부족 · 소량 ' + X.left.length + '종 대기 (혼재 줄 추가 시 정리)</div>';
@@ -5427,15 +5468,30 @@ function mixBody(w, X) {
   if (X.big.length) h += '<div style="font-size:12px; font-weight:800; color:#7A3E00">혼재 줄 기준 초과 ' + X.big.length + '종 (전용 줄로 분리 권장): ' + X.big.slice(0, 4).map(function (g) { return esc(distTitle(g)); }).join(' · ') + (X.big.length > 4 ? ' 외' : '') + '</div>';
   return h;
 }
+/* 보고서 › 정리 (2026-11-28 · WMS = 창고 단위 작업): 창고 선택 버튼(기본 = 재고 탭에서 보던 창고) → 그 창고만 계산 · 지표 저장은 전 창고(가벼운 집계) */
+function orgWhSel() {
+  if (!S.whs.some(function (w) { return String(w.id) === String(ORG.wh); })) ORG.wh = M.wh || (S.whs[0] && S.whs[0].id);
+  return S.whs.filter(function (w) { return String(w.id) === String(ORG.wh); })[0];
+}
+function orgPaint() { if (RP.sec === '정리' && $('rp-sec')) { $('rp-sec').innerHTML = orgCard(); orgSegInit(); } }
+function orgSegInit() {
+  var el = $('org-seg'); if (!el) return;
+  seg(el, S.whs.map(function (w) { return [w.id, esc(w.name)]; }), ORG.wh, function (v) { ORG.wh = v; orgPaint(); });
+}
 function orgCard() {
-  var h = '<div class="card"><div class="row"><b>정리</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선</div>', snap = [];
+  var h = '<div class="card"><div class="row"><b>정리</b></div><div class="muted" style="font-size:12px; margin:2px 0 6px">창고 안 이동 · 줄 추가 = 통로 쪽 적재 · ① 분산 해소 우선</div>' +
+    '<div class="seg" id="org-seg" style="margin:0 0 8px; background:#E6E8EB"></div>', snap = [];
   ORG.locs = [];
-  S.whs.forEach(function (w) { h += orgWh(w, snap); });
+  var sw = orgWhSel(); if (sw) h += orgWh(sw);
+  S.whs.forEach(function (w) {   // 일별 지표 (전 창고): 분산 품목 · 품목 수 · 평균 줄 · 빈 줄
+    var M0 = spaceModel(w), st = M0.stats(); if (!M0.codes.length) return;
+    snap.push({ wh: w.id, dist: st.dist, avg: st.avg, sku: st.sku, empty: M0.codes.length - st.used });
+  });
   // 지표 일별 저장 · 추이 받기 (하루 · 값 변경 시 1회)
   var key = todayStr() + JSON.stringify(snap);
   if (ORG.sent !== key) {
     ORG.sent = key; call.quiet = true;
-    call('orgSnap', snap).then(function (hist) { ORG.hist = hist || []; if (RP.sec === '정리' && $('rp-sec')) $('rp-sec').innerHTML = orgCard(); }, function () {});
+    call('orgSnap', snap).then(function (hist) { ORG.hist = hist || []; orgPaint(); }, function () {});
   }
   // 창고 간 포함 전체 분산 원지 (기존 원지 병합 · 엑셀 받기)
   h += '<details style="margin-top:6px"><summary style="font-weight:800; cursor:pointer; padding:6px 0">전체 분산 원지 (창고 간 포함) · 원지별 병합</summary>' + distCard() + '</details>';
@@ -7396,6 +7452,7 @@ function renderSet() {
   $('set-test').checked = isTest();
   $('set-aging').value = agingDays();
   $('set-mix').value = mixSlots();
+  $('set-mfd').value = mixFreq().days; $('set-mfn').value = mixFreq().n;
   $('set-cycle').value = cntInfo().cycle || 0;
   if (!$('op-base').value) $('op-base').value = todayStr();
   renderWorkerBox(); renderWorkers();
@@ -7476,6 +7533,26 @@ function saveMixSlotsN(n) {
     call('saveMixSlots', n, pin).then(function (v) {
       S.mixSlots = v; if ($('set-mix')) $('set-mix').value = v; if (typeof cacheS === 'function') cacheS();
       rerender(); toast('소량 혼재 기준 ' + v + '칸 저장됨');
+    });
+  });
+}
+/* 출고 빈도 기준 저장 (설정 탭 · 정리 카드 길게 누르기) · 0 = 미사용 */
+function saveMixFreqN(d, n) {
+  if (!(d >= 0 && d <= 365) || Math.floor(d) !== d || !(n >= 0 && n <= 999) || Math.floor(n) !== n) { toast('기간 0~365일 · 횟수 0~999회 정수', true); return; }
+  needPin(function (pin) {
+    call('saveMixFreq', d, n, pin).then(function (f) {
+      S.mixFreq = f; if ($('set-mfd')) { $('set-mfd').value = f.days; $('set-mfn').value = f.n; } if (typeof cacheS === 'function') cacheS();
+      rerender(); toast(f.days && f.n ? '출고 빈도 기준: 최근 ' + f.days + '일 ' + f.n + '회 이상 제외' : '출고 빈도 기준 미사용');
+    });
+  });
+}
+function mixFreqEdit() {
+  var f = mixFreq();
+  ask({ title: '출고 빈도 기준 · 기간', msg: '최근 며칠 동안의 출고 횟수로 판단 (0 = 미사용)', numeric: true, value: f.days || '', placeholder: '0~365', ok: '다음' }, function (d) {
+    if (d === null || d === '') return;
+    if (Number(d) === 0) return saveMixFreqN(0, 0);
+    ask({ title: '출고 빈도 기준 · 횟수', msg: '최근 ' + d + '일 출고 몇 회 이상이면 혼재 제외 (자주 나가는 품목 = 전용 줄)', numeric: true, value: f.n || '', placeholder: '1~999', ok: '저장' }, function (n) {
+      if (n === null || n === '') return; saveMixFreqN(Number(d), Number(n));
     });
   });
 }
