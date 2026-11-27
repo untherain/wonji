@@ -489,7 +489,8 @@
   .lv-st.warn { background:#7A5200; } .lv-st.cand { background:#1F4FA8; }
   .lv-card { display:none; align-items:center; gap:8px; margin:8px 12px 0; padding:10px 12px; border-radius:10px; background:#1E6B3A; font-weight:800; }
   .lv-card.bad { background:#9A1C1C; } .lv-card span { flex:1; } .lv-card .btn2 { flex:none; height:38px; }
-  .lv-bar { display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; align-items:center; padding:10px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .lv-bar { display:flex; gap:8px; align-items:center; padding:10px 12px calc(12px + env(safe-area-inset-bottom)); }   /* 플래시 · 틀 · 확대 · 문서 · 촬영 (숨긴 버튼은 자리 없음) */
+  .lv-bar .btn2, .lv-bar .btn { flex:none; } #lv-zoom { flex:1; min-width:60px; }
   .lv-bar .btn2 { height:46px; background:#2A2E33; color:#fff; border:0; padding:0 12px; } .lv-bar .btn2.on { background:var(--y); color:var(--ink); }
   .lv-bar .btn { height:46px; width:auto; padding:0 18px; background:var(--y); color:var(--ink); margin:0; }
   body.cropopen { overflow:hidden; }
@@ -4443,7 +4444,7 @@ function lvBuild() {
     el.innerHTML = '<div class="lv-top"><b id="lv-title"></b><span id="lv-prog"></span><button class="btn2 xb" id="lv-x" aria-label="닫기">✕</button></div>' +
       '<div class="lv-stage" id="lv-stage"><video id="lv-v" playsinline muted autoplay></video><canvas id="lv-pv"></canvas><canvas id="lv-ov"></canvas><div class="lv-frame" id="lv-frame"></div></div>' +
       '<button class="lv-st" id="lv-st"></button><div class="lv-card" id="lv-card"></div>' +
-      '<div class="lv-bar"><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
+      '<div class="lv-bar"><button class="btn2" id="lv-torch" style="display:none">플래시</button><button class="btn2" id="lv-shape"></button><input type="range" id="lv-zoom" min="1" max="3" step="0.1" value="1" aria-label="확대">' +
       '<button class="btn2" id="lv-doc" style="display:none">문서</button><button class="btn" id="lv-shot">촬영</button></div>';
     document.body.appendChild(el);
   }
@@ -4458,7 +4459,7 @@ function liveScan(o) {
   LV = { o: o, run: true, busy: false, last: '', cnt: 0, hold: '', seen: {}, t0: Date.now(), z: 1, hz: false, shape: +(lsGet('lvShape') || 0) % LV_SHAPES.length, rot: false, torch: false };
   $('lv-title').textContent = o.title || '라벨 스캔';
   el.style.display = 'flex'; document.body.classList.add('cropopen'); ovOpen();
-  lvShape(); lvProg(); lvSay('카메라 켜는 중…');
+  lvShape(); lvProg(); lvSay('카메라 켜는 중…'); lvOvClear();
   $('lv-card').style.display = 'none';
   $('lv-x').onclick = liveClose;
   $('lv-shape').onclick = function () { LV.shape = (LV.shape + 1) % LV_SHAPES.length; lsSet('lvShape', String(LV.shape)); lvShape(); };
@@ -4469,9 +4470,10 @@ function liveScan(o) {
   $('lv-doc').onclick = function () { var f = LV && LV.o.doc; liveClose(); if (f) f(); };
   $('lv-st').onclick = function () { if (LV && LV.cand) lvConfirm(LV.cand.r, LV.cand.d); };
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
-  if (o.qr) return lvCam(function () { lvSay('QR을 틀 안에 위치'); lvShape(); setTimeout(lvQrTick, 300); });
+  var me = LV;   // 카메라 다시 연결(lvReconnect) 때 ready 가 또 불림 → 인식 반복은 처음 1번만
+  if (o.qr) return lvCam(function () { lvSay('QR을 틀 안에 위치'); lvShape(); if (!me.ticking) { me.ticking = 1; setTimeout(lvQrTick, 300); } });
   padReady();
-  lvCam(function () { lvSay('라벨을 틀 안에 위치'); setTimeout(lvTick, 600); });
+  lvCam(function () { lvSay('라벨을 틀 안에 위치'); if (!me.ticking) { me.ticking = 1; setTimeout(lvTick, 600); } });
 }
 /* 카메라 켜기 (후면 · 확대 · 플래시 확인) → ready() · 실패 시 사진 찍기로 */
 function lvCam(ready) {
@@ -4480,9 +4482,11 @@ function lvCam(ready) {
     if (!LV || !LV.run) { camRelease(); return; }
     LV.stream = st; LV.track = st.getVideoTracks()[0];
     var v = $('lv-v'); v.onloadedmetadata = v.onresize = lvFit; if (v.srcObject !== st) v.srcObject = st; try { v.play(); } catch (e) {}
-    $('lv-pv').style.transform = ''; if (!LV.draw) { LV.draw = 1; requestAnimationFrame(lvDraw); }
+    $('lv-pv').style.transform = ''; if (!LV.draw) { LV.draw = 1; lvDrawStart(LV); }
     var cap = LV.track.getCapabilities ? LV.track.getCapabilities() : {};
-    LV.canTorch = !!cap.torch; LV.torch = false;   // 플래시 = 어두우면 자동 (버튼 없음)
+    // 플래시 (2026-11-28 버튼 복원): 어두우면 자동 + [플래시] 수동 켜고 끄기 · 아이폰은 지원해도 '지원 안 함'으로 알려 주는 버그(WebKit 243075) → 아이폰은 버튼 표시 후 실제로 켜 봄
+    LV.canTorch = !!cap.torch || LOWMEM; LV.torch = false; LV.torchHand = false; lvTorchBtn();
+    lvWatch(LV, ready);
     if (cap.zoom) { LV.hz = true; var zi = $('lv-zoom'); zi.min = cap.zoom.min || 1; zi.max = Math.min(cap.zoom.max || 3, 5); zi.step = cap.zoom.step || 0.1; zi.value = zi.min; try { LV.track.applyConstraints({ advanced: [{ zoom: +zi.min }] }); } catch (e) {} }   // 다시 쓴 카메라 = 확대 처음으로
     ready();
   }, function (e) {
@@ -4491,9 +4495,67 @@ function lvCam(ready) {
     if (o.fail) o.fail(); else if (o.shot) pickPhoto(o.shot, true);
   });
 }
+/* 미리보기 그리기: 카메라 창마다 1개 (2026-11-28 · 예전 = 창을 다시 열면 그리기 반복이 겹쳐 쌓임 → 느려짐 · 화면 끊김) */
+function lvDrawStart(me) {
+  var gen = me.dg = (me.dg || 0) + 1;   // 다시 연결 = 새 반복 · 이전 반복은 멈춤
+  (function loop() {
+    if (LV !== me || !me.run || me.dg !== gen) return;
+    var v = $('lv-v'), c = $('lv-pv');
+    if (v && c && v.videoWidth && v.readyState >= 2) {
+      lvFit();
+      var W = c.width, H = c.height, s = Math.max(W / v.videoWidth, H / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s;
+      try { c.getContext('2d').drawImage(v, (W - w) / 2, (H - h) / 2, w, h); } catch (e) {}
+    }
+    requestAnimationFrame(loop);
+  })();
+}
+/* 카메라 멈춤 감시 (2026-11-28 「카메라 불안정」): 영상이 3초 넘게 안 바뀌거나 카메라가 끊기면(다른 앱 · 전화 · 화면 잠금) 다시 연결 · 2번까지
+   새 프레임 = requestVideoFrameCallback (지원 안 하는 브라우저 = 끊김만 감시) */
+function lvWatch(me, ready) {
+  var v = $('lv-v'), tk = me.track, cv = document.createElement('canvas'), prev = null, same = 0;
+  cv.width = cv.height = 16;
+  if (tk) tk.onended = function () { if (LV === me && me.run) lvReconnect(me, ready, '카메라 끊김'); };
+  clearInterval(me.wd);
+  // 1초마다 영상 16×16 표본: 실제 카메라는 가만히 있어도 센서 잡음으로 값이 바뀜 → 3번 연속 완전히 같음(또는 영상 없음) = 멈춤
+  me.wd = setInterval(function () {
+    if (LV !== me || !me.run) return clearInterval(me.wd);
+    if (document.hidden || me.shooting) { same = 0; prev = null; return; }
+    if (tk && tk.readyState === 'ended') return lvReconnect(me, ready, '카메라 끊김');
+    var cur = null;
+    try { if (v.videoWidth && v.readyState >= 2) { var x = cv.getContext('2d', { willReadFrequently: true }); x.drawImage(v, 0, 0, 16, 16); cur = x.getImageData(0, 0, 16, 16).data; } } catch (e) { return; }
+    var eq = !cur || (prev && cur.every(function (b, i) { return b === prev[i]; }));
+    prev = cur; same = eq ? same + 1 : 0;
+    if (same >= 3) { same = 0; prev = null; lvReconnect(me, ready, '화면 멈춤'); }
+  }, 1000);
+}
+function lvReconnect(me, ready, why) {
+  clearInterval(me.wd);
+  me.re = (me.re || 0) + 1;
+  if (me.re > 2) { lvSay(why + ' — 다시 연결 실패 · [촬영] 또는 창 닫고 다시', 'warn'); return; }
+  lvSay(why + ' — 카메라 다시 연결 중…', 'warn');
+  camStop(); me.draw = 0;
+  try { $('lv-v').srcObject = null; } catch (e) {}
+  lvCam(ready);
+}
+function lvOvClear() { var ov = $('lv-ov'); if (ov) { ov.width = ov.width; } }   // 이전 창의 글자 상자 · 윤곽 지우기
+/* 플래시 버튼: 켜짐 상태는 앱이 기억 (아이폰 getSettings 값 부정확 · WebKit 280970) · 실패 = 미지원 안내 후 숨김 */
+function lvTorchBtn() {
+  var b = $('lv-torch'); if (!b || !LV) return;
+  b.style.display = LV.canTorch ? '' : 'none';
+  b.classList.toggle('on', !!LV.torch); b.textContent = LV.torch ? '플래시 켬' : '플래시';
+  b.onclick = function () { lvTorchSet(!LV.torch, true); };
+}
+function lvTorchSet(on, hand) {
+  if (!LV || !LV.track) return;
+  if (hand) LV.torchHand = true;   // 손으로 누르면 자동 켜기 멈춤
+  var tk = LV.track, prev = LV.torch;
+  LV.torch = on; lvTorchBtn();
+  var fail = function () { LV && (LV.torch = prev, LV.canTorch = false, lvTorchBtn()); if (hand) toast('이 기기 · 브라우저는 플래시 미지원', true); };
+  try { var p = tk.applyConstraints({ advanced: [{ torch: on }] }); if (p && p.catch) p.catch(fail); } catch (e) { fail(); }
+}
 function liveClose() {
   if (!LV) return;
-  LV.run = false;
+  LV.run = false; clearInterval(LV.wd);
   if (LV.torch && LV.track) try { LV.track.applyConstraints({ advanced: [{ torch: false }] }); } catch (e) {}
   [LV.gc, LV.rc, LV.dc, LV.qc].forEach(function (c) { if (c) { c.width = 0; c.height = 0; } });   // 아이폰: 캔버스 메모리 바로 반납
   camRelease();
@@ -4519,16 +4581,6 @@ function lvFit() {
   var c = $('lv-pv'), st = $('lv-stage'); if (!c || !st || !st.clientWidth) return;
   var d = Math.min(2, window.devicePixelRatio || 1), W = Math.round(st.clientWidth * d), H = Math.round(st.clientHeight * d);
   if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-}
-function lvDraw() {
-  if (!LV || !LV.run) return;
-  var v = $('lv-v'), c = $('lv-pv');
-  if (v && c && v.videoWidth && v.readyState >= 2) {
-    lvFit();
-    var W = c.width, H = c.height, s = Math.max(W / v.videoWidth, H / v.videoHeight), w = v.videoWidth * s, h = v.videoHeight * s;
-    try { c.getContext('2d').drawImage(v, (W - w) / 2, (H - h) / 2, w, h); } catch (e) {}
-  }
-  requestAnimationFrame(lvDraw);
 }
 window.addEventListener('resize', function () { if (LV) { lvFit(); if (LV.o.qr) lvShape(); } });
 /* 화면 좌표 ↔ 영상 좌표 (꽉 채우기 + 화면 확대) */
@@ -4562,10 +4614,9 @@ function lvQuality(c) {
 }
 /* 플래시 자동: 어두우면 켜고 창 닫을 때까지 유지 (깜빡임 방지) · 광택 라벨 반사 때문에 처음부터 켜지 않음 · 플래시 없는 폰(아이폰 웹)은 안내만 */
 function lvAutoTorch() {
-  if (!LV || LV.torch || !LV.canTorch || !LV.track) return false;
-  LV.torch = true;
-  try { LV.track.applyConstraints({ advanced: [{ torch: true }] }); } catch (e) { LV.canTorch = false; return false; }
-  lvSay('어두움 — 플래시 자동 켬', 'warn');
+  if (!LV || LV.torch || LV.torchHand || !LV.canTorch || !LV.track) return false;
+  lvTorchSet(true, false);
+  lvSay('어두움 — 플래시 자동 켬 ([플래시]로 끄기)', 'warn');
   return true;
 }
 function lvRot(c, into) { var n = into || document.createElement('canvas'); n.width = c.height; n.height = c.width; var x = n.getContext('2d'); x.translate(n.width, 0); x.rotate(Math.PI / 2); x.drawImage(c, 0, 0); return n; }
@@ -4687,15 +4738,17 @@ function docScan(o) {
   LV = { o: o, run: true, doc: true, z: 1, hz: false, torch: false, stable: 0, prev: null };
   $('lv-title').textContent = o.title; $('lv-prog').textContent = ''; $('lv-shot').style.display = ''; $('lv-zoom').style.gridColumn = '1 / 3';
   $('live').style.display = 'flex'; document.body.classList.add('cropopen'); ovOpen();
-  $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none';
+  $('lv-frame').style.display = 'none'; $('lv-shape').style.display = 'none'; $('lv-card').style.display = 'none'; lvOvClear();
   $('lv-x').onclick = liveClose; $('lv-shot').onclick = lvShot; $('lv-st').onclick = null; $('lv-doc').style.display = 'none';
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
   lvSay('문서 인식 준비 중… (최초 1회 약 9MB)');
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
   var ready = LOWMEM ? padReady().then(docReady, docReady) : docReady();   // 아이폰: 글자 인식 엔진 먼저 자리 잡기
+  var me = LV, slow = setTimeout(function () { if (LV === me && !me.docOn) lvSay('문서 인식 준비 지연 (통신 느림) — 기다리거나 [촬영]', 'warn'); }, 10000);
   lvCam(function () {
-    ready.then(function () { if (LV && LV.doc) { lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
-      function () { lvSay('문서 인식 로드 실패 — [촬영] 사용', 'warn'); });
+    if (me.docOn) return;   // 카메라 다시 연결 = 이미 돌고 있는 검출 그대로
+    ready.then(function () { clearTimeout(slow); if (LV === me && LV.doc) { me.docOn = true; lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
+      function () { clearTimeout(slow); lvSay('문서 인식 로드 실패 — [촬영] 사용', 'warn'); });
   });
 }
 function docTick() {
@@ -4730,7 +4783,10 @@ function docTick() {
     if (LV.stable >= 4) return docCapture(pts.map(function (pt) { return { x: pt.x * r, y: pt.y * r }; }));
   } else {
     LV.stable = 0; LV.prev = null;
-    lvSay('계획서 윤곽 검출 중 — 계획서 전체 포함 · 단색 바닥 권장 · 검출 실패 시 [촬영]');
+    // 안내 사각형 (2026-11-28 「영역 사각형 안 보임」): 윤곽을 못 찾는 동안에도 계획서를 맞출 자리 표시 (점선)
+    x.setLineDash([12, 8]); x.strokeStyle = 'rgba(255,255,255,.75)'; x.lineWidth = 3;
+    x.strokeRect(m.W * 0.08, m.H * 0.08, m.W * 0.84, m.H * 0.84); x.setLineDash([]);
+    lvSay('계획서를 점선 안에 · 윤곽 검출 중 (단색 바닥 권장) · 검출 실패 시 [촬영]');
   }
   setTimeout(docTick, 250);
 }
