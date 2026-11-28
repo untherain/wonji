@@ -4743,12 +4743,19 @@ function docScan(o) {
   $('lv-zoom').value = 1; $('lv-zoom').oninput = function () { lvZoom(+this.value); };
   lvSay('문서 인식 준비 중… (최초 1회 약 9MB)');
   try { LV.ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
-  var ready = LOWMEM ? padReady().then(docReady, docReady) : docReady();   // 아이폰: 글자 인식 엔진 먼저 자리 잡기
-  var me = LV, slow = setTimeout(function () { if (LV === me && !me.docOn) lvSay('문서 인식 준비 지연 (통신 느림) — 기다리거나 [촬영]', 'warn'); }, 10000);
+  /* 엔진 순서 (2026-11-28 「문서 인식 준비 지연 계속」): 예전 아이폰 = 글자 인식 엔진(첫 46초 · 캐시 있어도 20초 · PC 측정)을 다 받은 뒤 문서 엔진
+     → 윤곽 검출이 수십 초 막힘. 지금 = 문서 엔진(4초 · 캐시 0.6초) 먼저 → 윤곽 검출 시작 → 글자 엔진은 그 뒤 이어서 (아이폰 = 동시에 안 받음 · 촬영 후 글자 읽기에 사용) */
+  var ready = docReady();
+  ready.then(function () { setTimeout(function () { padReady(); }, LOWMEM ? 1500 : 0); }, function () {});
+  var me = LV, t0 = Date.now(), slow = setInterval(function () {   // 준비 중 경과 시간 (15초 넘으면 [촬영] 안내)
+    if (LV !== me || me.docOn || !me.run) return clearInterval(slow);
+    var sec = Math.round((Date.now() - t0) / 1000);
+    lvSay('윤곽 검출 엔진 준비 중 · ' + sec + '초 (최초 1회 약 9MB)' + (sec >= 15 ? ' — 오래 걸리면 [촬영]으로 바로 찍기' : ''), sec >= 15 ? 'warn' : '');
+  }, 1000);
   lvCam(function () {
     if (me.docOn) return;   // 카메라 다시 연결 = 이미 돌고 있는 검출 그대로
-    ready.then(function () { clearTimeout(slow); if (LV === me && LV.doc) { me.docOn = true; lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
-      function () { clearTimeout(slow); lvSay('문서 인식 로드 실패 — [촬영] 사용', 'warn'); });
+    ready.then(function () { clearInterval(slow); if (LV === me && LV.doc) { me.docOn = true; lvSay('계획서 전체 화면 포함 (단색 바닥 권장)'); docTick(); } },
+      function () { clearInterval(slow); lvSay('윤곽 검출 엔진 받기 실패 (통신) — [촬영]으로 찍기 · 다음에 다시 시도', 'warn'); });
   });
 }
 function docTick() {
