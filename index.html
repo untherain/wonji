@@ -643,6 +643,8 @@
     </div>
     </div>
     <div class="stab" data-k="admin">
+    <h2>운영 단계 · 규칙</h2>
+    <div class="card" id="set-ops"></div>
     <h2>작업자 관리 <span class="muted" style="font-weight:500">(관리자)</span></h2>
     <div class="card" id="set-workers"></div>
     <h2>로그인 기기</h2>
@@ -664,11 +666,9 @@
       <div id="op-res"></div>
       <button class="btn2" style="width:100%; margin-top:8px; color:#9A1C1C; border-color:#9A1C1C" onclick="cancelOpening()">기초재고 일괄 취소</button>
     </div>
-    <h2>테스트 · 데이터 정리</h2>
+    <h2>데이터 초기화</h2>
     <div class="card">
-      <label class="radio"><input type="checkbox" id="set-test" onchange="toggleTest(this.checked)"> <span><b>테스트 모드</b> — 이 기기에서 입력한 건에 [테스트] 표시</span></label>
-      <button class="btn2" style="width:100%; margin-top:4px" onclick="cancelTestsUI()">테스트 건 일괄 취소</button>
-      <button class="btn2" style="width:100%; margin-top:8px; color:#9A1C1C; border-color:#9A1C1C" onclick="resetDataUI()">재고 · 이력 초기화</button>
+      <button class="btn2" style="width:100%; color:#9A1C1C; border-color:#9A1C1C" onclick="resetDataUI()">재고 · 이력 초기화</button>
       <div class="muted" style="margin-top:8px; font-size:13px">초기화: 관리자만 · 실행 전 백업 사본(복구_ 시트) 자동 생성 · 창고 구조 · 줄 설정 · 기준정보는 유지</div>
     </div>
     <button class="btn2" style="width:100%" onclick="openUrl(S.sheetUrl)">구글 시트 열기 (보기용 사본 · 매시간 갱신)</button>
@@ -842,6 +842,7 @@ function refreshStock(force) {
     if (r.memos) S.memos = r.memos;   // 재고 비고 (검색용)
     if (r.mixSlots) S.mixSlots = r.mixSlots;   // 소량 혼재 기준 (다른 폰 변경)
     if (r.mixFreq) S.mixFreq = r.mixFreq;   // 출고 빈도 기준 · 집계
+    if (r.rules) { var rch = JSON.stringify(r.rules) !== JSON.stringify(S.rules); S.rules = r.rules; if (rch && TAB === 'set') renderOps(); }   // 운영 규칙 (다른 폰 변경)
     if (r.myRole !== undefined && S.myRole !== r.myRole) { S.myRole = r.myRole; if (TAB === 'set') renderSet(); }   // 내 권한 (관리자가 바꾸면 반영)
     if (r.stack && !(SH && SH.ord)) S.stack = r.stack;   // 적재 순서 (내가 순서 바꾸는 중이면 그대로)
     setStock(r.stock, r.at); setMe(r.me); setWorkers(r.workers); checkVer(r.ver); if (r.qa) applyQuickIf(r.qa);
@@ -3819,24 +3820,29 @@ function cntAfter(code) {
 function cntList() {
   var items = rowItems(SH.code), c = SH.cnt;
   var list = items.concat(c.extra.filter(function (x) { return !items.some(function (s) { return sameItem(s, x); }); }));
-  list.forEach(function (s) { var k = itemKey(s); if (c.v[k] == null) c.v[k] = s.qty; });
+  if (!blindCnt()) list.forEach(function (s) { var k = itemKey(s); if (c.v[k] == null) c.v[k] = s.qty; });   // 블라인드 실사 = 빈칸 (세고 입력)
   return list;
 }
 function sheetCount() {
-  var list = SH.clist = cntList(), c = SH.cnt, diff = 0;
+  var list = SH.clist = cntList(), c = SH.cnt, diff = 0, blind = blindCnt();
+  var left = list.filter(function (s) { return c.v[itemKey(s)] == null; }).length, open = !blind || !left;   // open = 전산 수량 공개
   var ds = [];
-  list.forEach(function (s, i) { var d = c.v[itemKey(s)] - s.qty; if (d) ds.push(P(fmtItem(s) + ' ' + (d > 0 ? '+' : '') + d + '롤', '', 'cnt-' + i, null, true, ds.length ? ' · ' : '')); });
+  if (open) list.forEach(function (s, i) { var d = c.v[itemKey(s)] - s.qty; if (d) ds.push(P(fmtItem(s) + ' ' + (d > 0 ? '+' : '') + d + '롤', '', 'cnt-' + i, null, true, ds.length ? ' · ' : '')); });
   var h = shHead(esc(keyOf(SH.code)) + ' 실사', ds.length ? '' : '실물 롤 수 확인 · 일치 시 [일치 확정]', true, ds.length ? sLine(ds, '차이 ' + ds.length + '건') : '') +
     cntRecent(SH.code) + '<button class="lnk" style="margin:-4px 0 8px" onclick="cntPlanMenu()">실사 범위 · ' + (cntInfo().plan ? esc(cntPlanName(cntInfo().plan)) + ' ' + cntScope().filter(cntDone).length + '/' + cntScope().length + '줄' : '미지정') + ' ▸</button>' + (c.draft ? '<div class="hintbox" style="margin-bottom:8px">임시 보관 입력 복원 · 저장 전 상태</div>' : '');
+  if (blind) h += '<div class="hintbox" style="margin-bottom:8px">블라인드 실사 · 실물을 세어 입력 → 모두 입력하면 전산 수량 공개' + (left ? ' (남은 ' + left + '개)' : '') + '</div>';
   h += list.length ? list.map(function (s, i) {
-    var a = c.v[itemKey(s)], d = a - s.qty; if (d) diff++;
+    var a = c.v[itemKey(s)], d = open ? a - s.qty : 0; if (d) diff++;
     return '<div class="it' + (d ? ' open' : '') + '" id="cnt-' + i + '"><div class="row"><span><b class="sp">' + specLp(s) + '</b>' + (s.maker ? '' : ' ' + mkName('', i, 'pickMakerCnt')) + remTag(s) +
       (s.maker && s.date ? ' <button class="ed" onclick="cntFix(' + i + ')" aria-label="품목 수정">✎</button>' : '') +
-      '<br><span class="muted">전산 ' + s.qty + '롤</span></span>' +
-      stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량') + '</div></div>';
+      '<br><span class="muted">' + (open ? '전산 ' + s.qty + '롤' + (blind && d ? ' · <b style="color:#9A1C1C">' + (d > 0 ? '+' : '') + d + '</b>' : '') : '전산 — (입력 후 공개)') + '</span></span>' +
+      (blind ? '<div class="stepper"><button onclick="cntSet(' + i + ',-1)" aria-label="실사 수량 줄이기">−</button><input type="number" inputmode="numeric" min="0" aria-label="실사 수량" placeholder="—" value="' + (a == null ? '' : a) + '" onchange="cntPut(' + i + ',this.value)" style="width:58px; height:40px; border:0; background:transparent; text-align:center; font-size:19px; font-weight:900; padding:0"><button class="plus" onclick="cntSet(' + i + ',1)" aria-label="실사 수량 늘리기">+</button></div>'
+        : stepper(a, 'cntSet(' + i + ',-1)', 'cntSet(' + i + ',1)', '실사 수량')) + '</div></div>';
   }).join('') : '<div class="muted" style="padding:12px 0">재고 없음</div>';
   return h + '<button class="btn2" style="width:100%; margin:10px 0" onclick="shMode(\'add\')">+ 미등록 규격</button>' +
-    '<div class="shfoot">' + (diff ? '<button class="btn" onclick="saveCnt()">실사 저장</button>' : '<button class="btn cokb" onclick="cntOk()">일치 확정</button>') + '</div>';
+    '<div class="shfoot">' + (!open ? '<button class="btn" disabled style="opacity:.45">모두 입력 (남은 ' + left + '개)</button>'
+      : diff ? (blind ? '<div class="grid2"><button class="btn2" style="height:54px" onclick="cntRecount()">차이 품목 다시 세기</button><button class="btn" onclick="saveCnt()">실사 저장</button></div>' : '<button class="btn" onclick="saveCnt()">실사 저장</button>')
+      : '<button class="btn cokb" onclick="cntOk()">일치 확정</button>') + '</div>';
 }
 /* 실사 중 제지사 미확인 품목에 제지사 지정 — 입력해 둔 실사 수량은 새 품목(제지사 포함)으로 옮김
    같은 위치에 같은 규격 · 같은 제지사 재고가 이미 있으면 한 품목으로 합쳐지므로 실사 수량도 더함 */
@@ -3847,7 +3853,12 @@ function pickMakerCnt(i) {
     var old = Object.assign({}, s); s.maker = m; cntMigrate(old, s); renderMap(); renderSheet(); toast('제지사 지정: ' + m); return true;
   });
 }
-function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, SH.cnt.v[k] + d); cntDraftSave(); renderSheet(); }
+function cntSet(i, d) { var s = SH.clist[i], k = itemKey(s); SH.cnt.v[k] = Math.max(0, (SH.cnt.v[k] || 0) + d); cntDraftSave(); renderSheet(); }
+/* 블라인드 실사 (운영 규칙 · 2026-11-28 · WMS 표준 = 세는 사람에게 전산 수량 숨김 → 모두 입력 뒤 공개 · 차이 = 다시 세기 또는 저장) */
+function opsRules() { return S.rules || {}; }
+function blindCnt() { return !!opsRules().blind; }
+function cntPut(i, v) { var s = SH.clist[i], k = itemKey(s); v = String(v).trim(); SH.cnt.v[k] = v === '' ? null : Math.max(0, Math.floor(Number(v) || 0)); cntDraftSave(); renderSheet(); }
+function cntRecount() { SH.clist.forEach(function (s) { var k = itemKey(s); if (SH.cnt.v[k] !== s.qty) SH.cnt.v[k] = null; }); cntDraftSave(); renderSheet(); toast('차이 품목만 다시 세기 · 전산 수량 다시 숨김'); }
 function sheetAdd() {
   var sp = SH.sp, ready = sp.gsm && sp.width;
   return shHead(esc(keyOf(SH.code)) + ' 미등록 규격', '', true, '', shBox()) +
@@ -7539,11 +7550,52 @@ function addWorkerUI() {
   var n = $('wk-new').value.trim(); if (!n) { toast('이름 입력 필요', true); return; }
   setWorkerUI(n, '승인');
 }
+/* 운영 단계 · 규칙 (관리 탭 · 2026-11-28): 시험 단계 = 테스트 표시 · 규칙 끔 / 운영 = 블라인드 실사 · 재고 직접 수정 금지 (적재 한도 · 마감은 따로 · 창고 안정화 후)
+   테스트 모드(이 기기 [테스트] 표시)와 같은 카드 — 둘 다 '시험 중인가'를 다룸 · 규칙은 서버가 검사 (화면은 안내) */
+function opsLive() { var r = opsRules(); return !!(r.blind && r.lock); }
+function renderOps() {
+  var el = $('set-ops'); if (!el) return;
+  var r = opsRules(), live = opsLive(), on = [r.blind, r.lock, r.cap, !!r.close].filter(Boolean).length;
+  var ck = function (k, t, sub) { return '<label class="radio"><input type="checkbox"' + (r[k] ? ' checked' : '') + ' onchange="opsSet(\'' + k + '\', this.checked)"> <span><b>' + t + '</b> <span class="muted" style="font-size:12.5px">' + sub + '</span></span></label>'; };
+  el.innerHTML = '<div style="font-size:16px; font-weight:900; margin-bottom:6px">' + (live ? '<span style="color:#1E5A33">운영 중</span>' : '<span style="color:#9A6700">시험 단계</span>') +
+      ' <span class="muted" style="font-size:13px; font-weight:600">규칙 ' + on + '/4 켬</span></div>' +
+    '<div style="border-top:1px solid #E6E8EB; padding-top:6px"><b style="font-size:13.5px">테스트 (이 기기)</b>' +
+      '<label class="radio"><input type="checkbox" id="set-test"' + (isTest() ? ' checked' : '') + (live && !isTest() ? ' disabled' : '') + ' onchange="toggleTest(this.checked)"> <span><b>테스트 표시</b> <span class="muted" style="font-size:12.5px">— 이 기기 입력에 [테스트] · 보고서 제외' + (live ? ' · 운영 중 사용 불가' : '') + '</span></span></label>' +
+      '<button class="btn2" style="width:100%; margin-top:2px" onclick="cancelTestsUI()">테스트 건 일괄 취소</button></div>' +
+    '<div style="border-top:1px solid #E6E8EB; margin-top:10px; padding-top:6px"><b style="font-size:13.5px">운영 규칙 (전체 · 서버 검사)</b>' +
+      ck('blind', '블라인드 실사', '— 전산 수량 숨김 · 세어 입력 후 공개') +
+      ck('lock', '재고 직접 수정 금지', '— 표 편집기 재고 시트 잠금 · 정정 = 실사 조정') +
+      ck('cap', '적재 한도 확인', '— 칸 초과 입고 · 이동 거절 (창고 안정화 후)') +
+      '<div class="row" style="gap:8px; margin-top:6px"><span style="flex:1; min-width:0"><b>마감일</b> <span class="muted" style="font-size:12.5px">— 그날까지 기록 수정 · 취소 금지 (비우면 미사용)</span></span>' +
+      '<input type="date" id="ops-close" value="' + esc(r.close || '') + '" style="width:auto; flex:none; height:40px"><button class="btn2" style="height:40px; flex:none" onclick="opsSet(\'close\', $(\'ops-close\').value)">저장</button></div></div>' +
+    (live ? '' : '<button class="btn" style="width:100%; margin-top:12px" onclick="opsStart()">운영 시작 ▸</button>');
+}
+function opsSet(k, v) {
+  if (!needAdmin()) return renderOps();
+  var r = Object.assign({ blind: false, lock: false, cap: false, close: '' }, opsRules()); r[k] = v;
+  call('saveOpsRules', r).then(function (n) { S.rules = n; renderOps(); if (SH && SH.mode === 'cnt') renderSheet(); toast('운영 규칙 저장 · ' + ({ blind: '블라인드 실사', lock: '재고 직접 수정 금지', cap: '적재 한도 확인', close: '마감일' })[k] + ' ' + (k === 'close' ? (v || '미사용') : v ? '켬' : '끔')); },
+    function () { renderOps(); });
+}
+/* 운영 시작: 테스트 건 일괄 취소 → 블라인드 실사 · 재고 직접 수정 금지 켬 → 이 기기 테스트 표시 끔 (적재 한도 · 마감은 따로) */
+function opsStart() {
+  if (!needAdmin()) return;
+  ask({ title: '운영 시작', input: false, ok: '운영 시작', msg: '① 테스트 건 일괄 취소 (재고 원복)\n② 블라인드 실사 · 재고 직접 수정 금지 켬\n③ 이 기기 테스트 표시 끔\n\n적재 한도 · 마감일은 창고 안정화 후 따로 켬\n(다른 폰의 테스트 표시는 각 폰에서 끔)' }, function (y) {
+    if (!y) return;
+    call('cancelTests', { worker: worker() }).then(function (t) {
+      if (t && t.stock) setStock(t.stock);
+      var r = Object.assign({ cap: false, close: '' }, opsRules(), { blind: true, lock: true });
+      return call('saveOpsRules', r).then(function (n) {
+        S.rules = n; if (isTest()) toggleTest(false); renderOps();
+        toast('운영 시작 · 테스트 ' + ((t && t.done) || 0) + '건 취소' + (t && t.failed && t.failed.length ? ' · 취소 불가 ' + t.failed.length + '건 (기록 탭 확인)' : ''), !!(t && t.failed && t.failed.length));
+      });
+    });
+  });
+}
 function isTest() { try { return localStorage.getItem('testMode') === 'Y'; } catch (e) { return false; } }
 function toggleTest(on) {
   try { localStorage.setItem('testMode', on ? 'Y' : ''); } catch (e) {}
   $('testBar').style.display = on ? 'inline-block' : 'none';
-  toast(on ? '테스트 모드 켜짐' : '테스트 모드 해제됨');
+  toast(on ? '테스트 모드 켜짐' : '테스트 모드 해제됨'); renderOps();
 }
 function cancelTestsUI() {
   if (!requireWorker()) return;
@@ -7618,7 +7670,7 @@ function undoRecent(i) {
 }
 function renderSet() {
   W = null; if (!QE.dirty) QE.items = null; setTab(); renderWh(); renderQuick(); renderPin();
-  $('set-test').checked = isTest();
+  renderOps();
   $('set-aging').value = agingDays();
   $('set-mix').value = mixSlots();
   $('set-mfd').value = mixFreq().days; $('set-mfn').value = mixFreq().n;
